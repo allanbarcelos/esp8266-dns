@@ -33,7 +33,7 @@ void loop() {
     Serial.println("Reboot diário!");
     ESP.restart();
   }
-  
+
   if (WiFi.status() != WL_CONNECTED) {
       Serial.println("WiFi desconectado. Reiniciando...");
       ESP.restart();
@@ -46,10 +46,17 @@ void loop() {
 
   if (millis() - dnsLastUpdate >= dnsUpdateInterval || dnsLastUpdate == 0) {
     dnsLastUpdate = millis();
-    String ip = getPublicIP();
-    if(ip != ""){
-      Serial.println("Atualizando DNS para o IP público: " + ip);
-      dnsUpdate(ip);
+    String publicIP  = getPublicIP();
+    if(publicIP != ""){
+      Serial.println("IP público atual: " + publicIP);
+      String currentDNSIP = getDNSHostIP(CF_HOST);
+      Serial.println("IP atual no DNS (" + String(CF_HOST) + "): " + currentDNSIP);
+      if (currentDNSIP != publicIP) {
+        Serial.println("IP diferente! Atualizando DNS...");
+        dnsUpdate(publicIP);
+      } else {
+        Serial.println("DNS já atualizado, sem mudanças.");
+      }
     }
   }
 }
@@ -167,12 +174,19 @@ void dnsUpdate(String ip) {
   http.addHeader("Content-Type", "application/json");
 
   String payload = "{\"content\":\"" + ip + "\"}";
-
   int httpResponseCode = http.PATCH(payload);
 
   if (httpResponseCode > 0) {
     String response = http.getString();
-    Serial.println("Resultado da atualização: " + response);
+    // Serial.println("Resposta da Cloudflare: " + response);
+
+    // --- Verifica se "success":true ---
+    if (response.indexOf("\"success\":true") >= 0) {
+      Serial.println("✅ DNS atualizado com sucesso!");
+    } else {
+      Serial.println("❌ Falha ao atualizar DNS (success != true).");
+    }
+
   } else {
     Serial.println("Erro ao atualizar DNS. Código: " + String(httpResponseCode));
   }
@@ -199,4 +213,12 @@ String getPublicIP() {
   return ip;
 }
 
-
+String getDNSHostIP(String host) {
+  IPAddress resolvedIP;
+  if (WiFi.hostByName(host.c_str(), resolvedIP)) {
+    return resolvedIP.toString();
+  } else {
+    Serial.println("Falha ao resolver host: " + host);
+    return "";
+  }
+}
