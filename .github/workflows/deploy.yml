@@ -43,10 +43,13 @@ jobs:
           echo '#define github_api "${{ secrets.GH_RELEASES }}"' >> secrets.h
           echo '#endif' > secrets.h
 
+      - name: List available ESP8266 boards
+        run: arduino-cli board listall esp8266
+        
       - name: Compile firmware
         run: |
           arduino-cli compile \
-            --fqbn esp8266:esp8266:esp01:FlashSize=1M64,xtal=80 \
+            --fqbn esp8266:esp8266:generic:FlashSize=1M64 \
             --build-property build.flags.optimize.lto=true \
             --build-property build.flags.optimize.size=true \
             --output-dir build
