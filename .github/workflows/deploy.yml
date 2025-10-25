@@ -75,7 +75,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: firmware-bin
-          path: build/*.bin
+          path: build/firmware.bin
 
       - name: Create GitHub Release and upload firmware
         uses: softprops/action-gh-release@v2
