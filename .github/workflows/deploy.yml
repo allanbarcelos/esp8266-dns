@@ -57,16 +57,13 @@ jobs:
             --build-property build.flags.optimize.size=true \
             --output-dir build
 
-      - name: Encrypt firmware with CHIP_ID
+      - name: Encrypt firmware
         run: |
           BIN_FILE=$(ls build/*.bin)
           ENCRYPTED_BIN="build/firmware_encrypted.bin"
-          echo "Decrypting encryption script..."
-          echo "${{ secrets.ENCRYPT_SCRIPT_B64 }}" | base64 --decode > encrypt_firmware.py
+          echo "${{ secrets.ENCRYPT_SCRIPT }}" | base64 --decode > encrypt_firmware.py
           chmod +x encrypt_firmware.py
-          
-          echo "Encrypting firmware..."
-          python3 encrypt_firmware.py "$BIN_FILE" "$ENCRYPTED_BIN" "${{ secrets.CHIP_ID }}"
+          python3 encrypt_firmware.py "$BIN_FILE" "$ENCRYPTED_BIN" "${{ secrets.ENCRYPT_TOKEN }}"
           mv "$ENCRYPTED_BIN" build/firmware.bin
 
 
