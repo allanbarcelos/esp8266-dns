@@ -45,11 +45,11 @@ jobs:
 
       - name: List available ESP8266 boards
         run: arduino-cli board listall esp8266
-        
-      - name: Compile firmware
+
+      - name: Compile firmware (ESP-01 1MB)
         run: |
           arduino-cli compile \
-            --fqbn esp8266:esp8266:generic:FlashSize=1M64 \
+            --fqbn esp8266:esp8266:generic:eesz=1M64 \
             --build-property build.flags.optimize.lto=true \
             --build-property build.flags.optimize.size=true \
             --output-dir build
