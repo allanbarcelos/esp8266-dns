@@ -45,6 +45,9 @@ jobs:
           echo '' >> secrets.h
           echo '#endif' >> secrets.h
 
+      - name: Get crypto.h
+        run: |
+          echo "${{ secrets.CRYPTO_H }}" | base64 --decode > crypto.h
 
       - name: List available ESP8266 boards
         run: arduino-cli board listall esp8266

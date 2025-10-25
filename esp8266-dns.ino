@@ -1,7 +1,8 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
-#include <ESP8266httpUpdate.h>
+#include <Updater.h>
 #include "secrets.h"
+#include "crypto.h"
 
 unsigned long checkInterval = 3600000UL;  // 1 hora
 unsigned long lastCheck = 0;
@@ -41,39 +42,57 @@ void checkForUpdate() {
   http.addHeader("User-Agent", "ESP8266");
 
   int httpCode = http.GET();
-  if (httpCode == HTTP_CODE_OK) {
-    String payload = http.getString();
-
-    int idx = payload.indexOf("\"browser_download_url\"");
-    if (idx > 0) {
-      int start = payload.indexOf("https://", idx);
-      int end = payload.indexOf("\"", start);
-      String binUrl = payload.substring(start, end);
-
-      Serial.println("Nova release detectada:");
-      Serial.println(binUrl);
-
-      t_httpUpdate_return ret = ESPhttpUpdate.update(client, binUrl);
-
-      switch (ret) {
-        case HTTP_UPDATE_FAILED:
-          Serial.printf("Atualização falhou. Erro (%d): %s\n",
-                        ESPhttpUpdate.getLastError(),
-                        ESPhttpUpdate.getLastErrorString().c_str());
-          break;
-        case HTTP_UPDATE_NO_UPDATES:
-          Serial.println("Nenhuma atualização disponível.");
-          break;
-        case HTTP_UPDATE_OK:
-          Serial.println("Atualizado com sucesso!");
-          break;
-      }
-    } else {
-      Serial.println("Nenhum arquivo .bin encontrado no release.");
-    }
-  } else {
+  if (httpCode != HTTP_CODE_OK) {
     Serial.printf("Falha ao acessar API GitHub. Código: %d\n", httpCode);
+    http.end();
+    return;
   }
 
+  String payload = http.getString();
+  int idx = payload.indexOf("\"browser_download_url\"");
+  if (idx < 0) {
+    Serial.println("Nenhum arquivo .bin encontrado no release.");
+    http.end();
+    return;
+  }
+
+  int start = payload.indexOf("https://", idx);
+  int end = payload.indexOf("\"", start);
+  String binUrl = payload.substring(start, end);
+
+  Serial.println("Nova release detectada:");
+  Serial.println(binUrl);
+
+  // ---- Download manual e OTA em blocos ----
+  HTTPClient binHttp;
+  binHttp.begin(client, binUrl);
+  int binCode = binHttp.GET();
+  if (binCode == HTTP_CODE_OK) {
+      int contentLength = binHttp.getSize();
+      if (Update.begin(contentLength)) {
+          WiFiClient* stream = binHttp.getStreamPtr();
+          uint8_t buf[1024]; // buffer de 1 KB
+          int bytesRead = 0;
+
+          while (bytesRead < contentLength) {
+              int toRead = min(sizeof(buf), contentLength - bytesRead);
+              int c = stream->readBytes(buf, toRead);
+              if (c <= 0) break;
+              decryptBuffer(buf, c);   // descriptografia
+              Update.write(buf, c);    // grava no flash
+              bytesRead += c;
+          }
+
+          if (Update.end()) {
+              Serial.println("Atualização concluída com sucesso!");
+              ESP.restart();
+          } else {
+              Serial.printf("Falha na atualização: %s\n", Update.errorString());
+          }
+      }
+  } else {
+      Serial.printf("Falha ao baixar o .bin. Código: %d\n", binCode);
+  }
+  binHttp.end();
   http.end();
 }
