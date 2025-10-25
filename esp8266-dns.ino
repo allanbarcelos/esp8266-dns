@@ -67,6 +67,16 @@ void checkForUpdate() {
   HTTPClient binHttp;
   binHttp.begin(client, binUrl);
   int binCode = binHttp.GET();
+
+  // Seguir redirect se GitHub responder 302
+  if (binCode == HTTP_CODE_MOVED_PERMANENTLY || binCode == HTTP_CODE_FOUND) {
+    String redirectUrl = binHttp.getLocation();
+    Serial.printf("Redirecionando para: %s\n", redirectUrl.c_str());
+    binHttp.end();
+    binHttp.begin(client, redirectUrl);
+    binCode = binHttp.GET();
+  }
+
   if (binCode == HTTP_CODE_OK) {
       int contentLength = binHttp.getSize();
       if (Update.begin(contentLength)) {
@@ -93,6 +103,8 @@ void checkForUpdate() {
   } else {
       Serial.printf("Falha ao baixar o .bin. Código: %d\n", binCode);
   }
+
   binHttp.end();
   http.end();
 }
+
