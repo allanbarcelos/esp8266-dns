@@ -75,7 +75,7 @@ void checkForUpdate() {
           int bytesRead = 0;
 
           while (bytesRead < contentLength) {
-              int toRead = min(sizeof(buf), contentLength - bytesRead);
+              size_t toRead = min(sizeof(buf), (size_t)(contentLength - bytesRead));
               int c = stream->readBytes(buf, toRead);
               if (c <= 0) break;
               decryptBuffer(buf, c);   // descriptografia
@@ -87,7 +87,7 @@ void checkForUpdate() {
               Serial.println("Atualização concluída com sucesso!");
               ESP.restart();
           } else {
-              Serial.printf("Falha na atualização: %s\n", Update.errorString());
+              Serial.printf("Falha na atualização: %s\n", Update.getErrorString().c_str());
           }
       }
   } else {
