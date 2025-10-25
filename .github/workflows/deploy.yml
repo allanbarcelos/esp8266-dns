@@ -37,11 +37,14 @@ jobs:
       - name: Generate secrets.h
         run: |
           echo '#ifndef SECRETS_H' > secrets.h
-          echo '#define SECRETS_H' > secrets.h
-          echo '#define ssid "${{ secrets.WIFI_SSID }}"' >> secrets.h
-          echo '#define pass "${{ secrets.WIFI_PASS }}"' >> secrets.h
-          echo '#define github_api "${{ secrets.GH_RELEASES }}"' >> secrets.h
-          echo '#endif' > secrets.h
+          echo '#define SECRETS_H' >> secrets.h
+          echo '' >> secrets.h
+          echo 'const char* ssid = "${{ secrets.WIFI_SSID }}";' >> secrets.h
+          echo 'const char* password = "${{ secrets.WIFI_PASS }}";' >> secrets.h
+          echo 'const char* github_api = "${{ secrets.GH_RELEASES }}";' >> secrets.h
+          echo '' >> secrets.h
+          echo '#endif' >> secrets.h
+
 
       - name: List available ESP8266 boards
         run: arduino-cli board listall esp8266
