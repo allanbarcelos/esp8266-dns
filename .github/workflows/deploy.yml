@@ -70,7 +70,6 @@ jobs:
           mv "$ENCRYPTED_BIN" build/firmware.bin
 
 
-
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -82,7 +81,7 @@ jobs:
         with:
           tag_name: v${{ github.run_number }}
           name: ESP8266 Firmware Build ${{ github.run_number }}
-          files: build/*.bin
-          generate_release_notes: true
+          files: build/firmware.bin
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GHR_TOKEN }}
