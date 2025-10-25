@@ -46,7 +46,7 @@ jobs:
       - name: Compile firmware
         run: |
           arduino-cli compile \
-            --fqbn esp8266:esp8266:d1_mini:CpuFrequency=160,FlashSize=4M1M \
+            --fqbn esp8266:esp8266:esp01:FlashSize=1M64,xtal=80 \
             --build-property build.flags.optimize.lto=true \
             --build-property build.flags.optimize.size=true \
             --output-dir build
