@@ -62,10 +62,16 @@ jobs:
           echo '#ifndef SECRETS_H' > secrets.h
           echo '#define SECRETS_H' >> secrets.h
           echo '' >> secrets.h
+          
           echo 'const char* ssid = "${{ secrets.WIFI_SSID }}";' >> secrets.h
           echo 'const char* password = "${{ secrets.WIFI_PASS }}";' >> secrets.h
           echo 'const char* github_api = "${{ secrets.GH_RELEASES }}";' >> secrets.h
           echo "const char* firmware_version = \"$new_tag\";" >> secrets.h
+
+          echo 'const char* CF_TOKEN = "${{ secrets.CF_TOKEN }}";' >> secrets.h
+          echo 'const char* CF_ZONE = "${{ secrets.CF_ZONE }}";' >> secrets.h
+          echo 'const char* CF_RECORD = "${{ secrets.CF_RECORD }}";' >> secrets.h
+
           echo '' >> secrets.h
           echo '#endif' >> secrets.h
 

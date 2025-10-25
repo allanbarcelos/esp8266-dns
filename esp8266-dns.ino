@@ -7,6 +7,9 @@
 unsigned long checkInterval = 3600000UL;  // 1 hora
 unsigned long lastCheck = 0;
 
+unsigned long dnsUpdateInterval = 300000UL;  // 1 hora
+unsigned long dnsLastUpdate = 0;
+
 void setup() {
   Serial.begin(115200);
   Serial.println();
@@ -25,12 +28,31 @@ void setup() {
 }
 
 void loop() {
+
+  if (millis() >= 86400000UL) {
+    Serial.println("Reboot diário!");
+    ESP.restart();
+  }
+  
+  if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("WiFi desconectado. Reiniciando...");
+      ESP.restart();
+  }
+
   if (millis() - lastCheck >= checkInterval || lastCheck == 0) {
     lastCheck = millis();
     checkForUpdate();
   }
-}
 
+  if (millis() - dnsLastUpdate >= dnsUpdateInterval || dnsLastUpdate == 0) {
+    dnsLastUpdate = millis();
+    String ip = getPublicIP();
+    if(ip != ""){
+      Serial.println("Atualizando DNS para o IP público: " + ip);
+      dnsUpdate(ip);
+    }
+  }
+}
 
 void checkForUpdate() {
   if (WiFi.status() != WL_CONNECTED) return;
@@ -130,6 +152,51 @@ void checkForUpdate() {
 
   binHttp.end();
   http.end();
+}
+
+
+void dnsUpdate(String ip) {
+  String url = "https://api.cloudflare.com/client/v4/zones/" + String(CF_ZONE) + "/dns_records/" + String(CF_RECORD);
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  http.begin(client, url);
+  http.addHeader("Authorization", "Bearer " + String(CF_TOKEN));
+  http.addHeader("Content-Type", "application/json");
+
+  String payload = "{\"content\":\"" + ip + "\"}";
+
+  int httpResponseCode = http.PATCH(payload);
+
+  if (httpResponseCode > 0) {
+    String response = http.getString();
+    Serial.println("Resultado da atualização: " + response);
+  } else {
+    Serial.println("Erro ao atualizar DNS. Código: " + String(httpResponseCode));
+  }
+
+  http.end();
+}
+
+String getPublicIP() {
+  WiFiClient client;
+  HTTPClient http;
+
+  http.begin(client, "http://api.ipify.org"); // Retorna apenas o IP em texto puro
+  int httpCode = http.GET();
+  String ip = "";
+
+  if (httpCode == HTTP_CODE_OK) {
+    ip = http.getString();
+    ip.trim();
+  } else {
+    Serial.println("Falha ao obter IP público. Código: " + String(httpCode));
+  }
+
+  http.end();
+  return ip;
 }
 
 
