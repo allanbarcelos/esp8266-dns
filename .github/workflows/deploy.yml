@@ -1,0 +1,88 @@
+name: Build and Publish ESP8266 Firmware
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v1
+
+      - name: Install ESP8266 core 3.1.2
+        run: |
+          arduino-cli config init
+          arduino-cli config set library.enable_unsafe_install true
+          arduino-cli core update-index
+          arduino-cli core install esp8266:esp8266@3.1.2
+
+      - name: Install libraries
+        run: |
+          arduino-cli lib install "ArduinoJson@7.2.0"
+          arduino-cli lib install "ESP8266HTTPClient@1.2.3"
+          arduino-cli lib install "ESP8266WiFi@1.0"
+          arduino-cli lib install --git-url https://github.com/esp8266/Arduino.git
+
+      - name: Generate secrets.h
+        run: |
+          echo '#ifndef SECRETS_H' > secrets.h
+          echo '#define SECRETS_H' > secrets.h
+          echo '#define ssid "${{ secrets.WIFI_SSID }}"' >> secrets.h
+          echo '#define pass "${{ secrets.WIFI_PASS }}"' >> secrets.h
+          echo '#define github_api "${{ secrets.GH_RELEASES }}"' >> secrets.h
+          echo '#endif' > secrets.h
+
+      - name: Compile firmware
+        run: |
+          arduino-cli compile \
+            --fqbn esp8266:esp8266:d1_mini:CpuFrequency=160,FlashSize=4M1M \
+            --build-property build.flags.optimize.lto=true \
+            --build-property build.flags.optimize.size=true \
+            --output-dir build
+
+      - name: Encrypt firmware
+        shell: bash
+        run: |
+          BIN_FILE=$(ls build/*.bin)
+          ENCRYPTED_BIN="build/firmware_encrypted.bin"
+          echo "Encrypting firmware..."
+
+          # Cria arquivo temporário com o código Python armazenado no secret
+          echo "${{ secrets.ENCRYPT_SCRIPT }}" > encrypt_firmware.py
+          chmod +x encrypt_firmware.py
+
+          # Executa o script Python (recebe caminho do .bin e ENCRYPT_TOKEN como args)
+          python3 encrypt_firmware.py "$BIN_FILE" "$ENCRYPTED_BIN" "${{ secrets.ENCRYPT_TOKEN }}"
+
+          # Substitui o arquivo final pelo criptografado
+          mv "$ENCRYPTED_BIN" build/firmware.bin
+
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-bin
+          path: build/*.bin
+
+      - name: Create GitHub Release and upload firmware
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: ESP8266 Firmware Build ${{ github.run_number }}
+          files: build/*.bin
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHR_TOKEN }}
