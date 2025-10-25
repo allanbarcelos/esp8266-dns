@@ -34,6 +34,27 @@ jobs:
         run: |
           arduino-cli lib install "ArduinoJson@7.2.0"
 
+
+      - name: Get last release and increment
+        id: version
+        run: |
+          # Pega a última release via API do GitHub
+          last_tag=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest | jq -r '.tag_name')
+
+          echo "Última release: $last_tag"
+
+          # Remove 'v' e separa em partes major.minor.patch
+          version=${last_tag#v}
+          IFS='.' read -r major minor patch <<< "$version"
+
+          # Incrementa patch
+          patch=$((patch + 1))
+          new_tag="v$major.$minor.$patch"
+
+          echo "Nova versão: $new_tag"
+          echo "new_tag=$new_tag" >> $GITHUB_ENV
+
       - name: Generate secrets.h
         run: |
           echo '#ifndef SECRETS_H' > secrets.h
@@ -42,6 +63,7 @@ jobs:
           echo 'const char* ssid = "${{ secrets.WIFI_SSID }}";' >> secrets.h
           echo 'const char* password = "${{ secrets.WIFI_PASS }}";' >> secrets.h
           echo 'const char* github_api = "${{ secrets.GH_RELEASES }}";' >> secrets.h
+          echo "const char* firmware_version = \"$new_tag\";" >> secrets.h
           echo '' >> secrets.h
           echo '#endif' >> secrets.h
 

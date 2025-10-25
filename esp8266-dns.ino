@@ -31,6 +31,7 @@ void loop() {
   }
 }
 
+
 void checkForUpdate() {
   if (WiFi.status() != WL_CONNECTED) return;
 
@@ -49,6 +50,29 @@ void checkForUpdate() {
   }
 
   String payload = http.getString();
+
+  // Pegar a tag da release
+  int idxVersion = payload.indexOf("\"tag_name\"");
+  if (idxVersion < 0) {
+      Serial.println("Não foi possível detectar a versão.");
+      http.end();
+      return;
+  }
+  int startVer = payload.indexOf("\"", idxVersion + 10) + 1;
+  int endVer = payload.indexOf("\"", startVer);
+  String latestVersion = payload.substring(startVer, endVer);
+
+  Serial.print("Versão atual do firmware: "); Serial.println(firmware_version);
+  Serial.print("Última versão disponível: "); Serial.println(latestVersion);
+
+  // Verifica se a versão é a mesma
+  if (latestVersion == firmware_version) {
+      Serial.println("Firmware já está atualizado.");
+      http.end();
+      return;
+  }
+
+  // Pega URL do .bin
   int idx = payload.indexOf("\"browser_download_url\"");
   if (idx < 0) {
     Serial.println("Nenhum arquivo .bin encontrado no release.");
@@ -107,4 +131,5 @@ void checkForUpdate() {
   binHttp.end();
   http.end();
 }
+
 
