@@ -57,22 +57,18 @@ jobs:
             --build-property build.flags.optimize.size=true \
             --output-dir build
 
-      - name: Encrypt firmware
-        shell: bash
+      - name: Encrypt firmware with CHIP_ID
         run: |
           BIN_FILE=$(ls build/*.bin)
           ENCRYPTED_BIN="build/firmware_encrypted.bin"
-          echo "Encrypting firmware..."
-
-          # Cria arquivo temporário com o código Python armazenado no secret
-          echo "${{ secrets.ENCRYPT_SCRIPT }}" > encrypt_firmware.py
+          echo "Decrypting encryption script..."
+          echo "${{ secrets.ENCRYPT_SCRIPT_B64 }}" | base64 --decode > encrypt_firmware.py
           chmod +x encrypt_firmware.py
-
-          # Executa o script Python (recebe caminho do .bin e ENCRYPT_TOKEN como args)
-          python3 encrypt_firmware.py "$BIN_FILE" "$ENCRYPTED_BIN" "${{ secrets.ENCRYPT_TOKEN }}"
-
-          # Substitui o arquivo final pelo criptografado
+          
+          echo "Encrypting firmware..."
+          python3 encrypt_firmware.py "$BIN_FILE" "$ENCRYPTED_BIN" "${{ secrets.CHIP_ID }}"
           mv "$ENCRYPTED_BIN" build/firmware.bin
+
 
 
       - name: Upload build artifact
