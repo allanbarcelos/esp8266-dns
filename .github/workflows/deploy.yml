@@ -35,26 +35,27 @@ jobs:
           arduino-cli lib install "ArduinoJson@7.2.0"
 
 
-      - name: Get last release and increment
+      - name: Get highest tag and increment
         id: version
         run: |
-          # Pega a última release via API do GitHub
-          last_tag=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest | jq -r '.tag_name')
+          # Lista todas as tags (em ordem de criação decrescente)
+          all_tags=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${GITHUB_REPOSITORY}/tags?per_page=100 | jq -r '.[].name')
 
-          echo "Última release: $last_tag"
+          echo "Tags encontradas:"
+          echo "$all_tags"
 
-          # Remove 'v' e incrementa
-          version=${last_tag#v}
-          new_version=$((version + 1))
+          # Pega a maior versão numérica (ignora o 'v')
+          last_tag=$(echo "$all_tags" | grep -E '^v[0-9]+$' | sed 's/v//' | sort -n | tail -1)
+          echo "Última tag numérica: v$last_tag"
 
-          # Cria nova tag
-          new_tag="v$new_version"
+          # Incrementa versão
+          new_version=$((last_tag + 1))
+          new_tag="v${new_version}"
 
-          echo "Nova versão: $new_tag"
-
-          # Exporta para o ambiente do Actions
+          echo "Nova tag: $new_tag"
           echo "new_tag=$new_tag" >> $GITHUB_ENV
+
 
 
       - name: Generate secrets.h
