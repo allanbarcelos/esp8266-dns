@@ -44,16 +44,18 @@ jobs:
 
           echo "Última release: $last_tag"
 
-          # Remove 'v' e separa em partes major.minor.patch
+          # Remove 'v' e incrementa
           version=${last_tag#v}
-          IFS='.' read -r major minor patch <<< "$version"
+          new_version=$((version + 1))
 
-          # Incrementa patch
-          patch=$((patch + 1))
-          new_tag="v$major.$minor.$patch"
+          # Cria nova tag
+          new_tag="v$new_version"
 
           echo "Nova versão: $new_tag"
+
+          # Exporta para o ambiente do Actions
           echo "new_tag=$new_tag" >> $GITHUB_ENV
+
 
       - name: Generate secrets.h
         run: |
