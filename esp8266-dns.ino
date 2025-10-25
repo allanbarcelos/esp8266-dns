@@ -1,6 +1,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <Updater.h>
+#include <ESP8266WebServer.h>
 #include "secrets.h"
 #include "crypto.h"
 
@@ -9,6 +10,8 @@ unsigned long lastCheck = 0;
 
 unsigned long dnsUpdateInterval = 300000UL;  // 1 hora
 unsigned long dnsLastUpdate = 0;
+
+ESP8266WebServer server(80);  // Servidor HTTP na porta 80
 
 void setup() {
   Serial.begin(115200);
@@ -21,6 +24,11 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
+
+  server.on("/", handleRoot);  // Define rota principal
+  server.begin();
+  Serial.println("Servidor HTTP iniciado!");
+  Serial.println("Acesse pelo navegador: http://" + WiFi.localIP().toString());
 
   Serial.println("\nConectado!");
   Serial.print("Chip ID: ");
@@ -59,6 +67,9 @@ void loop() {
       }
     }
   }
+
+  server.handleClient();
+
 }
 
 void checkForUpdate() {
@@ -221,4 +232,24 @@ String getDNSHostIP(String host) {
     Serial.println("Falha ao resolver host: " + host);
     return "";
   }
+}
+
+
+void handleRoot() {
+  String html = "<!DOCTYPE html>"
+                "<html>"
+                "<head>"
+                "<meta charset='UTF-8'>"
+                "<title>ESP8266</title>"
+                "<style>"
+                "body { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: Arial; }"
+                "h1 { font-size: 3em; }"
+                "</style>"
+                "</head>"
+                "<body>"
+                "<h1>ESP8266</h1>"
+                "</body>"
+                "</html>";
+  
+  server.send(200, "text/html", html);
 }
