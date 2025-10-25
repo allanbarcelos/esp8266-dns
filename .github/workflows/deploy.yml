@@ -33,9 +33,6 @@ jobs:
       - name: Install libraries
         run: |
           arduino-cli lib install "ArduinoJson@7.2.0"
-          arduino-cli lib install "ESP8266HTTPClient@1.2.3"
-          arduino-cli lib install "ESP8266WiFi@1.0"
-          arduino-cli lib install --git-url https://github.com/esp8266/Arduino.git
 
       - name: Generate secrets.h
         run: |
