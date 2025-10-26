@@ -2,9 +2,11 @@
 #include <ESP8266HTTPClient.h>
 #include <Updater.h>
 #include <ESP8266WebServer.h>
-#include <WebSocketsServer.h>
+#include <ArduinoWebsockets.h>
 #include "secrets.h"
 #include "crypto.h"
+
+using namespace websockets;
 
 unsigned long checkInterval = 3600000UL;  // 1 hora
 unsigned long lastCheck = 0;
@@ -13,7 +15,7 @@ unsigned long dnsUpdateInterval = 300000UL;  // 1 hora
 unsigned long dnsLastUpdate = 0;
 
 ESP8266WebServer server(80);  // Servidor HTTP na porta 80
-WebSocketsServer webSocket = WebSocketsServer(81);  // WebSocket na porta 81
+WebsocketsServer wsServer;  // WebSocket na porta 81
 
 
 // --- Variáveis para cálculo de CPU ---
@@ -74,9 +76,9 @@ void setup() {
   server.begin();
   Serial.println("Servidor HTTP iniciado!");
 
-  // WebSocket
-  webSocket.begin();
-  webSocket.onEvent(webSocketEvent);
+  // WebSockett
+  wsServer.listen(81); // Porta 81
+  wsServer.onEvent(wsEvent);
   Serial.println("WebSocket iniciado na porta 81");
 
   measureStart = millis();
@@ -120,7 +122,7 @@ void loop() {
   }
 
   server.handleClient();
-  webSocket.loop();
+  wsServer.poll();
 
   // --- Simulação de tempo ocioso (para medir CPU) ---
   delay(0);
@@ -136,7 +138,7 @@ void loop() {
     measureStart = millis();
 
     int freeMem = ESP.getFreeHeap();
-    String msg = "{\"memoria\":" + String(freeMem) + ",\"cpu\":" + String(cpuLoad) + "}";
+    String msg = "{\"memory\":" + String(freeMem) + ",\"CPU\":" + String(cpuLoad) + "}";
     webSocket.broadcastTXT(msg);
 
     lastSend = millis();
@@ -311,10 +313,10 @@ void handleRoot() {
   server.send_P(200, "text/html", htmlMain);
 }
 
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-  if (type == WStype_CONNECTED) {
-    Serial.printf("Cliente WebSocket conectado (%u)\n", num);
-  } else if (type == WStype_DISCONNECTED) {
-    Serial.printf("Cliente WebSocket desconectado (%u)\n", num);
-  }
+void wsEvent(WebsocketsClient& client, WebsocketsEvent event, String msg) {
+    if (event == WebsocketsEvent::ConnectionOpened) {
+        Serial.println("Cliente WebSocket conectado");
+    } else if (event == WebsocketsEvent::ConnectionClosed) {
+        Serial.println("Cliente WebSocket desconectado");
+    }
 }
