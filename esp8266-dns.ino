@@ -21,8 +21,9 @@ unsigned long dnsLastUpdate = 0;
 unsigned long lastReconnectAttempt = 0;
 int reconnectAttempts = 0;
 
-enum WiFiState { WIFI_OK, WIFI_DISCONNECTED, WIFI_RECONNECTING, WIFI_WAIT };
-WiFiState wifiState = WIFI_OK;
+enum WifiConnState { WIFI_OK, WIFI_DISCONNECTED, WIFI_RECONNECTING, WIFI_WAIT };
+WifiConnState WifiConnState = WIFI_OK;
+
 
 unsigned long waitStart = 0;
 
@@ -36,12 +37,12 @@ void setup() {
 
   if (rebootFailCount >= maxRebootsBeforeWait) {
     Serial.println("Muitas falhas consecutivas. Entrando em modo de espera não bloqueante...");
-    wifiState = WIFI_WAIT;
+    WifiConnState = WIFI_WAIT;
     waitStart = millis();
   } else {
     WiFi.hostname("ESP8266_DNS");
     WiFi.begin(ssid, password);
-    wifiState = WIFI_RECONNECTING;
+    WifiConnState = WIFI_RECONNECTING;
   }
 
   server.on("/", handleRoot);
@@ -64,13 +65,13 @@ void loop() {
   }
 
   // OTA check
-  if (wifiState == WIFI_OK && (now - lastCheck >= checkInterval || lastCheck == 0)) {
+  if (WifiConnState == WIFI_OK && (now - lastCheck >= checkInterval || lastCheck == 0)) {
     lastCheck = now;
     checkForUpdate();
   }
 
   // DNS check
-  if (wifiState == WIFI_OK && (now - dnsLastUpdate >= dnsUpdateInterval || dnsLastUpdate == 0)) {
+  if (WifiConnState == WIFI_OK && (now - dnsLastUpdate >= dnsUpdateInterval || dnsLastUpdate == 0)) {
     dnsLastUpdate = now;
     handleDNSUpdate();
   }
@@ -79,11 +80,11 @@ void loop() {
 void handleWiFi() {
   unsigned long now = millis();
 
-  switch (wifiState) {
+  switch (WifiConnState) {
     case WIFI_OK:
       if (WiFi.status() != WL_CONNECTED) {
         Serial.println("WiFi desconectado.");
-        wifiState = WIFI_RECONNECTING;
+        WifiConnState = WIFI_RECONNECTING;
         reconnectAttempts = 0;
         lastReconnectAttempt = 0;
       }
@@ -95,7 +96,7 @@ void handleWiFi() {
         rebootFailCount = 0;
         EEPROM.write(0, rebootFailCount);
         EEPROM.commit();
-        wifiState = WIFI_OK;
+        WifiConnState = WIFI_OK;
         break;
       }
 
@@ -114,7 +115,7 @@ void handleWiFi() {
 
           if (rebootFailCount >= maxRebootsBeforeWait) {
             Serial.println("Muitas falhas. Indo para modo espera...");
-            wifiState = WIFI_WAIT;
+            WifiConnState = WIFI_WAIT;
             waitStart = millis();
           } else {
             Serial.println("Falha total, reiniciando...");
@@ -131,7 +132,7 @@ void handleWiFi() {
         EEPROM.write(0, rebootFailCount);
         EEPROM.commit();
         WiFi.begin(ssid, password);
-        wifiState = WIFI_RECONNECTING;
+        WifiConnState = WIFI_RECONNECTING;
       }
       break;
   }
