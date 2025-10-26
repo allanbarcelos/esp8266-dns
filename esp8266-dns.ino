@@ -2,11 +2,8 @@
 #include <ESP8266HTTPClient.h>
 #include <Updater.h>
 #include <ESP8266WebServer.h>
-#include <ArduinoWebsockets.h>
 #include "secrets.h"
 #include "crypto.h"
-
-using namespace websockets;
 
 unsigned long checkInterval = 3600000UL;  // 1 hora
 unsigned long lastCheck = 0;
@@ -15,53 +12,6 @@ unsigned long dnsUpdateInterval = 300000UL;  // 1 hora
 unsigned long dnsLastUpdate = 0;
 
 ESP8266WebServer server(80);  // Servidor HTTP na porta 80
-WebsocketsServer wsServer;  // WebSocket na porta 81
-
-
-// Timers para loops não bloqueantes
-unsigned long lastHTTP = 0;
-unsigned long lastWS = 0;
-unsigned long lastSendStats = 0;
-
-// --- Variáveis para cálculo de CPU ---
-unsigned long measureStart = 0;
-unsigned long idleTime = 0;
-float cpuLoad = 0;
-
-// --- HTML da página principal ---
-const char htmlMain[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<title>ESP8266 - Status</title>
-<style>
-body { font-family: Arial; text-align: center; background: #f0f0f0; margin-top: 50px; }
-.card { background: white; display: inline-block; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px #ccc; }
-h1 { color: #333; }
-</style>
-</head>
-<body>
-  <div class="card">
-    <h1>Status do ESP8266</h1>
-    <p><b>Memória livre:</b> <span id="memoria">0</span> bytes</p>
-    <p><b>Uso de CPU:</b> <span id="cpu">0</span>%</p>
-  </div>
-
-  <script>
-    var ws = new WebSocket('ws://' + window.location.hostname + ':81');
-    ws.onmessage = function(event) {
-      let data = JSON.parse(event.data);
-      document.getElementById('memoria').innerText = data.memoria;
-      document.getElementById('cpu').innerText = data.cpu.toFixed(1);
-    };
-  </script>
-</body>
-</html>
-)rawliteral";
-
-// ------------------------------------------------------------------------
-
 
 void setup() {
   Serial.begin(115200);
@@ -75,19 +25,10 @@ void setup() {
     Serial.print(".");
   }
 
-  Serial.print("Local IP: ");
-  Serial.println(WiFi.localIP());
-
-  // Página principal
-  server.on("/", handleRoot);
+  server.on("/", handleRoot);  // Define rota principal
   server.begin();
   Serial.println("Servidor HTTP iniciado!");
-
-  // WebSocket
-  wsServer.listen(81); // Porta 81
-  Serial.println("WebSocket iniciado na porta 81");
-
-  measureStart = millis();
+  Serial.println("Acesse pelo navegador: http://" + WiFi.localIP().toString());
 
   Serial.println("\nConectado!");
   Serial.print("Chip ID: ");
@@ -95,64 +36,40 @@ void setup() {
 }
 
 void loop() {
-    unsigned long now = millis();
 
-    // --- Loop HTTP Server ---
-    if (now - lastHTTP >= 10) {  // checa HTTP a cada 10 ms
-        server.handleClient();
-        lastHTTP = now;
+  if (millis() >= 86400000UL) {
+    Serial.println("Reboot diário!");
+    ESP.restart();
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("WiFi desconectado. Reiniciando...");
+      ESP.restart();
+  }
+
+  if (millis() - lastCheck >= checkInterval || lastCheck == 0) {
+    lastCheck = millis();
+    checkForUpdate();
+  }
+
+  if (millis() - dnsLastUpdate >= dnsUpdateInterval || dnsLastUpdate == 0) {
+    dnsLastUpdate = millis();
+    String publicIP  = getPublicIP();
+    if(publicIP != ""){
+      Serial.println("IP público atual: " + publicIP);
+      String currentDNSIP = getDNSHostIP(CF_HOST);
+      Serial.println("IP atual no DNS (" + String(CF_HOST) + "): " + currentDNSIP);
+      if (currentDNSIP != publicIP) {
+        Serial.println("IP diferente! Atualizando DNS...");
+        dnsUpdate(publicIP);
+      } else {
+        Serial.println("DNS já atualizado, sem mudanças.");
+      }
     }
+  }
 
-    // --- Loop WebSocket ---
-    if (now - lastWS >= 10) {  // checa WebSocket a cada 10 ms
-        wsServer.poll();
+  server.handleClient();
 
-        // Aceita clientes WebSocket ativos
-        auto client = wsServer.accept();
-        if (client.available()) {
-            auto msg = client.readBlocking();
-            Serial.println("Mensagem recebida: " + msg.data());
-            // Aqui você pode processar mensagens do cliente
-        }
-        lastWS = now;
-    }
-
-    // --- Envio de CPU/memória para WebSocket ---
-    if (now - lastSendStats >= 1000) {  // a cada 1 segundo
-        sendStatsToClients();
-        lastSendStats = now;
-    }
-
-    // --- Checagem de atualização de firmware ---
-    if (now - lastCheck >= checkInterval || lastCheck == 0) {
-        lastCheck = now;
-        checkForUpdate();
-    }
-
-    // --- Checagem de atualização de DNS ---
-    if (now - dnsLastUpdate >= dnsUpdateInterval || dnsLastUpdate == 0) {
-        dnsLastUpdate = now;
-        String publicIP  = getPublicIP();
-        if (publicIP != "") {
-            String currentDNSIP = getDNSHostIP(CF_HOST);
-            if (currentDNSIP != publicIP) dnsUpdate(publicIP);
-        }
-    }
-
-    // --- Reinício diário ou se WiFi cair ---
-    if (now >= 86400000UL) {
-        Serial.println("Reboot diário!");
-        ESP.restart();
-    }
-
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("WiFi desconectado. Reiniciando...");
-        ESP.restart();
-    }
-
-    // Simulação de CPU idle
-    delay(0);
-    idleTime++;
 }
 
 void checkForUpdate() {
@@ -319,23 +236,20 @@ String getDNSHostIP(String host) {
 
 
 void handleRoot() {
-  server.send_P(200, "text/html", htmlMain);
-}
-
-void sendStatsToClients() {
-    unsigned long total = millis() - measureStart;
-    if (total > 0) {
-        cpuLoad = 100.0 * (1.0 - ((float)idleTime / total));
-    }
-    idleTime = 0;
-    measureStart = millis();
-
-    int freeMem = ESP.getFreeHeap();
-    String msg = "{\"memoria\":" + String(freeMem) + ",\"cpu\":" + String(cpuLoad) + "}";
-    
-    auto client = wsServer.accept();
-    
-    if (client.available()) {
-       client.send(msg);
-    }
+  String html = "<!DOCTYPE html>"
+                "<html>"
+                "<head>"
+                "<meta charset='UTF-8'>"
+                "<title>ESP8266</title>"
+                "<style>"
+                "body { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: Arial; }"
+                "h1 { font-size: 3em; }"
+                "</style>"
+                "</head>"
+                "<body>"
+                "<h1>ESP8266</h1>"
+                "</body>"
+                "</html>";
+  
+  server.send(200, "text/html", html);
 }
