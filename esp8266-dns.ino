@@ -70,13 +70,12 @@ void setup() {
     Serial.print(".");
   }
 
-
   // Página principal
   server.on("/", handleRoot);
   server.begin();
   Serial.println("Servidor HTTP iniciado!");
 
-  // WebSockett
+  // WebSocket
   wsServer.listen(81); // Porta 81
   Serial.println("WebSocket iniciado na porta 81");
 
@@ -123,7 +122,17 @@ void loop() {
   server.handleClient();
   wsServer.poll();
 
-  // --- Simulação de tempo ocioso (para medir CPU) ---
+
+
+  // Aceita clientes WebSocket ativos
+  auto client = wsServer.accept();
+  if (client.available()) {
+      auto msg = client.readBlocking();
+      Serial.println("Mensagem recebida: " + msg.data());
+      // Aqui poderia processar mensagens do cliente, se quiser
+  }
+
+  // Simulação de CPU
   delay(0);
   idleTime++;
 
@@ -137,15 +146,13 @@ void loop() {
       measureStart = millis();
 
       int freeMem = ESP.getFreeHeap();
-      String msg = "{\"memory\":" + String(freeMem) + ",\"CPU\":" + String(cpuLoad) + "}";
+      String msg = "{\"memoria\":" + String(freeMem) + ",\"cpu\":" + String(cpuLoad) + "}";
 
-      // Enviar para todos os clientes conectados
-      for (int i = 0; i < wsServer.available(); i++) {
-          WebsocketsClient client = wsServer.getClient(i);
-          if (client.available()) {
-              client.send(msg);
-          }
+      // Envia dados apenas para o cliente atual, se disponível
+      if (client.available()) {
+          client.send(msg);
       }
+
       lastSend = millis();
   }
 
