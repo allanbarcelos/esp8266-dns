@@ -8,12 +8,12 @@
 
 ESP8266WebServer server(80);
 
-unsigned long checkInterval = 3600000UL;      // 1 hora
-unsigned long dnsUpdateInterval = 300000UL;   // 5 min
-unsigned long reconnectDelay = 5000;          // 5s entre tentativas
+unsigned long checkInterval = 3600000UL;      // 1 hour
+unsigned long dnsUpdateInterval = 300000UL;   // 5 minutes
+unsigned long reconnectDelay = 5000;          // 5 seconds between reconnect attempts
 const int maxReconnectAttempts = 5;
 const int maxRebootsBeforeWait = 3;
-const unsigned long waitAfterFails = 1800000UL; // 30 min
+const unsigned long waitAfterFails = 1800000UL; // 30 minutes
 
 int rebootFailCount = 0;
 unsigned long lastCheck = 0;
@@ -24,19 +24,18 @@ int reconnectAttempts = 0;
 enum WifiConnState { WIFI_OK, WIFI_DISCONNECTED, WIFI_RECONNECTING, WIFI_WAIT };
 WifiConnState WifiConnState = WIFI_OK;
 
-
 unsigned long waitStart = 0;
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\nIniciando...");
+  Serial.println("\nStarting...");
 
   EEPROM.begin(512);
   rebootFailCount = EEPROM.read(0);
-  Serial.printf("Reboots falhos anteriores: %d\n", rebootFailCount);
+  Serial.printf("Previous failed reboots: %d\n", rebootFailCount);
 
   if (rebootFailCount >= maxRebootsBeforeWait) {
-    Serial.println("Muitas falhas consecutivas. Entrando em modo de espera não bloqueante...");
+    Serial.println("Too many consecutive failures. Entering non-blocking wait mode...");
     WifiConnState = WIFI_WAIT;
     waitStart = millis();
   } else {
@@ -48,7 +47,7 @@ void setup() {
   server.on("/", handleRoot);
   server.begin();
 
-  Serial.println("Servidor HTTP iniciado!");
+  Serial.println("HTTP server started!");
 }
 
 void loop() {
@@ -58,9 +57,9 @@ void loop() {
 
   unsigned long now = millis();
 
-  // Reboot diário (não bloqueante)
+  // Daily reboot (non-blocking)
   if (now > 86400000UL) {
-    Serial.println("Reboot diário!");
+    Serial.println("Daily reboot!");
     ESP.restart();
   }
 
@@ -70,7 +69,7 @@ void loop() {
     checkForUpdate();
   }
 
-  // DNS check
+  // DNS update check
   if (WifiConnState == WIFI_OK && (now - dnsLastUpdate >= dnsUpdateInterval || dnsLastUpdate == 0)) {
     dnsLastUpdate = now;
     handleDNSUpdate();
@@ -83,7 +82,7 @@ void handleWiFi() {
   switch (WifiConnState) {
     case WIFI_OK:
       if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("WiFi desconectado.");
+        Serial.println("WiFi disconnected.");
         WifiConnState = WIFI_RECONNECTING;
         reconnectAttempts = 0;
         lastReconnectAttempt = 0;
@@ -92,7 +91,7 @@ void handleWiFi() {
 
     case WIFI_RECONNECTING:
       if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("Reconectado!");
+        Serial.println("Reconnected!");
         rebootFailCount = 0;
         EEPROM.write(0, rebootFailCount);
         EEPROM.commit();
@@ -104,7 +103,7 @@ void handleWiFi() {
         lastReconnectAttempt = now;
         reconnectAttempts++;
 
-        Serial.printf("Tentativa %d/%d de reconexão...\n", reconnectAttempts, maxReconnectAttempts);
+        Serial.printf("Reconnect attempt %d/%d...\n", reconnectAttempts, maxReconnectAttempts);
         WiFi.disconnect();
         WiFi.begin(ssid, password);
 
@@ -114,11 +113,11 @@ void handleWiFi() {
           EEPROM.commit();
 
           if (rebootFailCount >= maxRebootsBeforeWait) {
-            Serial.println("Muitas falhas. Indo para modo espera...");
+            Serial.println("Too many failures. Going to wait mode...");
             WifiConnState = WIFI_WAIT;
             waitStart = millis();
           } else {
-            Serial.println("Falha total, reiniciando...");
+            Serial.println("Total failure, restarting...");
             ESP.restart();
           }
         }
@@ -127,7 +126,7 @@ void handleWiFi() {
 
     case WIFI_WAIT:
       if (now - waitStart >= waitAfterFails) {
-        Serial.println("Tempo de espera concluído. Tentando novamente...");
+        Serial.println("Wait time completed. Trying again...");
         rebootFailCount = 0;
         EEPROM.write(0, rebootFailCount);
         EEPROM.commit();
@@ -139,7 +138,7 @@ void handleWiFi() {
 }
 
 // -----------------------------
-// DNS e OTA — não bloqueantes
+// DNS and OTA — non-blocking
 // -----------------------------
 void handleDNSUpdate() {
   String publicIP = getPublicIP();
@@ -149,10 +148,10 @@ void handleDNSUpdate() {
   if (currentDNSIP == "") return;
 
   if (currentDNSIP != publicIP) {
-    Serial.println("Atualizando DNS...");
+    Serial.println("Updating DNS...");
     dnsUpdate(publicIP);
   } else {
-    Serial.println("DNS já está atualizado.");
+    Serial.println("DNS is already up-to-date.");
   }
 }
 
@@ -168,7 +167,7 @@ void checkForUpdate() {
   int httpCode = http.GET();
 
   if (httpCode != HTTP_CODE_OK) {
-    Serial.printf("Falha ao acessar GitHub API. Código: %d\n", httpCode);
+    Serial.printf("Failed to access GitHub API. Code: %d\n", httpCode);
     http.end();
     return;
   }
@@ -184,7 +183,7 @@ void checkForUpdate() {
   String latestVersion = payload.substring(startVer, endVer);
 
   if (latestVersion == firmware_version) {
-    Serial.println("Firmware já atualizado.");
+    Serial.println("Firmware already up-to-date.");
     return;
   }
 
@@ -194,7 +193,7 @@ void checkForUpdate() {
   int end = payload.indexOf("\"", start);
   String binUrl = payload.substring(start, end);
 
-  Serial.println("Nova release: " + binUrl);
+  Serial.println("New release: " + binUrl);
 
   WiFiClientSecure binClient;
   binClient.setInsecure();
@@ -215,17 +214,17 @@ void checkForUpdate() {
         decryptBuffer(buf, c);
         Update.write(buf, c);
         bytesRead += c;
-        yield(); // evita WDT reset
+        yield(); // prevents WDT reset
       }
       if (Update.end()) {
-        Serial.println("Atualização concluída com sucesso!");
+        Serial.println("Update successfully completed!");
         ESP.restart();
       } else {
-        Serial.printf("Erro na atualização: %s\n", Update.getErrorString().c_str());
+        Serial.printf("Update error: %s\n", Update.getErrorString().c_str());
       }
     }
   } else {
-    Serial.printf("Falha no download. Código: %d\n", binCode);
+    Serial.printf("Download failed. Code: %d\n", binCode);
   }
 
   binHttp.end();
@@ -244,11 +243,11 @@ void dnsUpdate(String ip) {
   if (code > 0) {
     String resp = http.getString();
     if (resp.indexOf("\"success\":true") >= 0)
-      Serial.println("DNS atualizado com sucesso!");
+      Serial.println("DNS successfully updated!");
     else
-      Serial.println("Falha ao atualizar DNS.");
+      Serial.println("Failed to update DNS.");
   } else {
-    Serial.println("Erro ao atualizar DNS. Código: " + String(code));
+    Serial.println("Error updating DNS. Code: " + String(code));
   }
   http.end();
 }
