@@ -18,6 +18,11 @@ ESP8266WebServer server(80);  // Servidor HTTP na porta 80
 WebsocketsServer wsServer;  // WebSocket na porta 81
 
 
+// Timers para loops não bloqueantes
+unsigned long lastHTTP = 0;
+unsigned long lastWS = 0;
+unsigned long lastSendStats = 0;
+
 // --- Variáveis para cálculo de CPU ---
 unsigned long measureStart = 0;
 unsigned long idleTime = 0;
@@ -90,73 +95,64 @@ void setup() {
 }
 
 void loop() {
+    unsigned long now = millis();
 
-  if (millis() >= 86400000UL) {
-    Serial.println("Reboot diário!");
-    ESP.restart();
-  }
-
-  if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("WiFi desconectado. Reiniciando...");
-      ESP.restart();
-  }
-
-  if (millis() - lastCheck >= checkInterval || lastCheck == 0) {
-    lastCheck = millis();
-    checkForUpdate();
-  }
-
-  if (millis() - dnsLastUpdate >= dnsUpdateInterval || dnsLastUpdate == 0) {
-    dnsLastUpdate = millis();
-    String publicIP  = getPublicIP();
-    if(publicIP != ""){
-      Serial.println("IP público atual: " + publicIP);
-      String currentDNSIP = getDNSHostIP(CF_HOST);
-      Serial.println("IP atual no DNS (" + String(CF_HOST) + "): " + currentDNSIP);
-      if (currentDNSIP != publicIP) {
-        Serial.println("IP diferente! Atualizando DNS...");
-        dnsUpdate(publicIP);
-      } else {
-        Serial.println("DNS já atualizado, sem mudanças.");
-      }
+    // --- Loop HTTP Server ---
+    if (now - lastHTTP >= 10) {  // checa HTTP a cada 10 ms
+        server.handleClient();
+        lastHTTP = now;
     }
-  }
 
-  server.handleClient();
-  wsServer.poll();
+    // --- Loop WebSocket ---
+    if (now - lastWS >= 10) {  // checa WebSocket a cada 10 ms
+        wsServer.poll();
 
-  // Aceita clientes WebSocket ativos
-  auto client = wsServer.accept();
-  if (client.available()) {
-      auto msg = client.readBlocking();
-      Serial.println("Mensagem recebida: " + msg.data());
-      // Aqui poderia processar mensagens do cliente, se quiser
-  }
+        // Aceita clientes WebSocket ativos
+        auto client = wsServer.accept();
+        if (client.available()) {
+            auto msg = client.readBlocking();
+            Serial.println("Mensagem recebida: " + msg.data());
+            // Aqui você pode processar mensagens do cliente
+        }
+        lastWS = now;
+    }
 
-  // Simulação de CPU
-  delay(0);
-  idleTime++;
+    // --- Envio de CPU/memória para WebSocket ---
+    if (now - lastSendStats >= 1000) {  // a cada 1 segundo
+        sendStatsToClients();
+        lastSendStats = now;
+    }
 
-  static unsigned long lastSend = 0;
-  if (millis() - lastSend > 1000) {
-      unsigned long total = millis() - measureStart;
-      if (total > 0) {
-          cpuLoad = 100.0 * (1.0 - ((float)idleTime / total));
-      }
-      idleTime = 0;
-      measureStart = millis();
+    // --- Checagem de atualização de firmware ---
+    if (now - lastCheck >= checkInterval || lastCheck == 0) {
+        lastCheck = now;
+        checkForUpdate();
+    }
 
-      int freeMem = ESP.getFreeHeap();
-      String msg = "{\"memoria\":" + String(freeMem) + ",\"cpu\":" + String(cpuLoad) + "}";
+    // --- Checagem de atualização de DNS ---
+    if (now - dnsLastUpdate >= dnsUpdateInterval || dnsLastUpdate == 0) {
+        dnsLastUpdate = now;
+        String publicIP  = getPublicIP();
+        if (publicIP != "") {
+            String currentDNSIP = getDNSHostIP(CF_HOST);
+            if (currentDNSIP != publicIP) dnsUpdate(publicIP);
+        }
+    }
 
-      // Envia dados apenas para o cliente atual, se disponível
-      if (client.available()) {
-          client.send(msg);
-      }
+    // --- Reinício diário ou se WiFi cair ---
+    if (now >= 86400000UL) {
+        Serial.println("Reboot diário!");
+        ESP.restart();
+    }
 
-      lastSend = millis();
-  }
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("WiFi desconectado. Reiniciando...");
+        ESP.restart();
+    }
 
+    // Simulação de CPU idle
+    delay(0);
+    idleTime++;
 }
 
 void checkForUpdate() {
@@ -324,4 +320,23 @@ String getDNSHostIP(String host) {
 
 void handleRoot() {
   server.send_P(200, "text/html", htmlMain);
+}
+
+void sendStatsToClients() {
+    unsigned long total = millis() - measureStart;
+    if (total > 0) {
+        cpuLoad = 100.0 * (1.0 - ((float)idleTime / total));
+    }
+    idleTime = 0;
+    measureStart = millis();
+
+    int freeMem = ESP.getFreeHeap();
+    String msg = "{\"memoria\":" + String(freeMem) + ",\"cpu\":" + String(cpuLoad) + "}";
+
+    // Envia para todos os clientes WebSocket conectados
+    for (auto &client : wsServer.availableClients()) {
+        if (client.available()) {
+            client.send(msg);
+        }
+    }
 }
