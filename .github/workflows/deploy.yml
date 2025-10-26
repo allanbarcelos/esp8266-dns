@@ -48,7 +48,7 @@ jobs:
           echo "$all_tags"
 
           # Pega a maior versão numérica (ignora o 'v')
-          last_tag=$(echo "$all_tags" | grep -E '^v[0-9]+$' | sed 's/v//' | sort -n | tail -1)
+          last_tag=$(echo "$all_tags" | grep -E '^v[0-9]+$' | sed 's/v//' | sort -nr | head -1)
           echo "Última tag numérica: v$last_tag"
 
           # Incrementa versão
