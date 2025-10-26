@@ -78,7 +78,6 @@ void setup() {
 
   // WebSockett
   wsServer.listen(81); // Porta 81
-  wsServer.onEvent(wsEvent);
   Serial.println("WebSocket iniciado na porta 81");
 
   measureStart = millis();
@@ -130,18 +129,24 @@ void loop() {
 
   static unsigned long lastSend = 0;
   if (millis() - lastSend > 1000) {
-    unsigned long total = millis() - measureStart;
-    if (total > 0) {
-      cpuLoad = 100.0 * (1.0 - ((float)idleTime / total));
-    }
-    idleTime = 0;
-    measureStart = millis();
+      unsigned long total = millis() - measureStart;
+      if (total > 0) {
+          cpuLoad = 100.0 * (1.0 - ((float)idleTime / total));
+      }
+      idleTime = 0;
+      measureStart = millis();
 
-    int freeMem = ESP.getFreeHeap();
-    String msg = "{\"memory\":" + String(freeMem) + ",\"CPU\":" + String(cpuLoad) + "}";
-    wsServer.broadcast(msg);
+      int freeMem = ESP.getFreeHeap();
+      String msg = "{\"memory\":" + String(freeMem) + ",\"CPU\":" + String(cpuLoad) + "}";
 
-    lastSend = millis();
+      // Enviar para todos os clientes conectados
+      for (int i = 0; i < wsServer.available(); i++) {
+          WebsocketsClient client = wsServer.getClient(i);
+          if (client.available()) {
+              client.send(msg);
+          }
+      }
+      lastSend = millis();
   }
 
 }
@@ -311,12 +316,4 @@ String getDNSHostIP(String host) {
 
 void handleRoot() {
   server.send_P(200, "text/html", htmlMain);
-}
-
-void wsEvent(WebsocketsClient& client, WebsocketsEvent event, String msg) {
-    if (event == WebsocketsEvent::ConnectionOpened) {
-        Serial.println("Cliente WebSocket conectado");
-    } else if (event == WebsocketsEvent::ConnectionClosed) {
-        Serial.println("Cliente WebSocket desconectado");
-    }
 }
