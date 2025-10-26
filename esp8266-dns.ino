@@ -2,6 +2,7 @@
 #include <ESP8266HTTPClient.h>
 #include <Updater.h>
 #include <ESP8266WebServer.h>
+#include <WebSocketsServer.h>
 #include "secrets.h"
 #include "crypto.h"
 
@@ -12,6 +13,48 @@ unsigned long dnsUpdateInterval = 300000UL;  // 1 hora
 unsigned long dnsLastUpdate = 0;
 
 ESP8266WebServer server(80);  // Servidor HTTP na porta 80
+WebSocketsServer webSocket = WebSocketsServer(81);  // WebSocket na porta 81
+
+
+// --- Variáveis para cálculo de CPU ---
+unsigned long measureStart = 0;
+unsigned long idleTime = 0;
+float cpuLoad = 0;
+
+// --- HTML da página principal ---
+const char htmlMain[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>ESP8266 - Status</title>
+<style>
+body { font-family: Arial; text-align: center; background: #f0f0f0; margin-top: 50px; }
+.card { background: white; display: inline-block; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px #ccc; }
+h1 { color: #333; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Status do ESP8266</h1>
+    <p><b>Memória livre:</b> <span id="memoria">0</span> bytes</p>
+    <p><b>Uso de CPU:</b> <span id="cpu">0</span>%</p>
+  </div>
+
+  <script>
+    var ws = new WebSocket('ws://' + window.location.hostname + ':81');
+    ws.onmessage = function(event) {
+      let data = JSON.parse(event.data);
+      document.getElementById('memoria').innerText = data.memoria;
+      document.getElementById('cpu').innerText = data.cpu.toFixed(1);
+    };
+  </script>
+</body>
+</html>
+)rawliteral";
+
+// ------------------------------------------------------------------------
+
 
 void setup() {
   Serial.begin(115200);
@@ -25,10 +68,18 @@ void setup() {
     Serial.print(".");
   }
 
-  server.on("/", handleRoot);  // Define rota principal
+
+  // Página principal
+  server.on("/", handleRoot);
   server.begin();
   Serial.println("Servidor HTTP iniciado!");
-  Serial.println("Acesse pelo navegador: http://" + WiFi.localIP().toString());
+
+  // WebSocket
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
+  Serial.println("WebSocket iniciado na porta 81");
+
+  measureStart = millis();
 
   Serial.println("\nConectado!");
   Serial.print("Chip ID: ");
@@ -69,6 +120,27 @@ void loop() {
   }
 
   server.handleClient();
+  webSocket.loop();
+
+  // --- Simulação de tempo ocioso (para medir CPU) ---
+  delay(0);
+  idleTime++;
+
+  static unsigned long lastSend = 0;
+  if (millis() - lastSend > 1000) {
+    unsigned long total = millis() - measureStart;
+    if (total > 0) {
+      cpuLoad = 100.0 * (1.0 - ((float)idleTime / total));
+    }
+    idleTime = 0;
+    measureStart = millis();
+
+    int freeMem = ESP.getFreeHeap();
+    String msg = "{\"memoria\":" + String(freeMem) + ",\"cpu\":" + String(cpuLoad) + "}";
+    webSocket.broadcastTXT(msg);
+
+    lastSend = millis();
+  }
 
 }
 
@@ -236,20 +308,13 @@ String getDNSHostIP(String host) {
 
 
 void handleRoot() {
-  String html = "<!DOCTYPE html>"
-                "<html>"
-                "<head>"
-                "<meta charset='UTF-8'>"
-                "<title>ESP8266</title>"
-                "<style>"
-                "body { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: Arial; }"
-                "h1 { font-size: 3em; }"
-                "</style>"
-                "</head>"
-                "<body>"
-                "<h1>ESP8266</h1>"
-                "</body>"
-                "</html>";
-  
-  server.send(200, "text/html", html);
+  server.send_P(200, "text/html", htmlMain);
+}
+
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+  if (type == WStype_CONNECTED) {
+    Serial.printf("Cliente WebSocket conectado (%u)\n", num);
+  } else if (type == WStype_DISCONNECTED) {
+    Serial.printf("Cliente WebSocket desconectado (%u)\n", num);
+  }
 }
