@@ -70,6 +70,9 @@ void setup() {
     Serial.print(".");
   }
 
+  Serial.print("Local IP: ");
+  Serial.println(WiFi.localIP());
+
   // Página principal
   server.on("/", handleRoot);
   server.begin();
@@ -121,8 +124,6 @@ void loop() {
 
   server.handleClient();
   wsServer.poll();
-
-
 
   // Aceita clientes WebSocket ativos
   auto client = wsServer.accept();
