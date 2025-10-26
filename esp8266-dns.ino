@@ -333,10 +333,7 @@ void sendStatsToClients() {
     int freeMem = ESP.getFreeHeap();
     String msg = "{\"memoria\":" + String(freeMem) + ",\"cpu\":" + String(cpuLoad) + "}";
 
-    // Envia para todos os clientes WebSocket conectados
-    for (auto &client : wsServer.availableClients()) {
-        if (client.available()) {
-            client.send(msg);
-        }
+    if (client.available()) {
+       client.send(msg);
     }
 }
