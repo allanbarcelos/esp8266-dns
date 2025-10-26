@@ -139,7 +139,7 @@ void loop() {
 
     int freeMem = ESP.getFreeHeap();
     String msg = "{\"memory\":" + String(freeMem) + ",\"CPU\":" + String(cpuLoad) + "}";
-    webSocket.broadcastTXT(msg);
+    wsServer.broadcast(msg);
 
     lastSend = millis();
   }
