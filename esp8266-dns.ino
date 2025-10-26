@@ -332,7 +332,9 @@ void sendStatsToClients() {
 
     int freeMem = ESP.getFreeHeap();
     String msg = "{\"memoria\":" + String(freeMem) + ",\"cpu\":" + String(cpuLoad) + "}";
-
+    
+    auto client = wsServer.accept();
+    
     if (client.available()) {
        client.send(msg);
     }
