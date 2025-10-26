@@ -35,7 +35,7 @@ jobs:
         run: |
           arduino-cli lib update-index
           arduino-cli lib install "ArduinoJson@7.2.0"
-          arduino-cli lib install --zip-path https://github.com/Links2004/arduinoWebSockets/archive/refs/tags/2.7.1.zip
+          arduino-cli lib install "arduinoWebSockets@2.7.1"
 
       - name: Get highest tag and increment
         id: version
