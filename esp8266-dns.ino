@@ -18,6 +18,7 @@ void setup() {
   Serial.println();
   Serial.println("Iniciando...");
 
+  WiFi.hostname("ESP8266_DNS");
   WiFi.begin(ssid, password);
   Serial.print("Conectando ao WiFi");
   while (WiFi.status() != WL_CONNECTED) {
