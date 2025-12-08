@@ -2,9 +2,10 @@
 #include <ESP8266HTTPClient.h>
 #include <Updater.h>
 #include <ESP8266WebServer.h>
+#include <LittleFS.h>
 #include <EEPROM.h>
-#include "secrets.h"
-#include "crypto.h"
+// #include "secrets.h"
+// #include "crypto.h"
 
 ESP8266WebServer server(80);
 
@@ -24,11 +25,34 @@ int reconnectAttempts = 0;
 enum WifiConnState { WIFI_OK, WIFI_DISCONNECTED, WIFI_RECONNECTING, WIFI_WAIT };
 WifiConnState WifiConnState = WIFI_OK;
 
+// ---- Variáveis para teste assíncrono de Wi-Fi ----
+bool testingWiFi = false;
+unsigned long wifiTestStart = 0;
+String testSSID = "";
+String testPass = "";
+const unsigned long wifiTestTimeout = 10000; // 10 segundos
+//
+
 unsigned long waitStart = 0;
+
+struct Config {
+  String wifi_ssid;
+  String wifi_pass;
+  String CF_TOKEN;
+  String CF_ZONE;
+  String CF_RECORD;
+  String CF_HOST;
+};
+
+Config config;
+
 
 void setup() {
   Serial.begin(115200);
   Serial.println("\nStarting...");
+
+  // Inicializa LittleFS e carrega config
+  loadConfig();
 
   EEPROM.begin(512);
   rebootFailCount = EEPROM.read(0);
@@ -39,12 +63,20 @@ void setup() {
     WifiConnState = WIFI_WAIT;
     waitStart = millis();
   } else {
-    WiFi.hostname("ESP8266_DNS");
-    WiFi.begin(ssid, password);
-    WifiConnState = WIFI_RECONNECTING;
+    if (config.wifi_ssid.length() > 0) {
+      WiFi.hostname("ESP8266_DNS");
+      WiFi.begin(config.wifi_ssid.c_str(), config.wifi_pass.c_str());
+      WifiConnState = WIFI_RECONNECTING;
+    } else {
+      Serial.println("Nenhuma configuração Wi-Fi encontrada. Criando AP de configuração...");
+      WiFi.softAP("ESP_Config");
+    }
+
   }
 
   server.on("/", handleRoot);
+  server.on("/save", handleSave);
+
   server.begin();
 
   Serial.println("HTTP server started!");
@@ -54,6 +86,7 @@ void loop() {
   server.handleClient();
 
   handleWiFi();
+  handleWiFiTest();  
 
   unsigned long now = millis();
 
@@ -105,7 +138,8 @@ void handleWiFi() {
 
         Serial.printf("Reconnect attempt %d/%d...\n", reconnectAttempts, maxReconnectAttempts);
         WiFi.disconnect();
-        WiFi.begin(ssid, password);
+        WiFi.begin(config.wifi_ssid.c_str(), config.wifi_pass.c_str());
+
 
         if (reconnectAttempts >= maxReconnectAttempts) {
           rebootFailCount++;
@@ -130,7 +164,7 @@ void handleWiFi() {
         rebootFailCount = 0;
         EEPROM.write(0, rebootFailCount);
         EEPROM.commit();
-        WiFi.begin(ssid, password);
+        WiFi.begin(config.wifi_ssid.c_str(), config.wifi_pass.c_str());
         WifiConnState = WIFI_RECONNECTING;
       }
       break;
@@ -273,9 +307,135 @@ String getDNSHostIP(String host) {
 }
 
 void handleRoot() {
-  String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>ESP8266</title>"
-                "<style>body{display:flex;justify-content:center;align-items:center;height:100vh;"
-                "margin:0;font-family:Arial;}h1{font-size:3em;}</style></head>"
-                "<body><h1>ESP8266</h1></body></html>";
+  String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Configuração ESP8266</title></head><body>";
+  html += "<h1>Configuração</h1><form action='/save' method='POST'>";
+  html += "SSID: <input name='wifi_ssid' value='" + config.wifi_ssid + "'><br>";
+  html += "Senha Wi-Fi: <input type='password' name='wifi_pass' value='" + config.wifi_pass + "'><br>";
+  html += "CF_TOKEN: <input name='CF_TOKEN' value='" + config.CF_TOKEN + "'><br>";
+  html += "CF_ZONE: <input name='CF_ZONE' value='" + config.CF_ZONE + "'><br>";
+  html += "CF_RECORD: <input name='CF_RECORD' value='" + config.CF_RECORD + "'><br>";
+  html += "CF_HOST: <input name='CF_HOST' value='" + config.CF_HOST + "'><br>";
+  html += "<input type='submit' value='Salvar'>";
+  html += "</form></body></html>";
   server.send(200, "text/html", html);
+}
+
+
+void handleSave() {
+  if (!server.hasArg("wifi_ssid")) {
+    server.send(400, "text/html", "<h2>SSID ausente!</h2>");
+    return;
+  }
+
+  // Guarda dados do formulário
+  testSSID = server.arg("wifi_ssid");
+  testPass = server.arg("wifi_pass");
+
+  if (server.hasArg("CF_TOKEN"))  config.CF_TOKEN  = server.arg("CF_TOKEN");
+  if (server.hasArg("CF_ZONE"))   config.CF_ZONE   = server.arg("CF_ZONE");
+  if (server.hasArg("CF_RECORD")) config.CF_RECORD = server.arg("CF_RECORD");
+  if (server.hasArg("CF_HOST"))   config.CF_HOST   = server.arg("CF_HOST");
+
+  // Inicia teste assíncrono
+  Serial.printf("Iniciando teste Wi-Fi para SSID: %s\n", testSSID.c_str());
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(testSSID.c_str(), testPass.c_str());
+
+  wifiTestStart = millis();
+  testingWiFi = true;
+
+  // Responde imediatamente
+  server.send(200, "text/html",
+    "<h1>Testando conexão Wi-Fi...</h1>"
+    "<p>O ESP vai tentar se conectar. Aguarde alguns segundos e atualize a página.</p>");
+}
+
+
+void handleWiFiTest() {
+  if (!testingWiFi) return;
+
+  if (WiFi.status() == WL_CONNECTED) {
+    testingWiFi = false;
+    Serial.printf("Conectado ao Wi-Fi! IP: %s\n", WiFi.localIP().toString().c_str());
+
+    // Atualiza config e salva
+    config.wifi_ssid = testSSID;
+    config.wifi_pass = testPass;
+    saveConfig();
+
+    server.send(200, "text/html",
+      "<h1>Wi-Fi conectado com sucesso!</h1>"
+      "<p>Configuração salva.</p>"
+      "<p>IP: " + WiFi.localIP().toString() + "</p>"
+      "<p>Reinicie o ESP para aplicar.</p>");
+    WiFi.disconnect(true);
+    WiFi.softAP("ESP_Config");
+  }
+
+  if (millis() - wifiTestStart > wifiTestTimeout) {
+    testingWiFi = false;
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("Falha ao conectar ao Wi-Fi informado (timeout).");
+      server.send(200, "text/html",
+        "<h1>Falha ao conectar!</h1>"
+        "<p>SSID ou senha incorretos.</p>"
+        "<p>Retorne e tente novamente.</p>");
+      WiFi.disconnect(true);
+      WiFi.softAP("ESP_Config");
+    }
+  }
+}
+
+
+
+
+// ---------------------------------------------------------------------------------------------------
+
+void loadConfig() {
+  if (!LittleFS.begin()) {
+    Serial.println("Falha ao montar LittleFS");
+    return;
+  }
+
+  if (!LittleFS.exists("/config.json")) {
+    Serial.println("Arquivo de configuração não existe.");
+    return;
+  }
+
+  File file = LittleFS.open("/config.json", "r");
+  if (!file) return;
+
+  StaticJsonDocument<512> doc;
+  DeserializationError error = deserializeJson(doc, file);
+  file.close();
+  if (error) {
+    Serial.println("Erro ao ler config: " + String(error.c_str()));
+    return;
+  }
+
+  config.wifi_ssid = doc["wifi_ssid"].as<String>();
+  config.wifi_pass = doc["wifi_pass"].as<String>();
+  config.CF_TOKEN = doc["CF_TOKEN"].as<String>();
+  config.CF_ZONE = doc["CF_ZONE"].as<String>();
+  config.CF_RECORD = doc["CF_RECORD"].as<String>();
+  config.CF_HOST = doc["CF_HOST"].as<String>();
+}
+
+void saveConfig() {
+  StaticJsonDocument<512> doc;
+  doc["wifi_ssid"] = config.wifi_ssid;
+  doc["wifi_pass"] = config.wifi_pass;
+  doc["CF_TOKEN"] = config.CF_TOKEN;
+  doc["CF_ZONE"] = config.CF_ZONE;
+  doc["CF_RECORD"] = config.CF_RECORD;
+  doc["CF_HOST"] = config.CF_HOST;
+
+  File file = LittleFS.open("/config.json", "w");
+  if (!file) {
+    Serial.println("Falha ao abrir arquivo para salvar config");
+    return;
+  }
+  serializeJson(doc, file);
+  file.close();
 }
