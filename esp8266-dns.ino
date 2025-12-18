@@ -92,7 +92,7 @@ void startWiFiTest(const String& ssid, const String& password);
 
 // DNS e OTA
 void handleDNSUpdate();
-void checkForUpdates();
+void checkForUpdate();
 void updateDNSRecord(const String& ipAddress);
 String getPublicIP();
 String getDNSRecordIP(const String& hostname);
@@ -234,7 +234,7 @@ void loop() {
   if (wifiConnectionState == WIFI_OK && 
       (currentTime - lastCheck >= CHECK_INTERVAL || lastCheck == 0)) {
     lastCheck = currentTime;
-    checkForUpdates();
+    checkForUpdate();
   }
   
   // Atualiza registro DNS se necessário
