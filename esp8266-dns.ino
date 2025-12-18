@@ -9,6 +9,9 @@
 // DEFINIÇÕES E CONSTANTES
 // ============================================
 
+// Firmware
+const char* github_api = "https://api.github.com/repos/allanbarcelos/esp8266-dns/releases/latest";
+
 // Intervalos de tempo (em milissegundos)
 const unsigned long CHECK_INTERVAL = 3600000UL;       // 1 hora
 const unsigned long DNS_UPDATE_INTERVAL = 300000UL;   // 5 minutos
@@ -498,15 +501,78 @@ void handleDNSUpdate() {
   }
 }
 
-void checkForUpdates() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Sem conexão Wi-Fi para verificar atualizações");
+void checkForUpdate() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+
+  http.begin(client, github_api);
+  http.addHeader("User-Agent", "ESP8266");
+  int httpCode = http.GET();
+
+  if (httpCode != HTTP_CODE_OK) {
+    Serial.printf("Failed to access GitHub API. Code: %d\n", httpCode);
+    http.end();
     return;
   }
-  
-  // Implementação da verificação de atualizações OTA
-  // (mantenha sua implementação existente aqui)
-  Serial.println("Verificando atualizações OTA...");
+
+  String payload = http.getString();
+  http.end();
+
+  int idxVersion = payload.indexOf("\"tag_name\"");
+  if (idxVersion < 0) return;
+
+  int startVer = payload.indexOf("\"", idxVersion + 10) + 1;
+  int endVer = payload.indexOf("\"", startVer);
+  String latestVersion = payload.substring(startVer, endVer);
+
+  if (latestVersion == firmware_version) {
+    Serial.println("Firmware already up-to-date.");
+    return;
+  }
+
+  int idx = payload.indexOf("\"browser_download_url\"");
+  if (idx < 0) return;
+  int start = payload.indexOf("https://", idx);
+  int end = payload.indexOf("\"", start);
+  String binUrl = payload.substring(start, end);
+
+  Serial.println("New release: " + binUrl);
+
+  WiFiClientSecure binClient;
+  binClient.setInsecure();
+  HTTPClient binHttp;
+  binHttp.begin(binClient, binUrl);
+  int binCode = binHttp.GET();
+
+  if (binCode == HTTP_CODE_OK) {
+    int contentLength = binHttp.getSize();
+    if (Update.begin(contentLength)) {
+      WiFiClient *stream = binHttp.getStreamPtr();
+      uint8_t buf[1024];
+      int bytesRead = 0;
+      while (bytesRead < contentLength) {
+        size_t toRead = min(sizeof(buf), (size_t)(contentLength - bytesRead));
+        int c = stream->readBytes(buf, toRead);
+        if (c <= 0) break;
+        Update.write(buf, c);
+        bytesRead += c;
+        yield(); // prevents WDT reset
+      }
+      if (Update.end()) {
+        Serial.println("Update successfully completed!");
+        ESP.restart();
+      } else {
+        Serial.printf("Update error: %s\n", Update.getErrorString().c_str());
+      }
+    }
+  } else {
+    Serial.printf("Download failed. Code: %d\n", binCode);
+  }
+
+  binHttp.end();
 }
 
 void updateDNSRecord(const String& ipAddress) {
