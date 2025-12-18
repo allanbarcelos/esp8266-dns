@@ -34,7 +34,7 @@ jobs:
       - name: Install libraries
         run: |
           arduino-cli lib update-index
-          arduino-cli lib install "ArduinoJson@7.2.0"
+          arduino-cli lib install "ArduinoJson@6.21.4"
           arduino-cli lib install "ArduinoWebsockets@0.5.4"
 
       - name: Get highest tag and increment
