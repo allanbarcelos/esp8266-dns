@@ -12,7 +12,10 @@
 
 // Firmware
 const char* github_api = "https://api.github.com/repos/allanbarcelos/esp8266-dns/releases/latest";
-const char* firmware_version = firmware_version;
+
+#ifndef firmware_version
+  #define firmware_version "dev"
+#endif
 
 // Intervalos de tempo (em milissegundos)
 const unsigned long CHECK_INTERVAL = 3600000UL;       // 1 hora
