@@ -70,6 +70,9 @@ jobs:
             --build-property build.flags.optimize.size=true \
             --output-dir build
 
+      - name: Rename firmware
+        run: mv build/*.bin build/firmware.bin
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
