@@ -5,6 +5,7 @@
 #include <LittleFS.h>
 #include <EEPROM.h>
 #include <ArduinoJson.h>
+#include <Hash.h>
 
 // ============================================
 // DEFINIÇÕES E CONSTANTES
@@ -24,6 +25,7 @@ const unsigned long RECONNECT_DELAY = 5000;           // 5 segundos
 const unsigned long WAIT_AFTER_FAILS = 1800000UL;     // 30 minutos
 const unsigned long WIFI_TEST_TIMEOUT = 10000;        // 10 segundos
 const unsigned long DAILY_REBOOT_INTERVAL = 86400000UL; // 24 horas
+unsigned long bootTime;
 
 // Limites de tentativas
 const int MAX_RECONNECT_ATTEMPTS = 5;
@@ -60,6 +62,8 @@ struct Config {
   String CF_ZONE;
   String CF_RECORD;
   String CF_HOST;
+  String web_user;
+  String web_pass;
 };
 
 Config config;
@@ -108,6 +112,9 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\nIniciando ESP8266 DNS Updater...");
 
+  //
+  bootTime = millis();
+
   // Inicializa sistemas
   initializeFileSystem();
   loadConfiguration();
@@ -129,6 +136,30 @@ void setup() {
   // Configura rotas do servidor web
   server.on("/", handleRoot);
   server.on("/save", handleSave);
+
+  server.on("/setpass", HTTP_POST, []() {
+
+    if (hasWebPassword()) {
+      server.send(403, "text/plain", "Senha já definida");
+      return;
+    }
+
+    if (!server.hasArg("user") || !server.hasArg("pass")) {
+      server.send(400, "text/plain", "Dados inválidos");
+      return;
+    }
+
+    config.web_user = server.arg("user");
+    config.web_pass = sha256(server.arg("pass"));
+    saveConfiguration();
+
+    server.send(200, "text/html",
+      "<h2>Senha definida com sucesso!</h2>"
+      "<p>Recarregue a página para acessar.</p>"
+    );
+  });
+
+
   server.begin();
   
   Serial.println("Servidor HTTP inicializado na porta 80");
@@ -171,6 +202,9 @@ void loadConfiguration() {
   config.CF_RECORD = jsonDoc["CF_RECORD"].as<String>();
   config.CF_HOST = jsonDoc["CF_HOST"].as<String>();
 
+  config.web_user = jsonDoc["web_user"] | "";
+  config.web_pass = jsonDoc["web_pass"] | "";
+
   Serial.println("Configuração carregada com sucesso");
 }
 
@@ -183,6 +217,9 @@ void saveConfiguration() {
   jsonDoc["CF_ZONE"] = config.CF_ZONE;
   jsonDoc["CF_RECORD"] = config.CF_RECORD;
   jsonDoc["CF_HOST"] = config.CF_HOST;
+
+  jsonDoc["web_user"] = config.web_user;
+  jsonDoc["web_pass"] = config.web_pass;
 
   File configFile = LittleFS.open("/config.json", "w");
   if (!configFile) {
@@ -201,9 +238,7 @@ void initializeWiFi() {
     WiFi.hostname("ESP8266_DNS");
     WiFi.begin(config.wifi_ssid.c_str(), config.wifi_pass.c_str());
     wifiConnectionState = WIFI_RECONNECTING;
-    Serial.println("Conectando à rede Wi-Fi configurada...");
   } else {
-    Serial.println("Nenhuma configuração Wi-Fi encontrada. Criando AP de configuração...");
     WiFi.softAP("ESP_Config");
     Serial.printf("AP criado. SSID: ESP_Config, IP: %s\n", 
                   WiFi.softAPIP().toString().c_str());
@@ -226,7 +261,7 @@ void loop() {
   handleWiFiTest();
   
   // Reboot diário
-  if (currentTime > DAILY_REBOOT_INTERVAL) {
+  if (millis() - bootTime >= DAILY_REBOOT_INTERVAL) {
     performDailyReboot();
   }
   
@@ -333,53 +368,44 @@ void resetFailureCounter() {
 
 void handleWiFiTest() {
   if (!testingWiFi) return;
-  
+
   unsigned long currentTime = millis();
-  
-  // Teste bem-sucedido
+
+  // ===== SUCESSO =====
   if (WiFi.status() == WL_CONNECTED) {
     testingWiFi = false;
-    Serial.printf("Conectado ao Wi-Fi! IP: %s\n", 
+
+    Serial.printf("Conectado ao Wi-Fi! IP: %s\n",
                   WiFi.localIP().toString().c_str());
-    
-    // Atualiza e salva configuração
+
+    // Salva configuração
     config.wifi_ssid = testSSID;
     config.wifi_pass = testPass;
     saveConfiguration();
-    
-    // Mostra página de sucesso
-    server.send(200, "text/html",
-      "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Sucesso</title></head><body>"
-      "<h1>Wi-Fi conectado com sucesso!</h1>"
-      "<p>Configuração salva.</p>"
-      "<p>Endereço IP: " + WiFi.localIP().toString() + "</p>"
-      "<p>Reinicie o ESP para aplicar as configurações.</p>"
-      "</body></html>");
-    
-    // Retorna ao modo AP
+
+    // Restaura AP + servidor
     WiFi.disconnect(true);
+    WiFi.mode(WIFI_AP_STA);
     WiFi.softAP("ESP_Config");
+
+    wifiConnectionState = WIFI_DISCONNECTED;
+    return;
   }
-  
-  // Timeout do teste
+
+  // ===== TIMEOUT =====
   if (currentTime - wifiTestStart > WIFI_TEST_TIMEOUT) {
     testingWiFi = false;
-    
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("Falha ao conectar ao Wi-Fi (timeout)");
-      
-      server.send(200, "text/html",
-        "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Falha</title></head><body>"
-        "<h1>Falha ao conectar!</h1>"
-        "<p>SSID ou senha incorretos.</p>"
-        "<p>Volte e tente novamente.</p>"
-        "</body></html>");
-      
-      WiFi.disconnect(true);
-      WiFi.softAP("ESP_Config");
-    }
+
+    Serial.println("Falha ao conectar ao Wi-Fi (timeout)");
+
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAP("ESP_Config");
+
+    wifiConnectionState = WIFI_DISCONNECTED;
   }
 }
+
 
 void startWiFiTest(const String& ssid, const String& password) {
   Serial.printf("Iniciando teste Wi-Fi para SSID: %s\n", ssid.c_str());
@@ -395,11 +421,41 @@ void startWiFiTest(const String& ssid, const String& password) {
   testingWiFi = true;
 }
 
+bool hasWebPassword() {
+  return config.web_user.length() > 0 && config.web_pass.length() > 0;
+}
+
 // ============================================
 // SERVIDOR WEB
 // ============================================
 
+void showCreatePasswordPage() {
+  server.send(200, "text/html",
+    "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+    "<title>Criar Senha</title></head><body>"
+    "<h2>Defina a senha de acesso</h2>"
+    "<form action='/setpass' method='POST'>"
+    "Usuário:<br><input name='user' required><br><br>"
+    "Senha:<br><input name='pass' type='password' placeholder='********' required><br><br>"
+    "<button type='submit'>Salvar</button>"
+    "</form></body></html>"
+  );
+}
+
+
 void handleRoot() {
+
+  if (hasWebPassword()) {
+    if (!checkAuth()) {
+      requestAuth();
+      return;
+    }
+  } else {
+    // Primeira configuração
+    showCreatePasswordPage();
+    return;
+  }
+
   String html = R"(
     <!DOCTYPE html>
     <html>
@@ -426,7 +482,7 @@ void handleRoot() {
         </div>
         <div class='form-group'>
           <label>Senha Wi-Fi:</label>
-          <input type='password' name='wifi_pass' value=')" + config.wifi_pass + R"(' required>
+          <input type='password' name='wifi_pass' placeholder='********' required>
         </div>
         <div class='form-group'>
           <label>Cloudflare Token:</label>
@@ -454,6 +510,14 @@ void handleRoot() {
 }
 
 void handleSave() {
+
+  if (hasWebPassword()) {
+    if (!checkAuth()) {
+      requestAuth();
+      return;
+    }
+  }
+
   if (!server.hasArg("wifi_ssid")) {
     server.send(400, "text/html", "<h2>SSID é obrigatório!</h2>");
     return;
@@ -463,6 +527,10 @@ void handleSave() {
   String ssid = server.arg("wifi_ssid");
   String password = server.arg("wifi_pass");
   
+  if (password.length() == 0) {
+    password = config.wifi_pass; // mantém a atual
+  }
+
   // Atualiza configurações do Cloudflare
   if (server.hasArg("CF_TOKEN"))  config.CF_TOKEN  = server.arg("CF_TOKEN");
   if (server.hasArg("CF_ZONE"))   config.CF_ZONE   = server.arg("CF_ZONE");
@@ -480,6 +548,33 @@ void handleSave() {
     "<p>Aguarde alguns segundos e atualize a página para ver o resultado.</p>"
     "</body></html>");
 }
+
+
+void requestAuth() {
+  server.sendHeader("WWW-Authenticate", "Basic realm=\"ESP8266\"");
+  server.send(401, "text/plain", "Authentication required");
+}
+
+
+bool checkAuth() {
+  if (!server.hasHeader("Authorization")) return false;
+
+  String auth = server.header("Authorization"); 
+  auth.replace("Basic ", "");
+
+  String decoded = String((char*)base64::decode(auth).c_str());
+
+  int sep = decoded.indexOf(':');
+  if (sep < 0) return false;
+
+  String user = decoded.substring(0, sep);
+  String pass = decoded.substring(sep + 1);
+
+  if (user != config.web_user) return false;
+
+  return sha256(pass) == config.web_pass;
+}
+
 
 // ============================================
 // ATUALIZAÇÃO DNS E OTA
