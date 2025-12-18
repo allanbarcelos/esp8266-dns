@@ -6,6 +6,7 @@
 #include <EEPROM.h>
 #include <ArduinoJson.h>
 #include <Hash.h>
+#include <base64.h>
 
 // ============================================
 // DEFINIÇÕES E CONSTANTES
@@ -103,6 +104,9 @@ String getDNSRecordIP(const String& hostname);
 
 // Utilitários
 void performDailyReboot();
+
+//
+String sha256(const String& input);
 
 // ============================================
 // CONFIGURAÇÃO E INICIALIZAÇÃO
@@ -562,7 +566,7 @@ bool checkAuth() {
   String auth = server.header("Authorization"); 
   auth.replace("Basic ", "");
 
-  String decoded = String((char*)base64::decode(auth).c_str());
+  String decoded = base64::decode(auth);
 
   int sep = decoded.indexOf(':');
   if (sep < 0) return false;
