@@ -5,8 +5,6 @@
 #include <LittleFS.h>
 #include <EEPROM.h>
 #include <ArduinoJson.h>
-#include <Hash.h>
-#include <base64.h>
 
 // ============================================
 // DEFINIÇÕES E CONSTANTES
@@ -106,7 +104,9 @@ String getDNSRecordIP(const String& hostname);
 void performDailyReboot();
 
 //
-String sha256(const String& input);
+bool authenticate();
+bool hasWebPassword();
+void showCreatePasswordPage();
 
 // ============================================
 // CONFIGURAÇÃO E INICIALIZAÇÃO
@@ -154,7 +154,8 @@ void setup() {
     }
 
     config.web_user = server.arg("user");
-    config.web_pass = sha256(server.arg("pass"));
+    config.web_pass = server.arg("pass");
+
     saveConfiguration();
 
     server.send(200, "text/html",
@@ -450,12 +451,8 @@ void showCreatePasswordPage() {
 void handleRoot() {
 
   if (hasWebPassword()) {
-    if (!checkAuth()) {
-      requestAuth();
-      return;
-    }
+    if (!authenticate()) return;
   } else {
-    // Primeira configuração
     showCreatePasswordPage();
     return;
   }
@@ -516,10 +513,7 @@ void handleRoot() {
 void handleSave() {
 
   if (hasWebPassword()) {
-    if (!checkAuth()) {
-      requestAuth();
-      return;
-    }
+    if (!authenticate()) return;
   }
 
   if (!server.hasArg("wifi_ssid")) {
@@ -553,42 +547,22 @@ void handleSave() {
     "</body></html>");
 }
 
+bool authenticate() {
+  if (config.web_user.length() == 0 || config.web_pass.length() == 0) {
+    return true; // primeira configuração
+  }
 
-void requestAuth() {
-  server.sendHeader("WWW-Authenticate", "Basic realm=\"ESP8266\"");
-  server.send(401, "text/plain", "Authentication required");
+  if (!server.authenticate(
+        config.web_user.c_str(),
+        config.web_pass.c_str())) {
+    server.requestAuthentication(
+      DIGEST_AUTH,
+      "ESP8266",
+      "Autenticação necessária");
+    return false;
+  }
+  return true;
 }
-
-
-bool checkAuth() {
-  if (!server.hasHeader("Authorization")) return false;
-
-  String auth = server.header("Authorization");
-  if (!auth.startsWith("Basic ")) return false;
-
-  auth.replace("Basic ", "");
-
-  // Buffer para saída decodificada
-  int decodedLen = (auth.length() * 3) / 4 + 1;
-  char decoded[decodedLen];
-
-  int len = base64_decode(decoded, auth.c_str(), auth.length());
-  if (len <= 0) return false;
-
-  decoded[len] = '\0';
-  String decodedStr = String(decoded);
-
-  int sep = decodedStr.indexOf(':');
-  if (sep < 0) return false;
-
-  String user = decodedStr.substring(0, sep);
-  String pass = decodedStr.substring(sep + 1);
-
-  if (user != config.web_user) return false;
-
-  return sha256(pass) == config.web_pass;
-}
-
 
 
 // ============================================
