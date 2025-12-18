@@ -563,21 +563,32 @@ void requestAuth() {
 bool checkAuth() {
   if (!server.hasHeader("Authorization")) return false;
 
-  String auth = server.header("Authorization"); 
+  String auth = server.header("Authorization");
+  if (!auth.startsWith("Basic ")) return false;
+
   auth.replace("Basic ", "");
 
-  String decoded = base64::decode(auth);
+  // Buffer para saída decodificada
+  int decodedLen = (auth.length() * 3) / 4 + 1;
+  char decoded[decodedLen];
 
-  int sep = decoded.indexOf(':');
+  int len = base64_decode(decoded, auth.c_str(), auth.length());
+  if (len <= 0) return false;
+
+  decoded[len] = '\0';
+  String decodedStr = String(decoded);
+
+  int sep = decodedStr.indexOf(':');
   if (sep < 0) return false;
 
-  String user = decoded.substring(0, sep);
-  String pass = decoded.substring(sep + 1);
+  String user = decodedStr.substring(0, sep);
+  String pass = decodedStr.substring(sep + 1);
 
   if (user != config.web_user) return false;
 
   return sha256(pass) == config.web_pass;
 }
+
 
 
 // ============================================
