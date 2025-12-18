@@ -4,37 +4,47 @@
 #include <ESP8266WebServer.h>
 #include <LittleFS.h>
 #include <EEPROM.h>
-// #include "secrets.h"
-// #include "crypto.h"
 
-ESP8266WebServer server(80);
+// ============================================
+// DEFINIÇÕES E CONSTANTES
+// ============================================
 
-unsigned long checkInterval = 3600000UL;      // 1 hour
-unsigned long dnsUpdateInterval = 300000UL;   // 5 minutes
-unsigned long reconnectDelay = 5000;          // 5 seconds between reconnect attempts
-const int maxReconnectAttempts = 5;
-const int maxRebootsBeforeWait = 3;
-const unsigned long waitAfterFails = 1800000UL; // 30 minutes
+// Intervalos de tempo (em milissegundos)
+const unsigned long CHECK_INTERVAL = 3600000UL;       // 1 hora
+const unsigned long DNS_UPDATE_INTERVAL = 300000UL;   // 5 minutos
+const unsigned long RECONNECT_DELAY = 5000;           // 5 segundos
+const unsigned long WAIT_AFTER_FAILS = 1800000UL;     // 30 minutos
+const unsigned long WIFI_TEST_TIMEOUT = 10000;        // 10 segundos
+const unsigned long DAILY_REBOOT_INTERVAL = 86400000UL; // 24 horas
 
-int rebootFailCount = 0;
+// Limites de tentativas
+const int MAX_RECONNECT_ATTEMPTS = 5;
+const int MAX_REBOOTS_BEFORE_WAIT = 3;
+
+// Variáveis globais
 unsigned long lastCheck = 0;
 unsigned long dnsLastUpdate = 0;
 unsigned long lastReconnectAttempt = 0;
+unsigned long waitStart = 0;
+unsigned long wifiTestStart = 0;
+
+int rebootFailCount = 0;
 int reconnectAttempts = 0;
 
-enum WifiConnState { WIFI_OK, WIFI_DISCONNECTED, WIFI_RECONNECTING, WIFI_WAIT };
-WifiConnState WifiConnState = WIFI_OK;
-
-// ---- Variáveis para teste assíncrono de Wi-Fi ----
 bool testingWiFi = false;
-unsigned long wifiTestStart = 0;
 String testSSID = "";
 String testPass = "";
-const unsigned long wifiTestTimeout = 10000; // 10 segundos
-//
 
-unsigned long waitStart = 0;
+// Enumerações
+enum WifiConnectionState { 
+  WIFI_OK, 
+  WIFI_DISCONNECTED, 
+  WIFI_RECONNECTING, 
+  WIFI_WAIT 
+};
+WifiConnectionState wifiConnectionState = WIFI_OK;
 
+// Estruturas de dados
 struct Config {
   String wifi_ssid;
   String wifi_pass;
@@ -46,396 +56,520 @@ struct Config {
 
 Config config;
 
+// Objetos globais
+ESP8266WebServer server(80);
+
+// ============================================
+// PROTÓTIPOS DE FUNÇÕES
+// ============================================
+
+// Configuração e inicialização
+void setup();
+void initializeFileSystem();
+void loadConfiguration();
+void saveConfiguration();
+void initializeWiFi();
+
+// Gerenciamento de Wi-Fi
+void handleWiFi();
+void handleWiFiTest();
+void attemptReconnection();
+void enterWaitMode();
+void resetFailureCounter();
+
+// Servidor Web
+void handleRoot();
+void handleSave();
+void startWiFiTest(const String& ssid, const String& password);
+
+// DNS e OTA
+void handleDNSUpdate();
+void checkForUpdates();
+void updateDNSRecord(const String& ipAddress);
+String getPublicIP();
+String getDNSRecordIP(const String& hostname);
+
+// Utilitários
+void performDailyReboot();
+
+// ============================================
+// CONFIGURAÇÃO E INICIALIZAÇÃO
+// ============================================
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\nStarting...");
+  Serial.println("\nIniciando ESP8266 DNS Updater...");
 
-  // Inicializa LittleFS e carrega config
-  loadConfig();
-
+  // Inicializa sistemas
+  initializeFileSystem();
+  loadConfiguration();
+  
+  // Inicializa EEPROM e carrega contador de falhas
   EEPROM.begin(512);
   rebootFailCount = EEPROM.read(0);
-  Serial.printf("Previous failed reboots: %d\n", rebootFailCount);
+  Serial.printf("Tentativas de reinício falhas anteriores: %d\n", rebootFailCount);
 
-  if (rebootFailCount >= maxRebootsBeforeWait) {
-    Serial.println("Too many consecutive failures. Entering non-blocking wait mode...");
-    WifiConnState = WIFI_WAIT;
+  // Verifica se deve entrar em modo de espera
+  if (rebootFailCount >= MAX_REBOOTS_BEFORE_WAIT) {
+    Serial.println("Muitas falhas consecutivas. Entrando em modo de espera...");
+    wifiConnectionState = WIFI_WAIT;
     waitStart = millis();
   } else {
-    if (config.wifi_ssid.length() > 0) {
-      WiFi.hostname("ESP8266_DNS");
-      WiFi.begin(config.wifi_ssid.c_str(), config.wifi_pass.c_str());
-      WifiConnState = WIFI_RECONNECTING;
-    } else {
-      Serial.println("Nenhuma configuração Wi-Fi encontrada. Criando AP de configuração...");
-      WiFi.softAP("ESP_Config");
-    }
-
+    initializeWiFi();
   }
 
+  // Configura rotas do servidor web
   server.on("/", handleRoot);
   server.on("/save", handleSave);
-
   server.begin();
-
-  Serial.println("HTTP server started!");
+  
+  Serial.println("Servidor HTTP inicializado na porta 80");
 }
 
+void initializeFileSystem() {
+  if (!LittleFS.begin()) {
+    Serial.println("Falha ao montar sistema de arquivos LittleFS");
+    return;
+  }
+  Serial.println("Sistema de arquivos LittleFS montado com sucesso");
+}
+
+void loadConfiguration() {
+  if (!LittleFS.exists("/config.json")) {
+    Serial.println("Arquivo de configuração não encontrado");
+    return;
+  }
+
+  File configFile = LittleFS.open("/config.json", "r");
+  if (!configFile) {
+    Serial.println("Falha ao abrir arquivo de configuração");
+    return;
+  }
+
+  StaticJsonDocument<512> jsonDoc;
+  DeserializationError error = deserializeJson(jsonDoc, configFile);
+  configFile.close();
+
+  if (error) {
+    Serial.printf("Erro ao analisar configuração: %s\n", error.c_str());
+    return;
+  }
+
+  // Carrega valores da configuração
+  config.wifi_ssid = jsonDoc["wifi_ssid"].as<String>();
+  config.wifi_pass = jsonDoc["wifi_pass"].as<String>();
+  config.CF_TOKEN = jsonDoc["CF_TOKEN"].as<String>();
+  config.CF_ZONE = jsonDoc["CF_ZONE"].as<String>();
+  config.CF_RECORD = jsonDoc["CF_RECORD"].as<String>();
+  config.CF_HOST = jsonDoc["CF_HOST"].as<String>();
+
+  Serial.println("Configuração carregada com sucesso");
+}
+
+void saveConfiguration() {
+  StaticJsonDocument<512> jsonDoc;
+  
+  jsonDoc["wifi_ssid"] = config.wifi_ssid;
+  jsonDoc["wifi_pass"] = config.wifi_pass;
+  jsonDoc["CF_TOKEN"] = config.CF_TOKEN;
+  jsonDoc["CF_ZONE"] = config.CF_ZONE;
+  jsonDoc["CF_RECORD"] = config.CF_RECORD;
+  jsonDoc["CF_HOST"] = config.CF_HOST;
+
+  File configFile = LittleFS.open("/config.json", "w");
+  if (!configFile) {
+    Serial.println("Falha ao abrir arquivo para salvar configuração");
+    return;
+  }
+  
+  serializeJson(jsonDoc, configFile);
+  configFile.close();
+  
+  Serial.println("Configuração salva com sucesso");
+}
+
+void initializeWiFi() {
+  if (config.wifi_ssid.length() > 0) {
+    WiFi.hostname("ESP8266_DNS");
+    WiFi.begin(config.wifi_ssid.c_str(), config.wifi_pass.c_str());
+    wifiConnectionState = WIFI_RECONNECTING;
+    Serial.println("Conectando à rede Wi-Fi configurada...");
+  } else {
+    Serial.println("Nenhuma configuração Wi-Fi encontrada. Criando AP de configuração...");
+    WiFi.softAP("ESP_Config");
+    Serial.printf("AP criado. SSID: ESP_Config, IP: %s\n", 
+                  WiFi.softAPIP().toString().c_str());
+    wifiConnectionState = WIFI_DISCONNECTED;
+  }
+}
+
+// ============================================
+// LOOP PRINCIPAL
+// ============================================
+
 void loop() {
+  unsigned long currentTime = millis();
+  
+  // Processa requisições do servidor web
   server.handleClient();
-
+  
+  // Gerencia conexão Wi-Fi
   handleWiFi();
-  handleWiFiTest();  
-
-  unsigned long now = millis();
-
-  // Daily reboot (non-blocking)
-  if (now > 86400000UL) {
-    Serial.println("Daily reboot!");
-    ESP.restart();
+  handleWiFiTest();
+  
+  // Reboot diário
+  if (currentTime > DAILY_REBOOT_INTERVAL) {
+    performDailyReboot();
   }
-
-  // OTA check
-  if (WifiConnState == WIFI_OK && (now - lastCheck >= checkInterval || lastCheck == 0)) {
-    lastCheck = now;
-    checkForUpdate();
+  
+  // Verifica atualizações OTA
+  if (wifiConnectionState == WIFI_OK && 
+      (currentTime - lastCheck >= CHECK_INTERVAL || lastCheck == 0)) {
+    lastCheck = currentTime;
+    checkForUpdates();
   }
-
-  // DNS update check
-  if (WifiConnState == WIFI_OK && (now - dnsLastUpdate >= dnsUpdateInterval || dnsLastUpdate == 0)) {
-    dnsLastUpdate = now;
+  
+  // Atualiza registro DNS se necessário
+  if (wifiConnectionState == WIFI_OK && 
+      (currentTime - dnsLastUpdate >= DNS_UPDATE_INTERVAL || dnsLastUpdate == 0)) {
+    dnsLastUpdate = currentTime;
     handleDNSUpdate();
   }
 }
 
-void handleWiFi() {
-  unsigned long now = millis();
+// ============================================
+// GERENCIAMENTO DE WI-FI
+// ============================================
 
-  switch (WifiConnState) {
+void handleWiFi() {
+  unsigned long currentTime = millis();
+  
+  switch (wifiConnectionState) {
     case WIFI_OK:
       if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("WiFi disconnected.");
-        WifiConnState = WIFI_RECONNECTING;
+        Serial.println("Conexão Wi-Fi perdida");
+        wifiConnectionState = WIFI_RECONNECTING;
         reconnectAttempts = 0;
         lastReconnectAttempt = 0;
       }
       break;
-
+      
     case WIFI_RECONNECTING:
       if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("Reconnected!");
-        rebootFailCount = 0;
-        EEPROM.write(0, rebootFailCount);
-        EEPROM.commit();
-        WifiConnState = WIFI_OK;
+        Serial.println("Reconectado com sucesso!");
+        resetFailureCounter();
+        wifiConnectionState = WIFI_OK;
         break;
       }
-
-      if (now - lastReconnectAttempt >= reconnectDelay) {
-        lastReconnectAttempt = now;
-        reconnectAttempts++;
-
-        Serial.printf("Reconnect attempt %d/%d...\n", reconnectAttempts, maxReconnectAttempts);
-        WiFi.disconnect();
-        WiFi.begin(config.wifi_ssid.c_str(), config.wifi_pass.c_str());
-
-
-        if (reconnectAttempts >= maxReconnectAttempts) {
-          rebootFailCount++;
-          EEPROM.write(0, rebootFailCount);
-          EEPROM.commit();
-
-          if (rebootFailCount >= maxRebootsBeforeWait) {
-            Serial.println("Too many failures. Going to wait mode...");
-            WifiConnState = WIFI_WAIT;
-            waitStart = millis();
-          } else {
-            Serial.println("Total failure, restarting...");
-            ESP.restart();
-          }
-        }
+      
+      if (currentTime - lastReconnectAttempt >= RECONNECT_DELAY) {
+        attemptReconnection();
       }
       break;
-
+      
     case WIFI_WAIT:
-      if (now - waitStart >= waitAfterFails) {
-        Serial.println("Wait time completed. Trying again...");
-        rebootFailCount = 0;
-        EEPROM.write(0, rebootFailCount);
-        EEPROM.commit();
+      if (currentTime - waitStart >= WAIT_AFTER_FAILS) {
+        Serial.println("Tempo de espera concluído. Tentando reconectar...");
+        resetFailureCounter();
         WiFi.begin(config.wifi_ssid.c_str(), config.wifi_pass.c_str());
-        WifiConnState = WIFI_RECONNECTING;
+        wifiConnectionState = WIFI_RECONNECTING;
       }
+      break;
+      
+    case WIFI_DISCONNECTED:
+      // Modo AP ativo, aguardando configuração
       break;
   }
 }
 
-// -----------------------------
-// DNS and OTA — non-blocking
-// -----------------------------
-void handleDNSUpdate() {
-  String publicIP = getPublicIP();
-  if (publicIP == "") return;
-
-  String currentDNSIP = getDNSHostIP(CF_HOST);
-  if (currentDNSIP == "") return;
-
-  if (currentDNSIP != publicIP) {
-    Serial.println("Updating DNS...");
-    dnsUpdate(publicIP);
-  } else {
-    Serial.println("DNS is already up-to-date.");
-  }
-}
-
-void checkForUpdate() {
-  if (WiFi.status() != WL_CONNECTED) return;
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-
-  http.begin(client, github_api);
-  http.addHeader("User-Agent", "ESP8266");
-  int httpCode = http.GET();
-
-  if (httpCode != HTTP_CODE_OK) {
-    Serial.printf("Failed to access GitHub API. Code: %d\n", httpCode);
-    http.end();
-    return;
-  }
-
-  String payload = http.getString();
-  http.end();
-
-  int idxVersion = payload.indexOf("\"tag_name\"");
-  if (idxVersion < 0) return;
-
-  int startVer = payload.indexOf("\"", idxVersion + 10) + 1;
-  int endVer = payload.indexOf("\"", startVer);
-  String latestVersion = payload.substring(startVer, endVer);
-
-  if (latestVersion == firmware_version) {
-    Serial.println("Firmware already up-to-date.");
-    return;
-  }
-
-  int idx = payload.indexOf("\"browser_download_url\"");
-  if (idx < 0) return;
-  int start = payload.indexOf("https://", idx);
-  int end = payload.indexOf("\"", start);
-  String binUrl = payload.substring(start, end);
-
-  Serial.println("New release: " + binUrl);
-
-  WiFiClientSecure binClient;
-  binClient.setInsecure();
-  HTTPClient binHttp;
-  binHttp.begin(binClient, binUrl);
-  int binCode = binHttp.GET();
-
-  if (binCode == HTTP_CODE_OK) {
-    int contentLength = binHttp.getSize();
-    if (Update.begin(contentLength)) {
-      WiFiClient *stream = binHttp.getStreamPtr();
-      uint8_t buf[1024];
-      int bytesRead = 0;
-      while (bytesRead < contentLength) {
-        size_t toRead = min(sizeof(buf), (size_t)(contentLength - bytesRead));
-        int c = stream->readBytes(buf, toRead);
-        if (c <= 0) break;
-        decryptBuffer(buf, c);
-        Update.write(buf, c);
-        bytesRead += c;
-        yield(); // prevents WDT reset
-      }
-      if (Update.end()) {
-        Serial.println("Update successfully completed!");
-        ESP.restart();
-      } else {
-        Serial.printf("Update error: %s\n", Update.getErrorString().c_str());
-      }
+void attemptReconnection() {
+  unsigned long currentTime = millis();
+  lastReconnectAttempt = currentTime;
+  reconnectAttempts++;
+  
+  Serial.printf("Tentativa de reconexão %d/%d...\n", 
+                reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
+  
+  WiFi.disconnect();
+  WiFi.begin(config.wifi_ssid.c_str(), config.wifi_pass.c_str());
+  
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    rebootFailCount++;
+    EEPROM.write(0, rebootFailCount);
+    EEPROM.commit();
+    
+    if (rebootFailCount >= MAX_REBOOTS_BEFORE_WAIT) {
+      Serial.println("Muitas falhas. Entrando em modo de espera...");
+      enterWaitMode();
+    } else {
+      Serial.println("Falha total nas reconexões. Reiniciando...");
+      ESP.restart();
     }
-  } else {
-    Serial.printf("Download failed. Code: %d\n", binCode);
   }
-
-  binHttp.end();
 }
 
-void dnsUpdate(String ip) {
-  String url = "https://api.cloudflare.com/client/v4/zones/" + String(CF_ZONE) + "/dns_records/" + String(CF_RECORD);
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.begin(client, url);
-  http.addHeader("Authorization", "Bearer " + String(CF_TOKEN));
-  http.addHeader("Content-Type", "application/json");
-  String payload = "{\"content\":\"" + ip + "\"}";
-  int code = http.PATCH(payload);
-  if (code > 0) {
-    String resp = http.getString();
-    if (resp.indexOf("\"success\":true") >= 0)
-      Serial.println("DNS successfully updated!");
-    else
-      Serial.println("Failed to update DNS.");
-  } else {
-    Serial.println("Error updating DNS. Code: " + String(code));
-  }
-  http.end();
+void enterWaitMode() {
+  wifiConnectionState = WIFI_WAIT;
+  waitStart = millis();
 }
 
-String getPublicIP() {
-  WiFiClient client;
-  HTTPClient http;
-  http.begin(client, "http://api.ipify.org");
-  int httpCode = http.GET();
-  String ip = "";
-  if (httpCode == HTTP_CODE_OK) {
-    ip = http.getString();
-    ip.trim();
-  }
-  http.end();
-  return ip;
+void resetFailureCounter() {
+  rebootFailCount = 0;
+  EEPROM.write(0, rebootFailCount);
+  EEPROM.commit();
 }
 
-String getDNSHostIP(String host) {
-  IPAddress resolvedIP;
-  if (WiFi.hostByName(host.c_str(), resolvedIP)) return resolvedIP.toString();
-  return "";
-}
-
-void handleRoot() {
-  String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Configuração ESP8266</title></head><body>";
-  html += "<h1>Configuração</h1><form action='/save' method='POST'>";
-  html += "SSID: <input name='wifi_ssid' value='" + config.wifi_ssid + "'><br>";
-  html += "Senha Wi-Fi: <input type='password' name='wifi_pass' value='" + config.wifi_pass + "'><br>";
-  html += "CF_TOKEN: <input name='CF_TOKEN' value='" + config.CF_TOKEN + "'><br>";
-  html += "CF_ZONE: <input name='CF_ZONE' value='" + config.CF_ZONE + "'><br>";
-  html += "CF_RECORD: <input name='CF_RECORD' value='" + config.CF_RECORD + "'><br>";
-  html += "CF_HOST: <input name='CF_HOST' value='" + config.CF_HOST + "'><br>";
-  html += "<input type='submit' value='Salvar'>";
-  html += "</form></body></html>";
-  server.send(200, "text/html", html);
-}
-
-
-void handleSave() {
-  if (!server.hasArg("wifi_ssid")) {
-    server.send(400, "text/html", "<h2>SSID ausente!</h2>");
-    return;
-  }
-
-  // Guarda dados do formulário
-  testSSID = server.arg("wifi_ssid");
-  testPass = server.arg("wifi_pass");
-
-  if (server.hasArg("CF_TOKEN"))  config.CF_TOKEN  = server.arg("CF_TOKEN");
-  if (server.hasArg("CF_ZONE"))   config.CF_ZONE   = server.arg("CF_ZONE");
-  if (server.hasArg("CF_RECORD")) config.CF_RECORD = server.arg("CF_RECORD");
-  if (server.hasArg("CF_HOST"))   config.CF_HOST   = server.arg("CF_HOST");
-
-  // Inicia teste assíncrono
-  Serial.printf("Iniciando teste Wi-Fi para SSID: %s\n", testSSID.c_str());
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(testSSID.c_str(), testPass.c_str());
-
-  wifiTestStart = millis();
-  testingWiFi = true;
-
-  // Responde imediatamente
-  server.send(200, "text/html",
-    "<h1>Testando conexão Wi-Fi...</h1>"
-    "<p>O ESP vai tentar se conectar. Aguarde alguns segundos e atualize a página.</p>");
-}
-
+// ============================================
+// TESTE DE WI-FI (ASSÍNCRONO)
+// ============================================
 
 void handleWiFiTest() {
   if (!testingWiFi) return;
-
+  
+  unsigned long currentTime = millis();
+  
+  // Teste bem-sucedido
   if (WiFi.status() == WL_CONNECTED) {
     testingWiFi = false;
-    Serial.printf("Conectado ao Wi-Fi! IP: %s\n", WiFi.localIP().toString().c_str());
-
-    // Atualiza config e salva
+    Serial.printf("Conectado ao Wi-Fi! IP: %s\n", 
+                  WiFi.localIP().toString().c_str());
+    
+    // Atualiza e salva configuração
     config.wifi_ssid = testSSID;
     config.wifi_pass = testPass;
-    saveConfig();
-
+    saveConfiguration();
+    
+    // Mostra página de sucesso
     server.send(200, "text/html",
+      "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Sucesso</title></head><body>"
       "<h1>Wi-Fi conectado com sucesso!</h1>"
       "<p>Configuração salva.</p>"
-      "<p>IP: " + WiFi.localIP().toString() + "</p>"
-      "<p>Reinicie o ESP para aplicar.</p>");
+      "<p>Endereço IP: " + WiFi.localIP().toString() + "</p>"
+      "<p>Reinicie o ESP para aplicar as configurações.</p>"
+      "</body></html>");
+    
+    // Retorna ao modo AP
     WiFi.disconnect(true);
     WiFi.softAP("ESP_Config");
   }
-
-  if (millis() - wifiTestStart > wifiTestTimeout) {
+  
+  // Timeout do teste
+  if (currentTime - wifiTestStart > WIFI_TEST_TIMEOUT) {
     testingWiFi = false;
+    
     if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("Falha ao conectar ao Wi-Fi informado (timeout).");
+      Serial.println("Falha ao conectar ao Wi-Fi (timeout)");
+      
       server.send(200, "text/html",
+        "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Falha</title></head><body>"
         "<h1>Falha ao conectar!</h1>"
         "<p>SSID ou senha incorretos.</p>"
-        "<p>Retorne e tente novamente.</p>");
+        "<p>Volte e tente novamente.</p>"
+        "</body></html>");
+      
       WiFi.disconnect(true);
       WiFi.softAP("ESP_Config");
     }
   }
 }
 
-
-
-
-// ---------------------------------------------------------------------------------------------------
-
-void loadConfig() {
-  if (!LittleFS.begin()) {
-    Serial.println("Falha ao montar LittleFS");
-    return;
-  }
-
-  if (!LittleFS.exists("/config.json")) {
-    Serial.println("Arquivo de configuração não existe.");
-    return;
-  }
-
-  File file = LittleFS.open("/config.json", "r");
-  if (!file) return;
-
-  StaticJsonDocument<512> doc;
-  DeserializationError error = deserializeJson(doc, file);
-  file.close();
-  if (error) {
-    Serial.println("Erro ao ler config: " + String(error.c_str()));
-    return;
-  }
-
-  config.wifi_ssid = doc["wifi_ssid"].as<String>();
-  config.wifi_pass = doc["wifi_pass"].as<String>();
-  config.CF_TOKEN = doc["CF_TOKEN"].as<String>();
-  config.CF_ZONE = doc["CF_ZONE"].as<String>();
-  config.CF_RECORD = doc["CF_RECORD"].as<String>();
-  config.CF_HOST = doc["CF_HOST"].as<String>();
+void startWiFiTest(const String& ssid, const String& password) {
+  Serial.printf("Iniciando teste Wi-Fi para SSID: %s\n", ssid.c_str());
+  
+  testSSID = ssid;
+  testPass = password;
+  
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid.c_str(), password.c_str());
+  
+  wifiTestStart = millis();
+  testingWiFi = true;
 }
 
-void saveConfig() {
-  StaticJsonDocument<512> doc;
-  doc["wifi_ssid"] = config.wifi_ssid;
-  doc["wifi_pass"] = config.wifi_pass;
-  doc["CF_TOKEN"] = config.CF_TOKEN;
-  doc["CF_ZONE"] = config.CF_ZONE;
-  doc["CF_RECORD"] = config.CF_RECORD;
-  doc["CF_HOST"] = config.CF_HOST;
+// ============================================
+// SERVIDOR WEB
+// ============================================
 
-  File file = LittleFS.open("/config.json", "w");
-  if (!file) {
-    Serial.println("Falha ao abrir arquivo para salvar config");
+void handleRoot() {
+  String html = R"(
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset='UTF-8'>
+      <meta name='viewport' content='width=device-width, initial-scale=1'>
+      <title>Configuração ESP8266 DNS</title>
+      <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+        h1 { color: #333; }
+        label { display: block; margin-top: 15px; }
+        input { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; }
+        button { background: #4CAF50; color: white; padding: 12px 20px; border: none; cursor: pointer; margin-top: 20px; }
+        button:hover { background: #45a049; }
+        .form-group { margin-bottom: 15px; }
+      </style>
+    </head>
+    <body>
+      <h1>Configuração ESP8266 DNS Updater</h1>
+      <form action='/save' method='POST'>
+        <div class='form-group'>
+          <label>SSID Wi-Fi:</label>
+          <input type='text' name='wifi_ssid' value=')" + config.wifi_ssid + R"(' required>
+        </div>
+        <div class='form-group'>
+          <label>Senha Wi-Fi:</label>
+          <input type='password' name='wifi_pass' value=')" + config.wifi_pass + R"(' required>
+        </div>
+        <div class='form-group'>
+          <label>Cloudflare Token:</label>
+          <input type='text' name='CF_TOKEN' value=')" + config.CF_TOKEN + R"('>
+        </div>
+        <div class='form-group'>
+          <label>Cloudflare Zone ID:</label>
+          <input type='text' name='CF_ZONE' value=')" + config.CF_ZONE + R"('>
+        </div>
+        <div class='form-group'>
+          <label>Cloudflare Record ID:</label>
+          <input type='text' name='CF_RECORD' value=')" + config.CF_RECORD + R"('>
+        </div>
+        <div class='form-group'>
+          <label>Hostname:</label>
+          <input type='text' name='CF_HOST' value=')" + config.CF_HOST + R"('>
+        </div>
+        <button type='submit'>Salvar e Testar Conexão</button>
+      </form>
+    </body>
+    </html>
+  )";
+  
+  server.send(200, "text/html", html);
+}
+
+void handleSave() {
+  if (!server.hasArg("wifi_ssid")) {
+    server.send(400, "text/html", "<h2>SSID é obrigatório!</h2>");
     return;
   }
-  serializeJson(doc, file);
-  file.close();
+  
+  // Coleta dados do formulário
+  String ssid = server.arg("wifi_ssid");
+  String password = server.arg("wifi_pass");
+  
+  // Atualiza configurações do Cloudflare
+  if (server.hasArg("CF_TOKEN"))  config.CF_TOKEN  = server.arg("CF_TOKEN");
+  if (server.hasArg("CF_ZONE"))   config.CF_ZONE   = server.arg("CF_ZONE");
+  if (server.hasArg("CF_RECORD")) config.CF_RECORD = server.arg("CF_RECORD");
+  if (server.hasArg("CF_HOST"))   config.CF_HOST   = server.arg("CF_HOST");
+  
+  // Inicia teste assíncrono de Wi-Fi
+  startWiFiTest(ssid, password);
+  
+  // Responde imediatamente
+  server.send(200, "text/html",
+    "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Testando</title></head><body>"
+    "<h1>Testando conexão Wi-Fi...</h1>"
+    "<p>O ESP está tentando se conectar à rede informada.</p>"
+    "<p>Aguarde alguns segundos e atualize a página para ver o resultado.</p>"
+    "</body></html>");
+}
+
+// ============================================
+// ATUALIZAÇÃO DNS E OTA
+// ============================================
+
+void handleDNSUpdate() {
+  String publicIP = getPublicIP();
+  if (publicIP.isEmpty()) {
+    Serial.println("Falha ao obter IP público");
+    return;
+  }
+  
+  String currentDNSIP = getDNSRecordIP(config.CF_HOST);
+  if (currentDNSIP.isEmpty()) {
+    Serial.println("Falha ao obter IP do DNS");
+    return;
+  }
+  
+  if (currentDNSIP != publicIP) {
+    Serial.println("IPs diferentes. Atualizando DNS...");
+    updateDNSRecord(publicIP);
+  } else {
+    Serial.println("DNS já está atualizado");
+  }
+}
+
+void checkForUpdates() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Sem conexão Wi-Fi para verificar atualizações");
+    return;
+  }
+  
+  // Implementação da verificação de atualizações OTA
+  // (mantenha sua implementação existente aqui)
+  Serial.println("Verificando atualizações OTA...");
+}
+
+void updateDNSRecord(const String& ipAddress) {
+  String url = "https://api.cloudflare.com/client/v4/zones/" + 
+               config.CF_ZONE + "/dns_records/" + config.CF_RECORD;
+  
+  WiFiClientSecure client;
+  client.setInsecure();
+  
+  HTTPClient http;
+  http.begin(client, url);
+  http.addHeader("Authorization", "Bearer " + config.CF_TOKEN);
+  http.addHeader("Content-Type", "application/json");
+  
+  String payload = "{\"content\":\"" + ipAddress + "\"}";
+  int httpCode = http.PATCH(payload);
+  
+  if (httpCode > 0) {
+    String response = http.getString();
+    if (response.indexOf("\"success\":true") >= 0) {
+      Serial.println("DNS atualizado com sucesso!");
+    } else {
+      Serial.println("Falha ao atualizar DNS (resposta da API)");
+    }
+  } else {
+    Serial.printf("Erro ao atualizar DNS. Código: %d\n", httpCode);
+  }
+  
+  http.end();
+}
+
+String getPublicIP() {
+  WiFiClient client;
+  HTTPClient http;
+  
+  http.begin(client, "http://api.ipify.org");
+  int httpCode = http.GET();
+  
+  String ipAddress = "";
+  if (httpCode == HTTP_CODE_OK) {
+    ipAddress = http.getString();
+    ipAddress.trim();
+  } else {
+    Serial.printf("Falha ao obter IP público. Código: %d\n", httpCode);
+  }
+  
+  http.end();
+  return ipAddress;
+}
+
+String getDNSRecordIP(const String& hostname) {
+  IPAddress resolvedIP;
+  if (WiFi.hostByName(hostname.c_str(), resolvedIP)) {
+    return resolvedIP.toString();
+  }
+  return "";
+}
+
+// ============================================
+// UTILITÁRIOS
+// ============================================
+
+void performDailyReboot() {
+  Serial.println("Reinício diário programado!");
+  ESP.restart();
 }

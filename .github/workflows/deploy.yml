@@ -2,8 +2,6 @@ name: Build and Publish ESP8266 Firmware
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 on:
   push:
@@ -60,31 +58,6 @@ jobs:
           echo "Nova tag: $new_tag"
           echo "new_tag=$new_tag" >> $GITHUB_ENV
 
-
-
-      - name: Generate secrets.h
-        run: |
-          echo '#ifndef SECRETS_H' > secrets.h
-          echo '#define SECRETS_H' >> secrets.h
-          echo '' >> secrets.h
-
-          echo 'const char* ssid = "${{ secrets.WIFI_SSID }}";' >> secrets.h
-          echo 'const char* password = "${{ secrets.WIFI_PASS }}";' >> secrets.h
-          echo 'const char* github_api = "${{ secrets.GH_RELEASES }}";' >> secrets.h
-          echo "const char* firmware_version = \"$new_tag\";" >> secrets.h
-
-          echo 'const char* CF_TOKEN = "${{ secrets.CF_TOKEN }}";' >> secrets.h
-          echo 'const char* CF_ZONE = "${{ secrets.CF_ZONE }}";' >> secrets.h
-          echo 'const char* CF_RECORD = "${{ secrets.CF_RECORD }}";' >> secrets.h
-          echo 'const char* CF_HOST = "${{ secrets.CF_HOST }}";' >> secrets.h
-
-          echo '' >> secrets.h
-          echo '#endif' >> secrets.h
-
-      - name: Get crypto.h
-        run: |
-          echo "${{ secrets.CRYPTO_H }}" | base64 --decode > crypto.h
-
       - name: List available ESP8266 boards
         run: arduino-cli board listall esp8266
 
@@ -95,16 +68,6 @@ jobs:
             --build-property build.flags.optimize.lto=true \
             --build-property build.flags.optimize.size=true \
             --output-dir build
-
-      - name: Encrypt firmware
-        run: |
-          BIN_FILE=$(ls build/*.bin)
-          ENCRYPTED_BIN="build/firmware_encrypted.bin"
-          echo "${{ secrets.ENCRYPT_SCRIPT }}" | base64 --decode > encrypt_firmware.py
-          chmod +x encrypt_firmware.py
-          python3 encrypt_firmware.py "$BIN_FILE" "$ENCRYPTED_BIN" "${{ secrets.ENCRYPT_TOKEN }}"
-          mv "$ENCRYPTED_BIN" build/firmware.bin
-
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -119,5 +82,3 @@ jobs:
           name: ESP8266 Firmware Build ${{ github.run_number }}
           files: build/firmware.bin
           generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GHR_TOKEN }}
