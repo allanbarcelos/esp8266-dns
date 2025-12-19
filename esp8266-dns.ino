@@ -654,28 +654,32 @@ void handleDNSUpdate() {
 void checkForUpdate() {
   if (WiFi.status() != WL_CONNECTED) return;
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
+  addLog("Free heap before OTA: %d", ESP.getFreeHeap());
 
-  http.begin(client, github_api);
-  http.addHeader("User-Agent", "ESP8266");
-  int httpCode = http.GET();
+  // ===== 1. CONSULTA API DO GITHUB (HTTPS) =====
+  WiFiClientSecure apiClient;
+  apiClient.setInsecure();
 
+  HTTPClient apiHttp;
+  apiHttp.begin(apiClient, github_api);
+  apiHttp.addHeader("User-Agent", "ESP8266");
+
+  int httpCode = apiHttp.GET();
   if (httpCode != HTTP_CODE_OK) {
-    addLog("Failed to access GitHub API. Code: %d", httpCode);
-    http.end();
+    addLog("GitHub API error: %d", httpCode);
+    apiHttp.end();
     return;
   }
 
-  String payload = http.getString();
-  http.end();
+  String payload = apiHttp.getString();
+  apiHttp.end();
 
+  // ===== 2. OBTÉM VERSÃO =====
   int idxVersion = payload.indexOf("\"tag_name\"");
   if (idxVersion < 0) return;
 
   int startVer = payload.indexOf("\"", idxVersion + 10) + 1;
-  int endVer = payload.indexOf("\"", startVer);
+  int endVer   = payload.indexOf("\"", startVer);
   String latestVersion = payload.substring(startVer, endVer);
 
   if (latestVersion == firmware_version) {
@@ -683,43 +687,51 @@ void checkForUpdate() {
     return;
   }
 
+  // ===== 3. OBTÉM URL DO BIN =====
   int idx = payload.indexOf("\"browser_download_url\"");
   if (idx < 0) return;
+
   int start = payload.indexOf("https://", idx);
-  int end = payload.indexOf("\"", start);
+  int end   = payload.indexOf("\"", start);
   String binUrl = payload.substring(start, end);
 
-  addLog("New release: %s", binUrl.c_str());
+  // CONVERTE PARA HTTP (IMPORTANTE)
+  binUrl.replace("https://", "http://");
 
-  WiFiClientSecure binClient;
-  binClient.setInsecure();
+  addLog("New firmware: %s", binUrl.c_str());
+
+  // ===== 4. LIBERA MEMÓRIA =====
+  server.stop();
+  delay(500);
+
+  // ===== 5. DOWNLOAD DO BIN (HTTP) =====
+  WiFiClient binClient;
   HTTPClient binHttp;
+
   binHttp.begin(binClient, binUrl);
   int binCode = binHttp.GET();
 
-  if (binCode == HTTP_CODE_OK) {
-    int contentLength = binHttp.getSize();
-    if (Update.begin(contentLength)) {
-      WiFiClient *stream = binHttp.getStreamPtr();
-      uint8_t buf[1024];
-      int bytesRead = 0;
-      while (bytesRead < contentLength) {
-        size_t toRead = min(sizeof(buf), (size_t)(contentLength - bytesRead));
-        int c = stream->readBytes(buf, toRead);
-        if (c <= 0) break;
-        Update.write(buf, c);
-        bytesRead += c;
-        yield(); // prevents WDT reset
-      }
-      if (Update.end()) {
-        addLog("Update successfully completed!");
-        ESP.restart();
-      } else {
-        addLog("Update error: %s", Update.getErrorString().c_str());
-      }
-    }
+  if (binCode != HTTP_CODE_OK) {
+    addLog("Firmware download failed: %d", binCode);
+    binHttp.end();
+    return;
+  }
+
+  int contentLength = binHttp.getSize();
+  if (!Update.begin(contentLength)) {
+    addLog("Not enough space for OTA");
+    binHttp.end();
+    return;
+  }
+
+  WiFiClient *stream = binHttp.getStreamPtr();
+  size_t written = Update.writeStream(*stream);
+
+  if (written == contentLength && Update.end()) {
+    addLog("OTA successful, rebooting...");
+    ESP.restart();
   } else {
-    addLog("Download failed. Code: %d", binCode);
+    addLog("OTA failed: %s", Update.getErrorString().c_str());
   }
 
   binHttp.end();
@@ -745,7 +757,7 @@ void updateDNSRecord(const String& ipAddress) {
     if (response.indexOf("\"success\":true") >= 0) {
       addLog("DNS atualizado com sucesso!");
     } else {
-      addLog("Falha ao atualizar DNS (resposta da API)");
+      addLog("Cloudflare response: %s", response.c_str());
     }
   } else {
     addLog("Erro ao atualizar DNS. Código: %d", httpCode);
