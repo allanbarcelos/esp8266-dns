@@ -443,7 +443,12 @@ void showCreatePasswordPage() {
     "Usuário:<br><input name='user' required><br><br>"
     "Senha:<br><input name='pass' type='password' placeholder='********' required><br><br>"
     "<button type='submit'>Salvar</button>"
-    "</form></body></html>"
+    "</form>"
+    "<hr>"
+    "<p style='font-size:12px;color:#777;'>"
+    "Firmware version: " firmware_version
+    "</p>"
+    "</body></html>"
   );
 }
 
@@ -503,9 +508,15 @@ void handleRoot() {
         </div>
         <button type='submit'>Salvar e Testar Conexão</button>
       </form>
+      <hr>
+      <p style="font-size:12px;color:#777;text-align:center;">
+        Firmware version: {{VERSION}}
+      </p>
     </body>
     </html>
   )";
+
+  html.replace("{{VERSION}}", firmware_version);
   
   server.send(200, "text/html", html);
 }
