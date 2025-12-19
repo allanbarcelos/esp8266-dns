@@ -19,7 +19,7 @@ const char* github_api = "https://api.github.com/repos/allanbarcelos/esp8266-dns
 #endif
 
 // LOG
-#define LOG_BUFFER_SIZE 40
+#define LOG_BUFFER_SIZE 10
 #define LOG_LINE_SIZE   128 
 
 String logBuffer[LOG_BUFFER_SIZE];
