@@ -117,13 +117,16 @@ bool authenticate();
 bool hasWebPassword();
 void showCreatePasswordPage();
 
+// Log
+void addLog(const char *format, ...);
+
 // ============================================
 // CONFIGURAÇÃO E INICIALIZAÇÃO
 // ============================================
 
 void setup() {
   Serial.begin(115200);
-  addLog("\nIniciando ESP8266 DNS Updater...");
+  addLog("Iniciando ESP8266 DNS Updater...");
 
   //
   bootTime = millis();
@@ -135,7 +138,7 @@ void setup() {
   // Inicializa EEPROM e carrega contador de falhas
   EEPROM.begin(512);
   rebootFailCount = EEPROM.read(0);
-  addLog("Tentativas de reinício falhas anteriores: %d\n", rebootFailCount);
+  addLog("Tentativas de reinício falhas anteriores: %d", rebootFailCount);
 
   // Verifica se deve entrar em modo de espera
   if (rebootFailCount >= MAX_REBOOTS_BEFORE_WAIT) {
@@ -242,7 +245,7 @@ void loadConfiguration() {
   configFile.close();
 
   if (error) {
-    addLog("Erro ao analisar configuração: %s\n", error.c_str());
+    addLog("Erro ao analisar configuração: %s", error.c_str());
     return;
   }
 
@@ -292,7 +295,7 @@ void initializeWiFi() {
     wifiConnectionState = WIFI_RECONNECTING;
   } else {
     WiFi.softAP("ESP_Config");
-    addLog("AP criado. SSID: ESP_Config, IP: %s\n", 
+    addLog("AP criado. SSID: ESP_Config, IP: %s", 
                   WiFi.softAPIP().toString().c_str());
     wifiConnectionState = WIFI_DISCONNECTED;
   }
@@ -382,7 +385,7 @@ void attemptReconnection() {
   lastReconnectAttempt = currentTime;
   reconnectAttempts++;
   
-  addLog("Tentativa de reconexão %d/%d...\n", 
+  addLog("Tentativa de reconexão %d/%d...", 
                 reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
   
   WiFi.disconnect();
@@ -427,7 +430,7 @@ void handleWiFiTest() {
   if (WiFi.status() == WL_CONNECTED) {
     testingWiFi = false;
 
-    addLog("Conectado ao Wi-Fi! IP: %s\n",
+    addLog("Conectado ao Wi-Fi! IP: %s",
                   WiFi.localIP().toString().c_str());
 
     // Salva configuração
@@ -460,7 +463,7 @@ void handleWiFiTest() {
 
 
 void startWiFiTest(const String& ssid, const String& password) {
-  addLog("Iniciando teste Wi-Fi para SSID: %s\n", ssid.c_str());
+  addLog("Iniciando teste Wi-Fi para SSID: %s", ssid.c_str());
   
   testSSID = ssid;
   testPass = password;
@@ -660,7 +663,7 @@ void checkForUpdate() {
   int httpCode = http.GET();
 
   if (httpCode != HTTP_CODE_OK) {
-    addLog("Failed to access GitHub API. Code: %d\n", httpCode);
+    addLog("Failed to access GitHub API. Code: %d", httpCode);
     http.end();
     return;
   }
@@ -686,7 +689,7 @@ void checkForUpdate() {
   int end = payload.indexOf("\"", start);
   String binUrl = payload.substring(start, end);
 
-  addLog("New release: " + binUrl);
+  addLog("New release: %s", binUrl.c_str());
 
   WiFiClientSecure binClient;
   binClient.setInsecure();
@@ -712,11 +715,11 @@ void checkForUpdate() {
         addLog("Update successfully completed!");
         ESP.restart();
       } else {
-        addLog("Update error: %s\n", Update.getErrorString().c_str());
+        addLog("Update error: %s", Update.getErrorString().c_str());
       }
     }
   } else {
-    addLog("Download failed. Code: %d\n", binCode);
+    addLog("Download failed. Code: %d", binCode);
   }
 
   binHttp.end();
@@ -745,7 +748,7 @@ void updateDNSRecord(const String& ipAddress) {
       addLog("Falha ao atualizar DNS (resposta da API)");
     }
   } else {
-    addLog("Erro ao atualizar DNS. Código: %d\n", httpCode);
+    addLog("Erro ao atualizar DNS. Código: %d", httpCode);
   }
   
   http.end();
@@ -763,7 +766,7 @@ String getPublicIP() {
     ipAddress = http.getString();
     ipAddress.trim();
   } else {
-    addLog("Falha ao obter IP público. Código: %d\n", httpCode);
+    addLog("Falha ao obter IP público. Código: %d", httpCode);
   }
   
   http.end();
