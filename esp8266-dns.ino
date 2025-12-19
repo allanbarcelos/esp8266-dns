@@ -5,6 +5,7 @@
 #include <LittleFS.h>
 #include <EEPROM.h>
 #include <ArduinoJson.h>
+#include <stdarg.h>
 
 // ============================================
 // DEFINIÇÕES E CONSTANTES
@@ -16,6 +17,14 @@ const char* github_api = "https://api.github.com/repos/allanbarcelos/esp8266-dns
 #ifndef firmware_version
   #define firmware_version "dev"
 #endif
+
+// LOG
+#define LOG_BUFFER_SIZE 40
+#define LOG_LINE_SIZE   128 
+
+String logBuffer[LOG_BUFFER_SIZE];
+int logIndex = 0;
+bool logWrapped = false;
 
 // Intervalos de tempo (em milissegundos)
 const unsigned long CHECK_INTERVAL = 3600000UL;       // 1 hora
@@ -114,7 +123,7 @@ void showCreatePasswordPage();
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\nIniciando ESP8266 DNS Updater...");
+  addLog("\nIniciando ESP8266 DNS Updater...");
 
   //
   bootTime = millis();
@@ -126,11 +135,11 @@ void setup() {
   // Inicializa EEPROM e carrega contador de falhas
   EEPROM.begin(512);
   rebootFailCount = EEPROM.read(0);
-  Serial.printf("Tentativas de reinício falhas anteriores: %d\n", rebootFailCount);
+  addLog("Tentativas de reinício falhas anteriores: %d\n", rebootFailCount);
 
   // Verifica se deve entrar em modo de espera
   if (rebootFailCount >= MAX_REBOOTS_BEFORE_WAIT) {
-    Serial.println("Muitas falhas consecutivas. Entrando em modo de espera...");
+    addLog("Muitas falhas consecutivas. Entrando em modo de espera...");
     wifiConnectionState = WIFI_WAIT;
     waitStart = millis();
   } else {
@@ -165,28 +174,66 @@ void setup() {
   });
 
 
+  server.on("/log", []() {
+
+    if (hasWebPassword()) {
+      if (!authenticate()) return;
+    }
+
+    String html =
+      "<!DOCTYPE html><html><head>"
+      "<meta charset='UTF-8'>"
+      "<meta http-equiv='refresh' content='5'>"  // auto refresh
+      "<title>Logs ESP8266</title>"
+      "<style>"
+      "body{font-family:monospace;background:#111;color:#0f0;padding:10px;}"
+      "pre{white-space:pre-wrap;}"
+      "</style>"
+      "</head><body>"
+      "<h2>Logs ESP8266 DNS Updater</h2>"
+      "<pre>";
+
+    if (logWrapped) {
+      for (int i = logIndex; i < LOG_BUFFER_SIZE; i++) {
+        html += logBuffer[i] + "\n";
+      }
+    }
+
+    for (int i = 0; i < logIndex; i++) {
+      html += logBuffer[i] + "\n";
+    }
+
+    html +=
+      "</pre>"
+      "<p style='color:#888'>Atualiza a cada 5 segundos</p>"
+      "</body></html>";
+
+    server.send(200, "text/html", html);
+  });
+
+
   server.begin();
   
-  Serial.println("Servidor HTTP inicializado na porta 80");
+  addLog("Servidor HTTP inicializado na porta 80");
 }
 
 void initializeFileSystem() {
   if (!LittleFS.begin()) {
-    Serial.println("Falha ao montar sistema de arquivos LittleFS");
+    addLog("Falha ao montar sistema de arquivos LittleFS");
     return;
   }
-  Serial.println("Sistema de arquivos LittleFS montado com sucesso");
+  addLog("Sistema de arquivos LittleFS montado com sucesso");
 }
 
 void loadConfiguration() {
   if (!LittleFS.exists("/config.json")) {
-    Serial.println("Arquivo de configuração não encontrado");
+    addLog("Arquivo de configuração não encontrado");
     return;
   }
 
   File configFile = LittleFS.open("/config.json", "r");
   if (!configFile) {
-    Serial.println("Falha ao abrir arquivo de configuração");
+    addLog("Falha ao abrir arquivo de configuração");
     return;
   }
 
@@ -195,7 +242,7 @@ void loadConfiguration() {
   configFile.close();
 
   if (error) {
-    Serial.printf("Erro ao analisar configuração: %s\n", error.c_str());
+    addLog("Erro ao analisar configuração: %s\n", error.c_str());
     return;
   }
 
@@ -210,7 +257,7 @@ void loadConfiguration() {
   config.web_user = jsonDoc["web_user"] | "";
   config.web_pass = jsonDoc["web_pass"] | "";
 
-  Serial.println("Configuração carregada com sucesso");
+  addLog("Configuração carregada com sucesso");
 }
 
 void saveConfiguration() {
@@ -228,14 +275,14 @@ void saveConfiguration() {
 
   File configFile = LittleFS.open("/config.json", "w");
   if (!configFile) {
-    Serial.println("Falha ao abrir arquivo para salvar configuração");
+    addLog("Falha ao abrir arquivo para salvar configuração");
     return;
   }
   
   serializeJson(jsonDoc, configFile);
   configFile.close();
   
-  Serial.println("Configuração salva com sucesso");
+  addLog("Configuração salva com sucesso");
 }
 
 void initializeWiFi() {
@@ -245,7 +292,7 @@ void initializeWiFi() {
     wifiConnectionState = WIFI_RECONNECTING;
   } else {
     WiFi.softAP("ESP_Config");
-    Serial.printf("AP criado. SSID: ESP_Config, IP: %s\n", 
+    addLog("AP criado. SSID: ESP_Config, IP: %s\n", 
                   WiFi.softAPIP().toString().c_str());
     wifiConnectionState = WIFI_DISCONNECTED;
   }
@@ -295,7 +342,7 @@ void handleWiFi() {
   switch (wifiConnectionState) {
     case WIFI_OK:
       if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("Conexão Wi-Fi perdida");
+        addLog("Conexão Wi-Fi perdida");
         wifiConnectionState = WIFI_RECONNECTING;
         reconnectAttempts = 0;
         lastReconnectAttempt = 0;
@@ -304,7 +351,7 @@ void handleWiFi() {
       
     case WIFI_RECONNECTING:
       if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("Reconectado com sucesso!");
+        addLog("Reconectado com sucesso!");
         resetFailureCounter();
         wifiConnectionState = WIFI_OK;
         break;
@@ -317,7 +364,7 @@ void handleWiFi() {
       
     case WIFI_WAIT:
       if (currentTime - waitStart >= WAIT_AFTER_FAILS) {
-        Serial.println("Tempo de espera concluído. Tentando reconectar...");
+        addLog("Tempo de espera concluído. Tentando reconectar...");
         resetFailureCounter();
         WiFi.begin(config.wifi_ssid.c_str(), config.wifi_pass.c_str());
         wifiConnectionState = WIFI_RECONNECTING;
@@ -335,7 +382,7 @@ void attemptReconnection() {
   lastReconnectAttempt = currentTime;
   reconnectAttempts++;
   
-  Serial.printf("Tentativa de reconexão %d/%d...\n", 
+  addLog("Tentativa de reconexão %d/%d...\n", 
                 reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
   
   WiFi.disconnect();
@@ -347,10 +394,10 @@ void attemptReconnection() {
     EEPROM.commit();
     
     if (rebootFailCount >= MAX_REBOOTS_BEFORE_WAIT) {
-      Serial.println("Muitas falhas. Entrando em modo de espera...");
+      addLog("Muitas falhas. Entrando em modo de espera...");
       enterWaitMode();
     } else {
-      Serial.println("Falha total nas reconexões. Reiniciando...");
+      addLog("Falha total nas reconexões. Reiniciando...");
       ESP.restart();
     }
   }
@@ -380,7 +427,7 @@ void handleWiFiTest() {
   if (WiFi.status() == WL_CONNECTED) {
     testingWiFi = false;
 
-    Serial.printf("Conectado ao Wi-Fi! IP: %s\n",
+    addLog("Conectado ao Wi-Fi! IP: %s\n",
                   WiFi.localIP().toString().c_str());
 
     // Salva configuração
@@ -401,7 +448,7 @@ void handleWiFiTest() {
   if (currentTime - wifiTestStart > WIFI_TEST_TIMEOUT) {
     testingWiFi = false;
 
-    Serial.println("Falha ao conectar ao Wi-Fi (timeout)");
+    addLog("Falha ao conectar ao Wi-Fi (timeout)");
 
     WiFi.disconnect(true);
     WiFi.mode(WIFI_AP_STA);
@@ -413,7 +460,7 @@ void handleWiFiTest() {
 
 
 void startWiFiTest(const String& ssid, const String& password) {
-  Serial.printf("Iniciando teste Wi-Fi para SSID: %s\n", ssid.c_str());
+  addLog("Iniciando teste Wi-Fi para SSID: %s\n", ssid.c_str());
   
   testSSID = ssid;
   testPass = password;
@@ -583,21 +630,21 @@ bool authenticate() {
 void handleDNSUpdate() {
   String publicIP = getPublicIP();
   if (publicIP.isEmpty()) {
-    Serial.println("Falha ao obter IP público");
+    addLog("Falha ao obter IP público");
     return;
   }
   
   String currentDNSIP = getDNSRecordIP(config.CF_HOST);
   if (currentDNSIP.isEmpty()) {
-    Serial.println("Falha ao obter IP do DNS");
+    addLog("Falha ao obter IP do DNS");
     return;
   }
   
   if (currentDNSIP != publicIP) {
-    Serial.println("IPs diferentes. Atualizando DNS...");
+    addLog("IPs diferentes. Atualizando DNS...");
     updateDNSRecord(publicIP);
   } else {
-    Serial.println("DNS já está atualizado");
+    addLog("DNS já está atualizado");
   }
 }
 
@@ -613,7 +660,7 @@ void checkForUpdate() {
   int httpCode = http.GET();
 
   if (httpCode != HTTP_CODE_OK) {
-    Serial.printf("Failed to access GitHub API. Code: %d\n", httpCode);
+    addLog("Failed to access GitHub API. Code: %d\n", httpCode);
     http.end();
     return;
   }
@@ -629,7 +676,7 @@ void checkForUpdate() {
   String latestVersion = payload.substring(startVer, endVer);
 
   if (latestVersion == firmware_version) {
-    Serial.println("Firmware already up-to-date.");
+    addLog("Firmware already up-to-date.");
     return;
   }
 
@@ -639,7 +686,7 @@ void checkForUpdate() {
   int end = payload.indexOf("\"", start);
   String binUrl = payload.substring(start, end);
 
-  Serial.println("New release: " + binUrl);
+  addLog("New release: " + binUrl);
 
   WiFiClientSecure binClient;
   binClient.setInsecure();
@@ -662,14 +709,14 @@ void checkForUpdate() {
         yield(); // prevents WDT reset
       }
       if (Update.end()) {
-        Serial.println("Update successfully completed!");
+        addLog("Update successfully completed!");
         ESP.restart();
       } else {
-        Serial.printf("Update error: %s\n", Update.getErrorString().c_str());
+        addLog("Update error: %s\n", Update.getErrorString().c_str());
       }
     }
   } else {
-    Serial.printf("Download failed. Code: %d\n", binCode);
+    addLog("Download failed. Code: %d\n", binCode);
   }
 
   binHttp.end();
@@ -693,12 +740,12 @@ void updateDNSRecord(const String& ipAddress) {
   if (httpCode > 0) {
     String response = http.getString();
     if (response.indexOf("\"success\":true") >= 0) {
-      Serial.println("DNS atualizado com sucesso!");
+      addLog("DNS atualizado com sucesso!");
     } else {
-      Serial.println("Falha ao atualizar DNS (resposta da API)");
+      addLog("Falha ao atualizar DNS (resposta da API)");
     }
   } else {
-    Serial.printf("Erro ao atualizar DNS. Código: %d\n", httpCode);
+    addLog("Erro ao atualizar DNS. Código: %d\n", httpCode);
   }
   
   http.end();
@@ -716,7 +763,7 @@ String getPublicIP() {
     ipAddress = http.getString();
     ipAddress.trim();
   } else {
-    Serial.printf("Falha ao obter IP público. Código: %d\n", httpCode);
+    addLog("Falha ao obter IP público. Código: %d\n", httpCode);
   }
   
   http.end();
@@ -731,11 +778,32 @@ String getDNSRecordIP(const String& hostname) {
   return "";
 }
 
+void addLog(const char *format, ...) {
+  char buffer[LOG_LINE_SIZE];
+
+  va_list args;
+  va_start(args, format);
+  vsnprintf(buffer, LOG_LINE_SIZE, format, args);
+  va_end(args);
+
+  String line = "[" + String(millis() / 1000) + "s] " + String(buffer);
+
+  logBuffer[logIndex] = line;
+  logIndex++;
+
+  if (logIndex >= LOG_BUFFER_SIZE) {
+    logIndex = 0;
+    logWrapped = true;
+  }
+
+  Serial.println(line); // mantém saída no Serial
+}
+
 // ============================================
 // UTILITÁRIOS
 // ============================================
 
 void performDailyReboot() {
-  Serial.println("Reinício diário programado!");
+  addLog("Reinício diário programado!");
   ESP.restart();
 }
