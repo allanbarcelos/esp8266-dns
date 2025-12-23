@@ -21,7 +21,7 @@ struct Config {
 
 Config config;
 unsigned long lastOTACheck = 0;
-const unsigned long OTA_INTERVAL = 3600000UL; // 1h
+const unsigned long OTA_INTERVAL = 180000UL; // 1h
 
 // ========================
 // FILESYSTEM
