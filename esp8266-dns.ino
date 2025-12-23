@@ -292,9 +292,6 @@ void setup() {
 
   server.on("/log", HTTP_GET, []() {
 
-    if (hasWebPassword() && !authenticate()) {
-      return;
-    }
 
     server.setContentLength(CONTENT_LENGTH_UNKNOWN);
     server.send(200, "text/html", "");
