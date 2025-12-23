@@ -10,23 +10,40 @@
 #define firmware_version "dev"
 #endif
 
-// Constantes OTA
+// ========================
+// CONSTANTES
+// ========================
 const char* VERSION_URL = "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/firmware/version.txt";
 const char* BIN_URL     = "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/firmware/firmware.bin";
 const unsigned long OTA_INTERVAL = 60000UL;  // 1 minuto
+const uint16_t LOG_BUFFER_SIZE = 10;
+const uint16_t LOG_LINE_SIZE = 128;
 
+// ========================
+// DECLARAÇÕES DE OBJETOS
+// ========================
 ESP8266WebServer server(80);
 
+// ========================
+// ESTRUTURAS DE DADOS
+// ========================
 struct Config {
-  String ssid;
-  String pass;
+    String ssid;
+    String pass;
 };
 
+// ========================
+// VARIÁVEIS GLOBAIS
+// ========================
 Config config;
-
 unsigned long lastOTACheck = 0;
+char logBuffer[LOG_BUFFER_SIZE][LOG_LINE_SIZE];
+int logIndex = 0;
+bool logWrapped = false;
 
-// HTML com versão em PROGMEM
+// ========================
+// PROGMEM HTML
+// ========================
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="pt">
@@ -74,253 +91,307 @@ const char LOG_HTML_FOOT[] PROGMEM = R"rawliteral(
 </html>
 )rawliteral";
 
-
 // ========================
-// LOG
+// FUNÇÕES DE LOG
 // ========================
-#define LOG_BUFFER_SIZE 10
-#define LOG_LINE_SIZE   128 
-
-char logBuffer[LOG_BUFFER_SIZE][LOG_LINE_SIZE];
-int logIndex = 0;
-bool logWrapped = false;
-
 void addLog(const char *format, ...) {
-  char msg[LOG_LINE_SIZE];
-
-  va_list args;
-  va_start(args, format);
-  vsnprintf(msg, sizeof(msg), format, args);
-  va_end(args);
-
-  snprintf(
-    logBuffer[logIndex],
-    LOG_LINE_SIZE,
-    "[%lus] %s",
-    millis() / 1000,
-    msg
-  );
-
-
-  Serial.println(logBuffer[logIndex]);
-
-  logIndex++;
-  if (logIndex >= LOG_BUFFER_SIZE) {
-    logIndex = 0;
-    logWrapped = true;
-  }
+    char msg[LOG_LINE_SIZE];
+    va_list args;
+    
+    va_start(args, format);
+    vsnprintf(msg, sizeof(msg), format, args);
+    va_end(args);
+    
+    snprintf(
+        logBuffer[logIndex],
+        LOG_LINE_SIZE,
+        "[%lus] %s",
+        millis() / 1000,
+        msg
+    );
+    
+    Serial.println(logBuffer[logIndex]);
+    
+    logIndex++;
+    if (logIndex >= LOG_BUFFER_SIZE) {
+        logIndex = 0;
+        logWrapped = true;
+    }
 }
 
-
-
 // ========================
-// FILESYSTEM
+// FUNÇÕES DO FILESYSTEM
 // ========================
 void loadConfig() {
-  if (!LittleFS.exists("/config.json")) return;
-  
-  File f = LittleFS.open("/config.json", "r");
-  if (!f) return;
-  
-  StaticJsonDocument<256> doc;
-  if (deserializeJson(doc, f) == DeserializationError::Ok) {
+    if (!LittleFS.exists("/config.json")) {
+        addLog("Arquivo de config não encontrado");
+        return;
+    }
+    
+    File f = LittleFS.open("/config.json", "r");
+    if (!f) {
+        addLog("Erro ao abrir config.json");
+        return;
+    }
+    
+    StaticJsonDocument<256> doc;
+    DeserializationError error = deserializeJson(doc, f);
+    f.close();
+    
+    if (error) {
+        addLog("Erro ao ler JSON: %s", error.c_str());
+        return;
+    }
+    
     config.ssid = doc["ssid"].as<String>();
     config.pass = doc["pass"].as<String>();
-  }
-  f.close();
+    addLog("Configuração carregada");
 }
 
 void saveConfig() {
-  StaticJsonDocument<256> doc;
-  doc["ssid"] = config.ssid;
-  doc["pass"] = config.pass;
-  
-  File f = LittleFS.open("/config.json", "w");
-  if (f) {
+    StaticJsonDocument<256> doc;
+    doc["ssid"] = config.ssid;
+    doc["pass"] = config.pass;
+    
+    File f = LittleFS.open("/config.json", "w");
+    if (!f) {
+        addLog("Erro ao salvar config");
+        return;
+    }
+    
     serializeJson(doc, f);
     f.close();
-  }
+    addLog("Configuração salva");
 }
 
 // ========================
-// WIFI
+// FUNÇÕES DE WIFI
 // ========================
 void startWiFi() {
-  if (config.ssid.length() == 0) {
-    WiFi.softAP("ESP_Config");
-    addLog("\nAP mode: ESP_Config");
-    return;
-  }
-
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(config.ssid.c_str(), config.pass.c_str());
-  
-  Serial.print("Conectando ao Wi-Fi");
-  uint8_t attempts = 20;  // ~10 segundos
-  while (WiFi.status() != WL_CONNECTED && attempts--) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\nConectado! IP: %s\n", WiFi.localIP().toString().c_str());
-  } else {
-    addLog("\nFalha na conexão → AP mode");
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP("ESP_Config");
-  }
+    if (config.ssid.length() == 0) {
+        WiFi.softAP("ESP_Config");
+        addLog("Modo AP iniciado: ESP_Config");
+        return;
+    }
+    
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(config.ssid.c_str(), config.pass.c_str());
+    
+    addLog("Conectando ao Wi-Fi: %s", config.ssid.c_str());
+    
+    uint8_t attempts = 20;  // ~10 segundos
+    while (WiFi.status() != WL_CONNECTED && attempts--) {
+        delay(500);
+        Serial.print(".");
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+        addLog("Conectado! IP: %s", WiFi.localIP().toString().c_str());
+    } else {
+        addLog("Falha na conexão. Iniciando modo AP");
+        WiFi.mode(WIFI_AP);
+        WiFi.softAP("ESP_Config");
+    }
 }
 
 // ========================
-// WEB HANDLERS
+// HANDLERS WEB
 // ========================
 void handleRoot() {
-  server.send_P(200, "text/html", INDEX_HTML);
+    server.send_P(200, "text/html", INDEX_HTML);
 }
 
 void handleSave() {
-  config.ssid = server.arg("ssid");
-  config.pass = server.arg("pass");
-  saveConfig();
-  
-  server.send(200, "text/html",
-    "<h2>Configuração salva!</h2><p>O dispositivo está reiniciando...</p>");
-  delay(1000);
-  ESP.restart();
+    config.ssid = server.arg("ssid");
+    config.pass = server.arg("pass");
+    saveConfig();
+    
+    String response = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+                      "<title>Configuração Salva</title></head><body>"
+                      "<h2>Configuração salva!</h2>"
+                      "<p>O dispositivo está reiniciando...</p>"
+                      "</body></html>";
+    
+    server.send(200, "text/html", response);
+    delay(1000);
+    ESP.restart();
 }
 
-// ========================
-// OTA UPDATE
-// ========================
-void checkOTA() {
-  if (WiFi.status() != WL_CONNECTED) return;
-
-  WiFiClientSecure client;
-  client.setInsecure();  // Aceita certificados auto-assinados/inválidos
-  HTTPClient http;
-
-  addLog("\nVerificando versão do firmware...");
-
-  // --- Verifica versão ---
-  if (!http.begin(client, VERSION_URL)) {
-    addLog("Falha ao conectar para versão");
-    return;
-  }
-  int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    Serial.printf("Erro na versão: %d\n", code);
-    http.end();
-    return;
-  }
-  String latestVersion = http.getString();
-  latestVersion.trim();
-  http.end();
-
-  Serial.printf("Atual: %s | Disponível: %s\n", firmware_version, latestVersion.c_str());
-  if (latestVersion == firmware_version) {
-    addLog("Firmware já está atualizado.");
-    return;
-  }
-
-  // --- Download e update ---
-  addLog("Nova versão encontrada! Baixando firmware...");
-  if (!http.begin(client, BIN_URL)) {
-    addLog("Falha ao conectar para download");
-    return;
-  }
-
-  code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    Serial.printf("Erro no download: %d\n", code);
-    http.end();
-    return;
-  }
-
-  int contentLength = http.getSize();
-  if (contentLength <= 0) {
-    addLog("Tamanho do firmware inválido");
-    http.end();
-    return;
-  }
-
-  Serial.printf("Tamanho do binário: %d bytes\n", contentLength);
-
-  if (!Update.begin(contentLength)) {
-    addLog("Espaço insuficiente para OTA");
-    Update.printError(Serial);
-    http.end();
-    return;
-  }
-
-  WiFiClient* stream = http.getStreamPtr();
-  size_t written = Update.writeStream(*stream);
-
-  if (written != contentLength) {
-    Serial.printf("Escrita parcial: %zu / %d bytes\n", written, contentLength);
-    Update.end(false);
-    http.end();
-    return;
-  }
-
-  if (!Update.end()) {
-    Serial.printf("Erro no update: %s\n", Update.getErrorString().c_str());
-    http.end();
-    return;
-  }
-
-  http.end();
-  addLog("OTA concluído com sucesso! Reiniciando...");
-  delay(1000);
-  ESP.restart();
-}
-
-// ========================
-// SETUP / LOOP
-// ========================
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
-  
-  if (!LittleFS.begin()) {
-    addLog("Falha ao montar LittleFS");
-  }
-  
-  loadConfig();
-  startWiFi();
-
-  server.on("/", HTTP_GET, handleRoot);
-  server.on("/save", HTTP_POST, handleSave);
-
-
-  server.on("/log", HTTP_GET, []() {
-
+void handleLog() {
     server.setContentLength(CONTENT_LENGTH_UNKNOWN);
     server.send(200, "text/html", "");
-
+    
     server.sendContent_P(LOG_HTML_HEAD);
-
+    
     int count = logWrapped ? LOG_BUFFER_SIZE : logIndex;
     int start = logWrapped ? logIndex : 0;
-
+    
     for (int i = 0; i < count; i++) {
-      int idx = (start + i) % LOG_BUFFER_SIZE;
-      server.sendContent(logBuffer[idx]);
-      server.sendContent("\n");
+        int idx = (start + i) % LOG_BUFFER_SIZE;
+        server.sendContent(logBuffer[idx]);
+        server.sendContent("\n");
     }
-
+    
     server.sendContent_P(LOG_HTML_FOOT);
-  });
+}
 
+void setupWebServer() {
+    server.on("/", HTTP_GET, handleRoot);
+    server.on("/save", HTTP_POST, handleSave);
+    server.on("/log", HTTP_GET, handleLog);
+    server.begin();
+    addLog("Servidor web iniciado na porta 80");
+}
 
-  server.begin();
-  addLog("Servidor web iniciado");
+// ========================
+// FUNÇÕES OTA
+// ========================
+bool checkVersion(String& latestVersion) {
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
+    
+    if (!http.begin(client, VERSION_URL)) {
+        addLog("Falha ao conectar para verificar versão");
+        return false;
+    }
+    
+    int code = http.GET();
+    if (code != HTTP_CODE_OK) {
+        addLog("Erro HTTP na versão: %d", code);
+        http.end();
+        return false;
+    }
+    
+    latestVersion = http.getString();
+    latestVersion.trim();
+    http.end();
+    
+    return true;
+}
+
+bool downloadAndUpdateFirmware() {
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
+    
+    if (!http.begin(client, BIN_URL)) {
+        addLog("Falha ao conectar para download");
+        return false;
+    }
+    
+    int code = http.GET();
+    if (code != HTTP_CODE_OK) {
+        addLog("Erro HTTP no download: %d", code);
+        http.end();
+        return false;
+    }
+    
+    int contentLength = http.getSize();
+    if (contentLength <= 0) {
+        addLog("Tamanho do firmware inválido");
+        http.end();
+        return false;
+    }
+    
+    addLog("Tamanho do binário: %d bytes", contentLength);
+    
+    if (!Update.begin(contentLength)) {
+        addLog("Espaço insuficiente para OTA");
+        Update.printError(Serial);
+        http.end();
+        return false;
+    }
+    
+    WiFiClient* stream = http.getStreamPtr();
+    size_t written = Update.writeStream(*stream);
+    
+    if (written != (size_t)contentLength) {
+        addLog("Escrita parcial: %zu / %d bytes", written, contentLength);
+        Update.end(false);
+        http.end();
+        return false;
+    }
+    
+    if (!Update.end()) {
+        addLog("Erro no update: %s", Update.getErrorString().c_str());
+        http.end();
+        return false;
+    }
+    
+    http.end();
+    return true;
+}
+
+void checkOTA() {
+    if (WiFi.status() != WL_CONNECTED) {
+        addLog("OTA: Wi-Fi não conectado");
+        return;
+    }
+    
+    String latestVersion;
+    addLog("Verificando atualizações...");
+    
+    if (!checkVersion(latestVersion)) {
+        return;
+    }
+    
+    Serial.printf("Versão atual: %s | Disponível: %s\n", firmware_version, latestVersion.c_str());
+    
+    if (latestVersion == firmware_version) {
+        addLog("Firmware já está atualizado");
+        return;
+    }
+    
+    addLog("Nova versão encontrada! Baixando...");
+    
+    if (!downloadAndUpdateFirmware()) {
+        addLog("Falha no update OTA");
+        return;
+    }
+    
+    addLog("OTA concluído com sucesso! Reiniciando...");
+    delay(1000);
+    ESP.restart();
+}
+
+// ========================
+// SETUP E LOOP
+// ========================
+void setup() {
+    Serial.begin(115200);
+    delay(1000);
+    
+    Serial.println("\n\n=== Inicializando ESP8266 DNS Updater ===");
+    Serial.printf("Versão: %s\n", firmware_version);
+    
+    // Inicializar LittleFS
+    if (!LittleFS.begin()) {
+        Serial.println("ERRO: Falha ao montar LittleFS");
+        addLog("Falha ao montar LittleFS");
+    } else {
+        addLog("LittleFS inicializado");
+    }
+    
+    // Carregar configurações
+    loadConfig();
+    
+    // Conectar Wi-Fi
+    startWiFi();
+    
+    // Configurar servidor web
+    setupWebServer();
+    
+    addLog("Sistema inicializado");
 }
 
 void loop() {
-  server.handleClient();
-
-  if (millis() - lastOTACheck >= OTA_INTERVAL) {
-    lastOTACheck = millis();
-    checkOTA();
-  }
+    server.handleClient();
+    
+    // Verificar OTA periodicamente
+    unsigned long currentMillis = millis();
+    if (currentMillis - lastOTACheck >= OTA_INTERVAL) {
+        lastOTACheck = currentMillis;
+        checkOTA();
+    }
 }
