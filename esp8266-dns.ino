@@ -128,68 +128,77 @@ void handleSave() {
 // ========================
 // OTA
 // ========================
-void checkOTA() {
-  if (WiFi.status() != WL_CONNECTED) return;
 
-  Serial.printf("Heap antes OTA: %u\n", ESP.getFreeHeap());
+void checkForUpdate() {
+  if (WiFi.status() != WL_CONNECTED) return;
 
   WiFiClientSecure client;
   client.setInsecure();
-
   HTTPClient http;
-  http.begin(client, GITHUB_API);
-  http.addHeader("User-Agent", "ESP8266");
 
-  if (http.GET() != 200) {
-    Serial.printf("FAIL 1");
+  http.begin(client, github_api);
+  http.addHeader("User-Agent", "ESP8266");
+  int httpCode = http.GET();
+
+  if (httpCode != HTTP_CODE_OK) {
+    Serial.printf("Failed to access GitHub API. Code: %d\n", httpCode);
     http.end();
     return;
   }
 
-  StaticJsonDocument<2048> doc;
-  deserializeJson(doc, http.getStream());
+  String payload = http.getString();
   http.end();
 
-  const char* tag = doc["tag_name"];
-  if (!tag || strcmp(tag, firmware_version) == 0) return;
+  int idxVersion = payload.indexOf("\"tag_name\"");
+  if (idxVersion < 0) return;
 
-  const char* url = doc["assets"][0]["browser_download_url"];
-  if (!url) {
-        Serial.printf("FAIL 2");
+  int startVer = payload.indexOf("\"", idxVersion + 10) + 1;
+  int endVer = payload.indexOf("\"", startVer);
+  String latestVersion = payload.substring(startVer, endVer);
 
+  if (latestVersion == firmware_version) {
+    Serial.println("Firmware already up-to-date.");
     return;
   }
+
+  int idx = payload.indexOf("\"browser_download_url\"");
+  if (idx < 0) return;
+  int start = payload.indexOf("https://", idx);
+  int end = payload.indexOf("\"", start);
+  String binUrl = payload.substring(start, end);
+
+  Serial.println("New release: " + binUrl);
 
   WiFiClientSecure binClient;
   binClient.setInsecure();
-  binClient.setTimeout(15000);
-
   HTTPClient binHttp;
-  binHttp.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-  binHttp.begin(binClient, url);
+  binHttp.begin(binClient, binUrl);
+  int binCode = binHttp.GET();
 
-  int code = binHttp.GET();
-  if (code != 200) {
-    Serial.printf("FAIL 3: HTTP %d\n", code);
-    binHttp.end();
-    return;
-  }
-
-  size_t maxSketchSpace = ESP.getFreeSketchSpace();
-  if (!Update.begin(maxSketchSpace)) {
-    Serial.println("Update.begin failed");
-    binHttp.end();
-    return;
-  }
-
-  size_t written = Update.writeStream(*binHttp.getStreamPtr());
-  Serial.printf("Escrito: %u bytes\n", written);
-
-  if (Update.end()) {
-    Serial.println("OTA OK, reiniciando...");
-    ESP.restart();
+  if (binCode == HTTP_CODE_OK) {
+    int contentLength = binHttp.getSize();
+    if (Update.begin(contentLength)) {
+      WiFiClient *stream = binHttp.getStreamPtr();
+      uint8_t buf[1024];
+      int bytesRead = 0;
+      while (bytesRead < contentLength) {
+        size_t toRead = min(sizeof(buf), (size_t)(contentLength - bytesRead));
+        int c = stream->readBytes(buf, toRead);
+        if (c <= 0) break;
+        decryptBuffer(buf, c);
+        Update.write(buf, c);
+        bytesRead += c;
+        yield(); // prevents WDT reset
+      }
+      if (Update.end()) {
+        Serial.println("Update successfully completed!");
+        ESP.restart();
+      } else {
+        Serial.printf("Update error: %s\n", Update.getErrorString().c_str());
+      }
+    }
   } else {
-    Serial.printf("OTA erro: %d\n", Update.getError());
+    Serial.printf("Download failed. Code: %d\n", binCode);
   }
 
   binHttp.end();
