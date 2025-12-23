@@ -358,6 +358,64 @@ void handleDNSSave() {
     "<h2>DNS salvo com sucesso!</h2><a href='/dns'>Voltar</a>");
 }
 
+
+void updateDNSRecord(const String& ipAddress) {
+  String url = "https://api.cloudflare.com/client/v4/zones/" + 
+               config.CF_ZONE + "/dns_records/" + config.CF_RECORD;
+  
+  WiFiClientSecure client;
+  client.setInsecure();
+  
+  HTTPClient http;
+  http.begin(client, url);
+  http.addHeader("Authorization", "Bearer " + config.CF_TOKEN);
+  http.addHeader("Content-Type", "application/json");
+  
+  String payload = "{\"content\":\"" + ipAddress + "\"}";
+  int httpCode = http.PATCH(payload);
+  
+  if (httpCode > 0) {
+    String response = http.getString();
+    if (response.indexOf("\"success\":true") >= 0) {
+      addLog("DNS atualizado com sucesso!");
+    } else {
+      addLog("Cloudflare response: %s", response.c_str());
+    }
+  } else {
+    addLog("Erro ao atualizar DNS. Código: %d", httpCode);
+  }
+  
+  http.end();
+}
+
+String getPublicIP() {
+  WiFiClient client;
+  HTTPClient http;
+  
+  http.begin(client, "http://api.ipify.org");
+  int httpCode = http.GET();
+  
+  String ipAddress = "";
+  if (httpCode == HTTP_CODE_OK) {
+    ipAddress = http.getString();
+    ipAddress.trim();
+  } else {
+    addLog("Falha ao obter IP público. Código: %d", httpCode);
+  }
+  
+  http.end();
+  return ipAddress;
+}
+
+String getDNSRecordIP(const String& hostname) {
+  IPAddress resolvedIP;
+  if (WiFi.hostByName(hostname.c_str(), resolvedIP)) {
+    return resolvedIP.toString();
+  }
+  return "";
+}
+
+
 // ========================
 // SETUP / LOOP
 // ========================
