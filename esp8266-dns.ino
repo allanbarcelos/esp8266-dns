@@ -92,8 +92,14 @@ void addLog(const char *format, ...) {
   vsnprintf(msg, sizeof(msg), format, args);
   va_end(args);
 
-  snprintf(logBuffer[logIndex], LOG_LINE_SIZE,`
-           "[%lus] %s", millis() / 1000, msg);
+  snprintf(
+    logBuffer[logIndex],
+    LOG_LINE_SIZE,
+    "[%lus] %s",
+    millis() / 1000,
+    msg
+  );
+
 
   Serial.println(logBuffer[logIndex]);
 
