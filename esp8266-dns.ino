@@ -185,7 +185,6 @@ void checkOTA() {
         size_t toRead = min(sizeof(buf), (size_t)(contentLength - bytesRead));
         int c = stream->readBytes(buf, toRead);
         if (c <= 0) break;
-        decryptBuffer(buf, c);
         Update.write(buf, c);
         bytesRead += c;
         yield(); // prevents WDT reset
