@@ -141,7 +141,7 @@ void checkOTA() {
   HTTPClient http;
 
   // ========================
-  // 1️⃣ Check version
+  // Check version
   // ========================
   Serial.println("Checking firmware version...");
 
@@ -168,7 +168,7 @@ void checkOTA() {
   }
 
   // ========================
-  // 2️⃣ Download firmware
+  // Download firmware
   // ========================
   Serial.println("New firmware found. Downloading...");
 
