@@ -64,14 +64,14 @@ WifiConnectionState wifiConnectionState = WIFI_OK;
 
 // Estruturas de dados
 struct Config {
-  char wifi_ssid[16];
-  char wifi_pass[16];
-  char CF_TOKEN[96];
-  char CF_ZONE[32];
-  char CF_RECORD[32];
-  char CF_HOST[32];
-  char web_user[8];
-  char web_pass[8];
+  char wifi_ssid[32];
+  char wifi_pass[64];
+  char CF_TOKEN[128];
+  char CF_ZONE[40];
+  char CF_RECORD[40];
+  char CF_HOST[64];
+  char web_user[16];
+  char web_pass[16];
 };
 
 Config config;
@@ -302,7 +302,7 @@ void loadConfiguration() {
     return;
   }
 
-  StaticJsonDocument<328> jsonDoc;
+  StaticJsonDocument<512> jsonDoc;
   DeserializationError error = deserializeJson(jsonDoc, configFile);
   configFile.close();
 
