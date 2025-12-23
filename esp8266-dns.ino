@@ -215,6 +215,12 @@ void checkOTA() {
 void setup() {
   Serial.begin(115200);
   delay(500);
+
+  Serial.println();
+  Serial.printf("Flash real size: %u bytes\n", ESP.getFlashChipRealSize());
+  Serial.printf("Flash ide size:  %u bytes\n", ESP.getFlashChipSize());
+  Serial.printf("Flash speed:    %u Hz\n", ESP.getFlashChipSpeed());
+  Serial.printf("Flash mode:     %u\n", ESP.getFlashChipMode());
   
   if (!LittleFS.begin()) {
     Serial.println("Falha ao montar LittleFS");
