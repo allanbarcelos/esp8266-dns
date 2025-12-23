@@ -332,7 +332,6 @@ void checkOTA() {
     }
     
     String latestVersion;
-    addLog("Verificando atualizações...");
     
     if (!checkVersion(latestVersion)) {
         return;
@@ -340,10 +339,8 @@ void checkOTA() {
     
     Serial.printf("Versão atual: %s | Disponível: %s\n", firmware_version, latestVersion.c_str());
     
-    if (latestVersion == firmware_version) {
-        addLog("Firmware já está atualizado");
-        return;
-    }
+    if (latestVersion == firmware_version) return;
+    
     
     addLog("Nova versão encontrada! Baixando...");
     
