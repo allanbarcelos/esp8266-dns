@@ -129,7 +129,6 @@ void handleSave() {
 // OTA
 // ========================
 void checkOTA() {
-  Serial.println("checkOTA");
   if (WiFi.status() != WL_CONNECTED) return;
 
   WiFiClientSecure client;
@@ -139,14 +138,12 @@ void checkOTA() {
   http.begin(client, GITHUB_API);
   http.addHeader("User-Agent", "ESP8266");
 
-  int code = http.GET();
-  if (code != 200) {
-    Serial.println("FAIL 1");
+  if (http.GET() != 200) {
     http.end();
     return;
   }
 
-  StaticJsonDocument<1024> doc;
+  StaticJsonDocument<2048> doc;
   deserializeJson(doc, http.getStream());
   http.end();
 
@@ -156,15 +153,16 @@ void checkOTA() {
   const char* url = doc["assets"][0]["browser_download_url"];
   if (!url) return;
 
-  String binUrl = url;
-  binUrl.replace("https://", "http://");
+  WiFiClientSecure binClient;
+  binClient.setInsecure();
 
-  WiFiClient binClient;
   HTTPClient binHttp;
-  binHttp.begin(binClient, binUrl);
+  binHttp.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  binHttp.begin(binClient, url);
 
-  if (binHttp.GET() != 200) {
-    Serial.println("FAIL 2");
+  int code = binHttp.GET();
+  if (code != 200) {
+    Serial.printf("FAIL 2: HTTP %d\n", code);
     binHttp.end();
     return;
   }
@@ -177,8 +175,8 @@ void checkOTA() {
 
   Update.writeStream(*binHttp.getStreamPtr());
 
-  Serial.println("Success");
   if (Update.end()) {
+    Serial.println("OTA OK, reiniciando...");
     ESP.restart();
   }
 
