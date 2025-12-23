@@ -3,6 +3,7 @@
 #include <ESP8266HTTPClient.h>
 #include <Updater.h>
 #include <LittleFS.h>
+#include <ArduinoJson.h>
 #include <stdarg.h>
 
 #ifndef firmware_version
@@ -103,29 +104,23 @@ void addLog(const char *format, ...) {
   }
 }
 
+
+
 // ========================
 // FILESYSTEM
 // ========================
 void loadConfig() {
+  if (!LittleFS.exists("/config.json")) return;
+  
   File f = LittleFS.open("/config.json", "r");
   if (!f) return;
-
-  String json = f.readString();
+  
+  StaticJsonDocument<256> doc;
+  if (deserializeJson(doc, f) == DeserializationError::Ok) {
+    config.ssid = doc["ssid"].as<String>();
+    config.pass = doc["pass"].as<String>();
+  }
   f.close();
-
-  int s1 = json.indexOf("\"ssid\":\"");
-  int s2 = json.indexOf("\"pass\":\"");
-
-  if (s1 >= 0) {
-    int start = s1 + 8;
-    int end = json.indexOf("\"", start);
-    config.ssid = json.substring(start, end);
-  }
-  if (s2 >= 0) {
-    int start = s2 + 8;
-    int end = json.indexOf("\"", start);
-    config.pass = json.substring(start, end);
-  }
 }
 
 void saveConfig() {
@@ -291,7 +286,6 @@ void setup() {
 
 
   server.on("/log", HTTP_GET, []() {
-
 
     server.setContentLength(CONTENT_LENGTH_UNKNOWN);
     server.send(200, "text/html", "");
