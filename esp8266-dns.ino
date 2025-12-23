@@ -199,7 +199,7 @@ void checkOTA() {
 
   if (written != contentLength) {
     Serial.printf("Written %d/%d bytes\n", written, contentLength);
-    Update.abort();
+    Update.end(false);
     http.end();
     return;
   }
