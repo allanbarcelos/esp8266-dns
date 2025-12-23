@@ -10,6 +10,11 @@
 #define firmware_version "dev"
 #endif
 
+// DNS
+const unsigned long DNS_UPDATE_INTERVAL = 300000UL; // 5 minutos
+unsigned long dnsLastUpdate = 0;
+
+
 // Constantes OTA
 const char* VERSION_URL = "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/firmware/version.txt";
 const char* BIN_URL     = "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/firmware/firmware.bin";
@@ -18,10 +23,18 @@ const unsigned long OTA_INTERVAL = 60000UL;  // 1 minuto
 ESP8266WebServer server(80);
 
 struct Config {
-  String ssid;
-  String pass;
+  char ssid[32];
+  char pass[64];
+
+  char CF_TOKEN[128];
+  char CF_ZONE[40];
+  char CF_RECORD[40];
+  char CF_HOST[64];
 };
+
 Config config;
+
+
 
 unsigned long lastOTACheck = 0;
 
@@ -73,6 +86,43 @@ const char LOG_HTML_FOOT[] PROGMEM = R"rawliteral(
 </html>
 )rawliteral";
 
+const char DNS_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<title>Config DNS Cloudflare</title>
+<style>
+body{font-family:Arial;margin:40px;}
+input{width:100%;padding:8px;margin:8px 0;}
+button{padding:10px;width:100%;}
+</style>
+</head>
+<body>
+<h2>DNS Dinâmico - Cloudflare</h2>
+
+<form action="/dns/save" method="POST">
+Host (ex: sub.dominio.com):<br>
+<input name="cf_host" value="%CF_HOST%" required><br>
+
+Zone ID:<br>
+<input name="cf_zone" value="%CF_ZONE%" required><br>
+
+Record ID:<br>
+<input name="cf_record" value="%CF_RECORD%" required><br>
+
+API Token:<br>
+<input name="cf_token" value="%CF_TOKEN%" required><br>
+
+<button type="submit">Salvar DNS</button>
+</form>
+
+<hr>
+<a href="/">Voltar</a>
+</body>
+</html>
+)rawliteral";
+
 
 // ========================
 // LOG
@@ -110,36 +160,45 @@ void addLog(const char *format, ...) {
   }
 }
 
-
-
 // ========================
 // FILESYSTEM
 // ========================
 void loadConfig() {
   if (!LittleFS.exists("/config.json")) return;
-  
+
   File f = LittleFS.open("/config.json", "r");
   if (!f) return;
-  
-  StaticJsonDocument<256> doc;
+
+  StaticJsonDocument<512> doc;
   if (deserializeJson(doc, f) == DeserializationError::Ok) {
-    config.ssid = doc["ssid"].as<String>();
-    config.pass = doc["pass"].as<String>();
+    strlcpy(config.ssid,      doc["ssid"]      | "", sizeof(config.ssid));
+    strlcpy(config.pass,      doc["pass"]      | "", sizeof(config.pass));
+    strlcpy(config.CF_TOKEN,  doc["cf_token"]  | "", sizeof(config.CF_TOKEN));
+    strlcpy(config.CF_ZONE,   doc["cf_zone"]   | "", sizeof(config.CF_ZONE));
+    strlcpy(config.CF_RECORD, doc["cf_record"] | "", sizeof(config.CF_RECORD));
+    strlcpy(config.CF_HOST,   doc["cf_host"]   | "", sizeof(config.CF_HOST));
   }
   f.close();
 }
 
+
 void saveConfig() {
-  StaticJsonDocument<256> doc;
-  doc["ssid"] = config.ssid;
-  doc["pass"] = config.pass;
-  
+  StaticJsonDocument<512> doc;
+
+  doc["ssid"]      = config.ssid;
+  doc["pass"]      = config.pass;
+  doc["cf_token"]  = config.CF_TOKEN;
+  doc["cf_zone"]   = config.CF_ZONE;
+  doc["cf_record"] = config.CF_RECORD;
+  doc["cf_host"]   = config.CF_HOST;
+
   File f = LittleFS.open("/config.json", "w");
   if (f) {
     serializeJson(doc, f);
     f.close();
   }
 }
+
 
 // ========================
 // WIFI
@@ -273,6 +332,32 @@ void checkOTA() {
   ESP.restart();
 }
 
+
+String dnsTemplateProcessor(const String& var) {
+  if (var == "CF_HOST")   return config.CF_HOST;
+  if (var == "CF_ZONE")   return config.CF_ZONE;
+  if (var == "CF_RECORD") return config.CF_RECORD;
+  if (var == "CF_TOKEN")  return config.CF_TOKEN;
+  return "";
+}
+
+void handleDNSPage() {
+  server.send_P(200, "text/html", DNS_HTML, dnsTemplateProcessor);
+}
+
+void handleDNSSave() {
+  strlcpy(config.CF_HOST,   server.arg("cf_host").c_str(),   sizeof(config.CF_HOST));
+  strlcpy(config.CF_ZONE,   server.arg("cf_zone").c_str(),   sizeof(config.CF_ZONE));
+  strlcpy(config.CF_RECORD, server.arg("cf_record").c_str(), sizeof(config.CF_RECORD));
+  strlcpy(config.CF_TOKEN,  server.arg("cf_token").c_str(),  sizeof(config.CF_TOKEN));
+
+  saveConfig();
+  addLog("Configuração DNS salva");
+
+  server.send(200, "text/html",
+    "<h2>DNS salvo com sucesso!</h2><a href='/dns'>Voltar</a>");
+}
+
 // ========================
 // SETUP / LOOP
 // ========================
@@ -310,6 +395,9 @@ void setup() {
     server.sendContent_P(LOG_HTML_FOOT);
   });
 
+  server.on("/dns", HTTP_GET, handleDNSPage);
+  server.on("/dns/save", HTTP_POST, handleDNSSave);
+
 
   server.begin();
   addLog("Servidor web iniciado");
@@ -321,5 +409,10 @@ void loop() {
   if (millis() - lastOTACheck >= OTA_INTERVAL) {
     lastOTACheck = millis();
     checkOTA();
+  }
+
+  if (millis() - dnsLastUpdate >= DNS_UPDATE_INTERVAL) {
+    dnsLastUpdate = millis();
+    handleDNSUpdate();
   }
 }
