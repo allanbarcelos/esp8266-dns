@@ -129,7 +129,7 @@ void handleSave() {
 // OTA
 // ========================
 
-void checkForUpdate() {
+void checkOTA() {
   if (WiFi.status() != WL_CONNECTED) return;
 
   WiFiClientSecure client;
