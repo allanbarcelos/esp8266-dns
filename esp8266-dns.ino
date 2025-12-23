@@ -214,7 +214,7 @@ void checkOTA() {
 // ========================
 void setup() {
   Serial.begin(115200);
-  delay(500);
+  delay(1000);
 
   Serial.println();
   Serial.printf("Flash real size: %u bytes\n", ESP.getFlashChipRealSize());

@@ -66,7 +66,7 @@ jobs:
       - name: Compile firmware (ESP-01 1MB)
         run: |
           arduino-cli compile \
-            --fqbn esp8266:esp8266:generic:eesz=1M256 \
+            --fqbn esp8266:esp8266:generic:eesz=1M64 \
             --build-property build.extra_flags="-Dfirmware_version=\"${new_tag}\"" \
             --build-property build.flags.optimize.lto=true \
             --build-property build.flags.optimize.size=true \
