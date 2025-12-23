@@ -8,7 +8,7 @@ on:
     branches:
       - main
     paths:
-      - '**/*.ino'
+      - "**/*.ino"
   workflow_dispatch:
 
 jobs:
@@ -16,9 +16,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ========================
+      # CHECKOUT
+      # ========================
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ========================
+      # ARDUINO CLI
+      # ========================
       - name: Set up Arduino CLI
         uses: arduino/setup-arduino-cli@v1
 
@@ -29,7 +35,6 @@ jobs:
           arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
           arduino-cli core update-index
           arduino-cli core install esp8266:esp8266@3.1.2
-          
 
       - name: Install libraries
         run: |
@@ -37,52 +42,65 @@ jobs:
           arduino-cli lib install "ArduinoJson@6.21.4"
           arduino-cli lib install "ArduinoWebsockets@0.5.4"
 
+      # ========================
+      # VERSIONING
+      # ========================
       - name: Get highest tag and increment
         id: version
         run: |
-          # Lista todas as tags (em ordem de criação decrescente)
           all_tags=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             https://api.github.com/repos/${GITHUB_REPOSITORY}/tags?per_page=100 | jq -r '.[].name')
 
-          echo "Tags encontradas:"
-          echo "$all_tags"
-
-          # Pega a maior versão numérica (ignora o 'v')
           last_tag=$(echo "$all_tags" | grep -E '^v[0-9]+$' | sed 's/v//' | sort -nr | head -1)
-          echo "Última tag numérica: v$last_tag"
+          last_tag=${last_tag:-0}
 
-          # Incrementa versão
           new_version=$((last_tag + 1))
           new_tag="v${new_version}"
 
-          echo "Nova tag: $new_tag"
+          echo "Nova versão: $new_tag"
           echo "new_tag=$new_tag" >> $GITHUB_ENV
 
-      - name: List available ESP8266 boards
-        run: arduino-cli board listall esp8266
-
+      # ========================
+      # BUILD
+      # ========================
       - name: Compile firmware (ESP-01 1MB)
         run: |
           arduino-cli compile \
-            --fqbn esp8266:esp8266:generic:eesz=1M64 \
+            --fqbn esp8266:esp8266:generic:eesz=1M256 \
             --build-property build.extra_flags="-Dfirmware_version=\"${new_tag}\"" \
             --build-property build.flags.optimize.lto=true \
             --build-property build.flags.optimize.size=true \
             --output-dir build
 
       - name: Rename firmware
-        run: mv build/*.bin build/firmware.bin
+        run: |
+          mv build/*.bin build/firmware.bin
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: firmware-bin
-          path: build/firmware.bin
+      # ========================
+      # PUBLISH TO REPO (RAW)
+      # ========================
+      - name: Publish firmware to repository
+        run: |
+          mkdir -p firmware
+          cp build/firmware.bin firmware/firmware.bin
+          echo ${new_tag} > firmware/version.txt
 
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add firmware/firmware.bin
+          git add firmware/version.txt
+
+          git commit -m "chore: update firmware.bin (${new_tag})" || echo "No changes to commit"
+          git push
+
+      # ========================
+      # RELEASE
+      # ========================
       - name: Create GitHub Release and upload firmware
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.run_number }}
-          name: ESP8266 Firmware Build ${{ github.run_number }}
+          tag_name: ${{ env.new_tag }}
+          name: ESP8266 Firmware ${{ env.new_tag }}
           files: build/firmware.bin
           generate_release_notes: false

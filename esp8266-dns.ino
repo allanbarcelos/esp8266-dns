@@ -9,9 +9,6 @@
   #define firmware_version "dev"
 #endif
 
-const char* GITHUB_API =
-  "https://api.github.com/repos/allanbarcelos/esp8266-dns/releases/latest";
-
 ESP8266WebServer server(80);
 
 // ========================
@@ -132,76 +129,93 @@ void handleSave() {
 void checkOTA() {
   if (WiFi.status() != WL_CONNECTED) return;
 
+  const char* VERSION_URL =
+    "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/firmware/version.txt";
+
+  const char* BIN_URL =
+    "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/firmware/firmware.bin";
+
   WiFiClientSecure client;
   client.setInsecure();
+
   HTTPClient http;
 
-  http.begin(client, GITHUB_API);
-  http.addHeader("User-Agent", "ESP8266");
-  int httpCode = http.GET();
+  // ========================
+  // 1️⃣ Check version
+  // ========================
+  Serial.println("Checking firmware version...");
 
-  if (httpCode != HTTP_CODE_OK) {
-    Serial.printf("Failed to access GitHub API. Code: %d\n", httpCode);
+  if (!http.begin(client, VERSION_URL)) return;
+
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    Serial.printf("Version check failed: %d\n", code);
     http.end();
     return;
   }
 
-  String payload = http.getString();
+  String latestVersion = http.getString();
+  latestVersion.trim();
   http.end();
 
-  int idxVersion = payload.indexOf("\"tag_name\"");
-  if (idxVersion < 0) return;
-
-  int startVer = payload.indexOf("\"", idxVersion + 10) + 1;
-  int endVer = payload.indexOf("\"", startVer);
-  String latestVersion = payload.substring(startVer, endVer);
+  Serial.printf("Current: %s | Latest: %s\n",
+                firmware_version,
+                latestVersion.c_str());
 
   if (latestVersion == firmware_version) {
-    Serial.println("Firmware already up-to-date.");
+    Serial.println("Firmware up-to-date.");
     return;
   }
 
-  int idx = payload.indexOf("\"browser_download_url\"");
-  if (idx < 0) return;
-  int start = payload.indexOf("https://", idx);
-  int end = payload.indexOf("\"", start);
-  String binUrl = payload.substring(start, end);
+  // ========================
+  // 2️⃣ Download firmware
+  // ========================
+  Serial.println("New firmware found. Downloading...");
 
-  Serial.println("New release: " + binUrl);
+  if (!http.begin(client, BIN_URL)) return;
 
-  WiFiClientSecure binClient;
-  binClient.setInsecure();
-  HTTPClient binHttp;
-  binHttp.begin(binClient, binUrl);
-  int binCode = binHttp.GET();
-
-  if (binCode == HTTP_CODE_OK) {
-    int contentLength = binHttp.getSize();
-    if (Update.begin(contentLength)) {
-      WiFiClient *stream = binHttp.getStreamPtr();
-      uint8_t buf[1024];
-      int bytesRead = 0;
-      while (bytesRead < contentLength) {
-        size_t toRead = min(sizeof(buf), (size_t)(contentLength - bytesRead));
-        int c = stream->readBytes(buf, toRead);
-        if (c <= 0) break;
-        Update.write(buf, c);
-        bytesRead += c;
-        yield(); // prevents WDT reset
-      }
-      if (Update.end()) {
-        Serial.println("Update successfully completed!");
-        ESP.restart();
-      } else {
-        Serial.printf("Update error: %s\n", Update.getErrorString().c_str());
-      }
-    }
-  } else {
-    Serial.printf("Download failed. Code: %d\n", binCode);
+  code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    Serial.printf("Firmware download failed: %d\n", code);
+    http.end();
+    return;
   }
 
-  binHttp.end();
+  int contentLength = http.getSize();
+  if (contentLength <= 0) {
+    Serial.println("Invalid firmware size.");
+    http.end();
+    return;
+  }
+
+  if (!Update.begin(contentLength)) {
+    Serial.println("Not enough space for OTA.");
+    http.end();
+    return;
+  }
+
+  WiFiClient* stream = http.getStreamPtr();
+  size_t written = Update.writeStream(*stream);
+
+  if (written != contentLength) {
+    Serial.printf("Written %d/%d bytes\n", written, contentLength);
+    Update.abort();
+    http.end();
+    return;
+  }
+
+  if (!Update.end()) {
+    Serial.printf("Update error: %s\n", Update.getErrorString().c_str());
+    http.end();
+    return;
+  }
+
+  Serial.println("OTA update successful! Rebooting...");
+  http.end();
+  delay(1000);
+  ESP.restart();
 }
+
 
 
 // ========================
