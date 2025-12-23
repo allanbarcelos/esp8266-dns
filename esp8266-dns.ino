@@ -149,7 +149,7 @@ void checkOTA() {
   http.end();
 
   const char* tag = doc["tag_name"];
-  if (!tag || strcmp(tag, FIRMWARE_VERSION) == 0) return;
+  if (!tag || strcmp(tag, firmware_version) == 0) return;
 
   const char* url = doc["assets"][0]["browser_download_url"];
   if (!url) return;
