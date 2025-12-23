@@ -22,7 +22,7 @@ const char* github_api = "https://api.github.com/repos/allanbarcelos/esp8266-dns
 #define LOG_BUFFER_SIZE 10
 #define LOG_LINE_SIZE   128 
 
-String logBuffer[LOG_BUFFER_SIZE];
+char logBuffer[LOG_BUFFER_SIZE][LOG_LINE_SIZE];
 int logIndex = 0;
 bool logWrapped = false;
 
@@ -64,14 +64,14 @@ WifiConnectionState wifiConnectionState = WIFI_OK;
 
 // Estruturas de dados
 struct Config {
-  String wifi_ssid;
-  String wifi_pass;
-  String CF_TOKEN;
-  String CF_ZONE;
-  String CF_RECORD;
-  String CF_HOST;
-  String web_user;
-  String web_pass;
+  char wifi_ssid[16];
+  char wifi_pass[16];
+  char CF_TOKEN[96];
+  char CF_ZONE[32];
+  char CF_RECORD[32];
+  char CF_HOST[32];
+  char web_user[8];
+  char web_pass[8];
 };
 
 Config config;
@@ -119,6 +119,68 @@ void showCreatePasswordPage();
 
 // Log
 void addLog(const char *format, ...);
+
+
+// ============================================
+// HTML EM PROGMEM
+// ============================================
+
+const char PAGE_ROOT_HEAD[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Configuração ESP8266 DNS</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+    h1 { color: #333; }
+    label { display: block; margin-top: 15px; }
+    input { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; }
+    button { background: #4CAF50; color: white; padding: 12px 20px; border: none; cursor: pointer; margin-top: 20px; }
+    button:hover { background: #45a049; }
+    .form-group { margin-bottom: 15px; }
+  </style>
+</head>
+<body>
+<h1>Configuração ESP8266 DNS Updater</h1>
+<form action='/save' method='POST'>
+<div class='form-group'>
+<label>SSID Wi-Fi:</label>
+<input type='text' name='wifi_ssid' value='
+)rawliteral";
+
+
+const char PAGE_ROOT_MID[] PROGMEM = R"rawliteral(
+' required>
+</div>
+<div class='form-group'>
+<label>Senha Wi-Fi:</label>
+<input type='password' name='wifi_pass' placeholder='********'>
+</div>
+<div class='form-group'>
+<label>Cloudflare Token:</label>
+<input type='text' name='CF_TOKEN' value='
+)rawliteral";
+
+const char PAGE_ROOT_FOOT[] PROGMEM = R"rawliteral(
+'>
+</div>
+<div class='form-group'>
+<label>Cloudflare Zone ID:</label>
+<input type='text' name='CF_ZONE' value='
+)rawliteral";
+
+
+const char PAGE_ROOT_END[] PROGMEM = R"rawliteral(
+'>
+</div>
+<button type='submit'>Salvar e Testar Conexão</button>
+</form>
+<hr>
+<p style="font-size:12px;color:#777;text-align:center;">
+Firmware version:
+)rawliteral";
 
 // ============================================
 // CONFIGURAÇÃO E INICIALIZAÇÃO
@@ -240,7 +302,7 @@ void loadConfiguration() {
     return;
   }
 
-  StaticJsonDocument<512> jsonDoc;
+  StaticJsonDocument<328> jsonDoc;
   DeserializationError error = deserializeJson(jsonDoc, configFile);
   configFile.close();
 
@@ -502,7 +564,6 @@ void showCreatePasswordPage() {
   );
 }
 
-
 void handleRoot() {
 
   if (hasWebPassword()) {
@@ -512,64 +573,26 @@ void handleRoot() {
     return;
   }
 
-  String html = R"(
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset='UTF-8'>
-      <meta name='viewport' content='width=device-width, initial-scale=1'>
-      <title>Configuração ESP8266 DNS</title>
-      <style>
-        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
-        h1 { color: #333; }
-        label { display: block; margin-top: 15px; }
-        input { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; }
-        button { background: #4CAF50; color: white; padding: 12px 20px; border: none; cursor: pointer; margin-top: 20px; }
-        button:hover { background: #45a049; }
-        .form-group { margin-bottom: 15px; }
-      </style>
-    </head>
-    <body>
-      <h1>Configuração ESP8266 DNS Updater</h1>
-      <form action='/save' method='POST'>
-        <div class='form-group'>
-          <label>SSID Wi-Fi:</label>
-          <input type='text' name='wifi_ssid' value=')" + config.wifi_ssid + R"(' required>
-        </div>
-        <div class='form-group'>
-          <label>Senha Wi-Fi:</label>
-          <input type='password' name='wifi_pass' placeholder='********' required>
-        </div>
-        <div class='form-group'>
-          <label>Cloudflare Token:</label>
-          <input type='text' name='CF_TOKEN' value=')" + config.CF_TOKEN + R"('>
-        </div>
-        <div class='form-group'>
-          <label>Cloudflare Zone ID:</label>
-          <input type='text' name='CF_ZONE' value=')" + config.CF_ZONE + R"('>
-        </div>
-        <div class='form-group'>
-          <label>Cloudflare Record ID:</label>
-          <input type='text' name='CF_RECORD' value=')" + config.CF_RECORD + R"('>
-        </div>
-        <div class='form-group'>
-          <label>Hostname:</label>
-          <input type='text' name='CF_HOST' value=')" + config.CF_HOST + R"('>
-        </div>
-        <button type='submit'>Salvar e Testar Conexão</button>
-      </form>
-      <hr>
-      <p style="font-size:12px;color:#777;text-align:center;">
-        Firmware version: {{VERSION}}
-      </p>
-    </body>
-    </html>
-  )";
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/html", "");
 
-  html.replace("{{VERSION}}", firmware_version);
-  
-  server.send(200, "text/html", html);
+  server.sendContent_P(PAGE_ROOT_HEAD);
+  server.sendContent(config.wifi_ssid);
+
+  server.sendContent_P(PAGE_ROOT_MID);
+  server.sendContent(config.CF_TOKEN);
+
+  server.sendContent_P(PAGE_ROOT_FOOT);
+  server.sendContent(config.CF_ZONE);
+
+  // Repete o padrão para CF_RECORD e CF_HOST
+
+  server.sendContent_P(PAGE_ROOT_END);
+  server.sendContent(firmware_version);
+
+  server.sendContent_P(PSTR("</p></body></html>"));
 }
+
 
 void handleSave() {
 
@@ -656,61 +679,84 @@ void checkForUpdate() {
 
   addLog("Free heap before OTA: %d", ESP.getFreeHeap());
 
-  // ===== 1. CONSULTA API DO GITHUB (HTTPS) =====
+  // ===== 1. CONSULTA API DO GITHUB (HTTPS, STREAMING) =====
   WiFiClientSecure apiClient;
   apiClient.setInsecure();
 
   HTTPClient apiHttp;
-  apiHttp.begin(apiClient, github_api);
+  apiHttp.setReuse(false);
+
+  if (!apiHttp.begin(apiClient, github_api)) {
+    addLog("GitHub API begin failed");
+    return;
+  }
+
   apiHttp.addHeader("User-Agent", "ESP8266");
 
   int httpCode = apiHttp.GET();
   if (httpCode != HTTP_CODE_OK) {
     addLog("GitHub API error: %d", httpCode);
     apiHttp.end();
+    apiClient.stop();
     return;
   }
 
-  String payload = apiHttp.getString();
+  // ===== 2. PARSE JSON EM STREAM =====
+  StaticJsonDocument<1024> doc;
+  DeserializationError err = deserializeJson(doc, apiHttp.getStream());
+
   apiHttp.end();
+  apiClient.stop();
 
-  // ===== 2. OBTÉM VERSÃO =====
-  int idxVersion = payload.indexOf("\"tag_name\"");
-  if (idxVersion < 0) return;
+  if (err) {
+    addLog("JSON parse error: %s", err.c_str());
+    return;
+  }
 
-  int startVer = payload.indexOf("\"", idxVersion + 10) + 1;
-  int endVer   = payload.indexOf("\"", startVer);
-  String latestVersion = payload.substring(startVer, endVer);
+  const char* latestVersion = doc["tag_name"];
+  if (!latestVersion) {
+    addLog("No tag_name found");
+    return;
+  }
 
-  if (latestVersion == firmware_version) {
-    addLog("Firmware already up-to-date.");
+  if (strcmp(latestVersion, firmware_version) == 0) {
+    addLog("Firmware already up-to-date");
     return;
   }
 
   // ===== 3. OBTÉM URL DO BIN =====
-  int idx = payload.indexOf("\"browser_download_url\"");
-  if (idx < 0) return;
+  const char* binUrl = doc["assets"][0]["browser_download_url"];
+  if (!binUrl) {
+    addLog("No firmware asset found");
+    return;
+  }
 
-  int start = payload.indexOf("https://", idx);
-  int end   = payload.indexOf("\"", start);
-  String binUrl = payload.substring(start, end);
+  char firmwareUrl[256];
+  strlcpy(firmwareUrl, binUrl, sizeof(firmwareUrl));
 
-  // CONVERTE PARA HTTP (IMPORTANTE)
-  binUrl.replace("https://", "http://");
+  // ESP8266 OTA é MUITO mais estável em HTTP
+  if (strncmp(firmwareUrl, "https://", 8) == 0) {
+    memmove(firmwareUrl + 7, firmwareUrl + 8, strlen(firmwareUrl) - 7);
+    memcpy(firmwareUrl, "http://", 7);
+  }
 
-  addLog("New firmware: %s", binUrl.c_str());
+  addLog("New firmware: %s", firmwareUrl);
 
   // ===== 4. LIBERA MEMÓRIA =====
   server.stop();
   delay(500);
 
-  // ===== 5. DOWNLOAD DO BIN (HTTP) =====
+  // ===== 5. DOWNLOAD DO BIN (HTTP STREAM) =====
   WiFiClient binClient;
   HTTPClient binHttp;
+  binHttp.setReuse(false);
 
-  binHttp.begin(binClient, binUrl);
+  if (!binHttp.begin(binClient, firmwareUrl)) {
+    addLog("Firmware HTTP begin failed");
+    return;
+  }
+
   int binCode = binHttp.GET();
-
   if (binCode != HTTP_CODE_OK) {
     addLog("Firmware download failed: %d", binCode);
     binHttp.end();
@@ -718,20 +764,28 @@ void checkForUpdate() {
   }
 
   int contentLength = binHttp.getSize();
+  if (contentLength <= 0) {
+    addLog("Invalid firmware size");
+    binHttp.end();
+    return;
+  }
+
   if (!Update.begin(contentLength)) {
     addLog("Not enough space for OTA");
     binHttp.end();
     return;
   }
 
-  WiFiClient *stream = binHttp.getStreamPtr();
+  WiFiClient* stream = binHttp.getStreamPtr();
   size_t written = Update.writeStream(*stream);
 
   if (written == contentLength && Update.end()) {
     addLog("OTA successful, rebooting...");
+    delay(500);
     ESP.restart();
   } else {
     addLog("OTA failed: %s", Update.getErrorString().c_str());
+    Update.abort();
   }
 
   binHttp.end();
@@ -794,25 +848,25 @@ String getDNSRecordIP(const String& hostname) {
 }
 
 void addLog(const char *format, ...) {
-  char buffer[LOG_LINE_SIZE];
+  char msg[LOG_LINE_SIZE];
 
   va_list args;
   va_start(args, format);
-  vsnprintf(buffer, LOG_LINE_SIZE, format, args);
+  vsnprintf(msg, sizeof(msg), format, args);
   va_end(args);
 
-  String line = "[" + String(millis() / 1000) + "s] " + String(buffer);
+  snprintf(logBuffer[logIndex], LOG_LINE_SIZE,
+           "[%lus] %s", millis() / 1000, msg);
 
-  logBuffer[logIndex] = line;
+  Serial.println(logBuffer[logIndex]);
+
   logIndex++;
-
   if (logIndex >= LOG_BUFFER_SIZE) {
     logIndex = 0;
     logWrapped = true;
   }
-
-  Serial.println(line); // mantém saída no Serial
 }
+
 
 // ============================================
 // UTILITÁRIOS
