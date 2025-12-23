@@ -136,7 +136,7 @@ void checkOTA() {
   client.setInsecure();
   HTTPClient http;
 
-  http.begin(client, github_api);
+  http.begin(client, GITHUB_API);
   http.addHeader("User-Agent", "ESP8266");
   int httpCode = http.GET();
 
