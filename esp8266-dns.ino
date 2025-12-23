@@ -170,7 +170,8 @@ void checkOTA() {
     return;
   }
 
-  if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+  size_t maxSketchSpace = ESP.getFreeSketchSpace();
+  if (!Update.begin(maxSketchSpace)) {
     Serial.println("Update.begin failed");
     binHttp.end();
     return;
