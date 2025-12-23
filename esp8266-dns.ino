@@ -131,6 +131,8 @@ void handleSave() {
 void checkOTA() {
   if (WiFi.status() != WL_CONNECTED) return;
 
+  Serial.printf("Heap antes OTA: %u\n", ESP.getFreeHeap());
+
   WiFiClientSecure client;
   client.setInsecure();
 
@@ -155,6 +157,7 @@ void checkOTA() {
 
   WiFiClientSecure binClient;
   binClient.setInsecure();
+  binClient.setTimeout(15000);
 
   HTTPClient binHttp;
   binHttp.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
@@ -167,21 +170,25 @@ void checkOTA() {
     return;
   }
 
-  int size = binHttp.getSize();
-  if (!Update.begin(size)) {
+  if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+    Serial.println("Update.begin failed");
     binHttp.end();
     return;
   }
 
-  Update.writeStream(*binHttp.getStreamPtr());
+  size_t written = Update.writeStream(*binHttp.getStreamPtr());
+  Serial.printf("Escrito: %u bytes\n", written);
 
   if (Update.end()) {
     Serial.println("OTA OK, reiniciando...");
     ESP.restart();
+  } else {
+    Serial.printf("OTA erro: %d\n", Update.getError());
   }
 
   binHttp.end();
 }
+
 
 // ========================
 // SETUP / LOOP
