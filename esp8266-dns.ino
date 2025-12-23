@@ -24,7 +24,7 @@ struct Config {
 
 Config config;
 unsigned long lastOTACheck = 0;
-const unsigned long OTA_INTERVAL = 180000UL; // 1h
+const unsigned long OTA_INTERVAL = 60000UL; // 1min
 
 // ========================
 // FILESYSTEM
@@ -129,6 +129,7 @@ void handleSave() {
 // OTA
 // ========================
 void checkOTA() {
+  Serial.println("checkOTA");
   if (WiFi.status() != WL_CONNECTED) return;
 
   WiFiClientSecure client;
@@ -140,6 +141,7 @@ void checkOTA() {
 
   int code = http.GET();
   if (code != 200) {
+    Serial.println("FAIL 1");
     http.end();
     return;
   }
@@ -162,6 +164,7 @@ void checkOTA() {
   binHttp.begin(binClient, binUrl);
 
   if (binHttp.GET() != 200) {
+    Serial.println("FAIL 2");
     binHttp.end();
     return;
   }
@@ -174,6 +177,7 @@ void checkOTA() {
 
   Update.writeStream(*binHttp.getStreamPtr());
 
+  Serial.println("Success");
   if (Update.end()) {
     ESP.restart();
   }
