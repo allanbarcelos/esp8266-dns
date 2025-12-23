@@ -19,6 +19,8 @@ const unsigned long OTA_INTERVAL = 60000UL;  // 1 minuto
 const uint16_t LOG_BUFFER_SIZE = 10;
 const uint16_t LOG_LINE_SIZE = 128;
 
+unsigned long restartTime = 0;
+
 // ========================
 // DECLARAÇÕES DE OBJETOS
 // ========================
@@ -213,7 +215,7 @@ void handleSave() {
                       "</body></html>";
     
     server.send(200, "text/html", response);
-    delay(1000);
+    restartTime = millis() + 1000;
     ESP.restart();
 }
 
@@ -355,6 +357,21 @@ void checkOTA() {
     ESP.restart();
 }
 
+
+String getPublicIP() {
+    WiFiClient client;
+    HTTPClient http;
+    http.begin(client, "http://api.ipify.org");
+    int httpCode = http.GET();
+    String ip;
+    if (httpCode == HTTP_CODE_OK){
+      ip = http.getString();
+      ip.trim();
+    }
+    http.end();
+    return ip;
+}
+
 // ========================
 // SETUP E LOOP
 // ========================
@@ -387,11 +404,20 @@ void setup() {
 
 void loop() {
     server.handleClient();
-    
-    // Verificar OTA periodicamente
+    unsigned long now = millis();
+
+    static unsigned long bootTime = millis();
+    if (now - bootTime > 86400000UL) ESP.restart();
+
     unsigned long currentMillis = millis();
     if (currentMillis - lastOTACheck >= OTA_INTERVAL) {
         lastOTACheck = currentMillis;
+        addLog("IP: %s", getPublicIP());
         checkOTA();
     }
+
+    if (millis() >= restartTime) {
+      ESP.restart();
+    }
+
 }
