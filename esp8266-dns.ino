@@ -141,6 +141,7 @@ void checkOTA() {
   http.addHeader("User-Agent", "ESP8266");
 
   if (http.GET() != 200) {
+    Serial.printf("FAIL 1");
     http.end();
     return;
   }
@@ -153,7 +154,11 @@ void checkOTA() {
   if (!tag || strcmp(tag, firmware_version) == 0) return;
 
   const char* url = doc["assets"][0]["browser_download_url"];
-  if (!url) return;
+  if (!url) {
+        Serial.printf("FAIL 2");
+
+    return;
+  }
 
   WiFiClientSecure binClient;
   binClient.setInsecure();
@@ -165,7 +170,7 @@ void checkOTA() {
 
   int code = binHttp.GET();
   if (code != 200) {
-    Serial.printf("FAIL 2: HTTP %d\n", code);
+    Serial.printf("FAIL 3: HTTP %d\n", code);
     binHttp.end();
     return;
   }
