@@ -5,7 +5,10 @@
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 
-#define FIRMWARE_VERSION "1.0.0"
+#ifndef firmware_version
+  #define firmware_version "dev"
+#endif
+
 const char* GITHUB_API =
   "https://api.github.com/repos/allanbarcelos/esp8266-dns/releases/latest";
 
@@ -79,20 +82,35 @@ void startWiFi() {
 // ========================
 // WEB
 // ========================
+
+const char INDEX_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ESP8266 Config</title>
+</head>
+<body>
+  <h2>Configurar Wi-Fi</h2>
+  <form action="/save" method="POST">
+    SSID:<br>
+    <input name="ssid"><br><br>
+    Senha:<br>
+    <input name="pass" type="password"><br><br>
+    <button>Salvar</button>
+  </form>
+  <hr>
+  Firmware: %VERSION%
+</body>
+</html>
+)rawliteral";
+
 void handleRoot() {
-  server.send(200, "text/html",
-    "<!DOCTYPE html><html><body>"
-    "<h2>Configurar Wi-Fi</h2>"
-    "<form action='/save' method='POST'>"
-    "SSID:<br><input name='ssid'><br><br>"
-    "Senha:<br><input name='pass' type='password'><br><br>"
-    "<button>Salvar</button>"
-    "</form>"
-    "<hr>"
-    "Firmware: " FIRMWARE_VERSION
-    "</body></html>"
-  );
+  String html = FPSTR(INDEX_HTML);
+  html.replace("%VERSION%", firmware_version);
+  server.send(200, "text/html", html);
 }
+
 
 void handleSave() {
   config.ssid = server.arg("ssid");
