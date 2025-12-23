@@ -416,6 +416,29 @@ String getDNSRecordIP(const String& hostname) {
 }
 
 
+
+void handleDNSUpdate() {
+  String publicIP = getPublicIP();
+  if (publicIP.isEmpty()) {
+    addLog("Falha ao obter IP público");
+    return;
+  }
+  
+  String currentDNSIP = getDNSRecordIP(config.CF_HOST);
+  if (currentDNSIP.isEmpty()) {
+    addLog("Falha ao obter IP do DNS");
+    return;
+  }
+  
+  if (currentDNSIP != publicIP) {
+    addLog("IPs diferentes. Atualizando DNS...");
+    updateDNSRecord(publicIP);
+  } else {
+    addLog("DNS já está atualizado");
+  }
+}
+
+
 // ========================
 // SETUP / LOOP
 // ========================
