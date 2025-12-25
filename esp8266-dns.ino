@@ -110,7 +110,7 @@ void pageEnd() {
 void htmlBox(const char* title) {
     server.sendContent(
         "<div class='card bg-black border-success mb-3'>"
-        "<div class='card-body'>"
+        "<div class='card-body text-white'>"
         "<h6 class='card-title text-success'>"
     );
     server.sendContent(title);
@@ -410,42 +410,62 @@ void handleStatus() {
 
     server.sendContent("<h4 class='text-info'>Status do Sistema</h4>");
 
+    // ===== Sistema Básico =====
     htmlBox("Sistema");
-    server.sendContent("Uptime: ");
-    server.sendContent(String(millis() / 1000));
-    server.sendContent(" s<br>Reset: ");
-    server.sendContent(ESP.getResetReason());
+    server.sendContent("Uptime: " + String(millis() / 1000) + " s<br>");
+    server.sendContent("Reset: " + String(ESP.getResetReason()) + "<br>");
+    server.sendContent("Chip ID: " + String(ESP.getChipId()) + "<br>");
+    server.sendContent("CPU Freq: " + String(ESP.getCpuFreqMHz()) + " MHz<br>");
+    server.sendContent("SDK Version: " + String(ESP.getSdkVersion()) + "<br>");
+    server.sendContent("Boot Version: " + String(ESP.getBootVersion()) + "<br>");
+    server.sendContent("Boot Mode: " + String(ESP.getBootMode()) + "<br>");
     htmlBoxEnd();
 
+    // ===== Memória =====
     htmlBox("Memória");
-    server.sendContent("Heap livre: ");
-    server.sendContent(String(ESP.getFreeHeap()));
-    server.sendContent(" bytes<br>Fragmentação: ");
-    server.sendContent(String(ESP.getHeapFragmentation()));
-    server.sendContent("%");
+    server.sendContent("Heap livre: " + String(ESP.getFreeHeap()) + " bytes<br>");
+    server.sendContent("Heap usado: " + String(ESP.getHeapSize() - ESP.getFreeHeap()) + " bytes<br>");
+    server.sendContent("Fragmentação: " + String(ESP.getHeapFragmentation()) + "%<br>");
     htmlBoxEnd();
 
+    // ===== Flash =====
     htmlBox("Flash");
-    server.sendContent("Total: ");
-    server.sendContent(String(ESP.getFlashChipSize()));
-    server.sendContent("<br>Sketch: ");
-    server.sendContent(String(ESP.getSketchSize()));
-    server.sendContent("<br>Livre: ");
-    server.sendContent(String(ESP.getFreeSketchSpace()));
+    server.sendContent("Total: " + String(ESP.getFlashChipSize()) + " bytes<br>");
+    server.sendContent("Sketch: " + String(ESP.getSketchSize()) + " bytes<br>");
+    server.sendContent("Livre: " + String(ESP.getFreeSketchSpace()) + " bytes<br>");
     htmlBoxEnd();
 
+    // ===== LittleFS =====
+    htmlBox("LittleFS");
+    FSInfo fs_info;
+    LittleFS.info(fs_info);
+    server.sendContent("Total: " + String(fs_info.totalBytes) + " bytes<br>");
+    server.sendContent("Usado: " + String(fs_info.usedBytes) + " bytes<br>");
+    server.sendContent("Arquivos: " + String(fs_info.fileCount) + "<br>");
+    htmlBoxEnd();
+
+    // ===== Wi-Fi =====
     htmlBox("Wi-Fi");
-    server.sendContent("SSID: ");
-    server.sendContent(WiFi.isConnected() ? WiFi.SSID() : "Desconectado");
-    server.sendContent("<br>IP: ");
-    server.sendContent(WiFi.isConnected() ? WiFi.localIP().toString() : "-");
-    server.sendContent("<br>RSSI: ");
-    server.sendContent(String(WiFi.RSSI()));
-    server.sendContent(" dBm");
+    server.sendContent("SSID: " + (WiFi.isConnected() ? WiFi.SSID() : "Desconectado") + "<br>");
+    server.sendContent("IP: " + (WiFi.isConnected() ? WiFi.localIP().toString() : "-") + "<br>");
+    server.sendContent("Gateway: " + (WiFi.isConnected() ? WiFi.gatewayIP().toString() : "-") + "<br>");
+    server.sendContent("Máscara: " + (WiFi.isConnected() ? WiFi.subnetMask().toString() : "-") + "<br>");
+    server.sendContent("DNS: " + (WiFi.isConnected() ? WiFi.dnsIP().toString() : "-") + "<br>");
+    server.sendContent("MAC: " + WiFi.macAddress() + "<br>");
+    server.sendContent("RSSI: " + String(WiFi.RSSI()) + " dBm<br>");
+    server.sendContent("Modo: " + String(WiFi.getMode()) + "<br>");
+    htmlBoxEnd();
+
+    // ===== OTA & DNS =====
+    htmlBox("Serviços");
+    server.sendContent("OTA em progresso: " + String(otaState.inProgress ? "Sim" : "Não") + "<br>");
+    server.sendContent("Bytes OTA escritos: " + String(otaState.written) + " / " + String(otaState.contentLength) + "<br>");
+    server.sendContent("Última atualização DNS: " + String((millis() - lastDnsUpdate) / 1000) + " s atrás<br>");
     htmlBoxEnd();
 
     pageEnd();
 }
+
 
 
 void handleReset() {
