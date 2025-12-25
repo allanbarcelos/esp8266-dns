@@ -168,7 +168,7 @@ void dnsUpdate(String ip) {
     if (code > 0) {
         String resp = http.getString();
         addLog(resp.indexOf("\"success\":true") >= 0 ? "DNS updated!" : "DNS update failed.");
-    } else addLog("DNS update error: " + String(code));
+    } else addLog("DNS update error: %d", code);
     http.end();
 }
 
