@@ -406,9 +406,10 @@ void handleLog() {
 
 // Função para estimativa de temperatura via ADC (apenas indicativa)
 float readChipTemp() {
-    int raw = analogRead(A0);                   // lê valor ADC (0-1023)
+    int raw = analogRead(A0);                   // valor 0-1023
     float voltage = raw * (3.3 / 1023.0);      // converte para volts
-    float temp = (1.1 - voltage) * 100.0;      // fórmula aproximada
+    // mapa aproximado: 0V -> 20°C, 1V -> 40°C, 2V -> 60°C etc
+    float temp = 20.0 + voltage * 40.0;       
     return temp;
 }
 
@@ -690,11 +691,13 @@ void loop() {
     }
 
     // Watchdog de memória
-    if (!restartPending && !otaState.inProgress) {
-       if (ESP.getFreeHeap() < 15000 || ESP.getHeapFragmentation() > 35) {
-           addLog("Memória crítica detectada");
-           scheduleRestart(1000);
-       }
+    if (!restartPending) {
+        if(!otaState.inProgress){
+            if (ESP.getFreeHeap() < 15000 || ESP.getHeapFragmentation() > 35) {
+                addLog("Memória crítica detectada");
+                scheduleRestart(1000);
+            }
+        }
     }
     
     // Daily Restart
