@@ -361,10 +361,10 @@ void handleRoot() {
     server.sendContent(WiFi.localIP().toString());
     htmlBoxEnd();
 
-    server.sendContent(
-        "<a href='/reset' class='btn btn-outline-danger w-100'>"
-        "Reconfigurar Wi-Fi</a>"
-    );
+    // server.sendContent(
+    //     "<a href='/reset' class='btn btn-outline-danger w-100'>"
+    //     "Reconfigurar Wi-Fi</a>"
+    // );
 
     pageEnd();
 }
@@ -482,11 +482,11 @@ void handleStatus() {
     pageEnd();
 }
 
-void handleReset() {
-    LittleFS.remove("/config.json");
-    server.send(200, "text/plain", "Config apagada. Reiniciando...");
-    scheduleRestart(1000);
-}
+// void handleReset() {
+//     LittleFS.remove("/config.json");
+//     server.send(200, "text/plain", "Config apagada. Reiniciando...");
+//     scheduleRestart(1000);
+// }
 
 void handleCloudflare() {
     pageBegin();
@@ -540,7 +540,7 @@ void setupWebServer() {
     server.on("/save", HTTP_POST, handleSave);
     server.on("/log", HTTP_GET, handleLog);
     server.on("/status", HTTP_GET, handleStatus);
-    server.on("/reset", HTTP_GET, handleReset);
+    // server.on("/reset", HTTP_GET, handleReset);
     server.on("/cloudflare", HTTP_GET, handleCloudflare);
     server.on("/cloudflare/save", HTTP_POST, handleCloudflareSave);
     server.begin();
