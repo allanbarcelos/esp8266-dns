@@ -409,7 +409,7 @@ float readChipTemp() {
     int raw = analogRead(A0);                   // valor 0-1023
     float voltage = raw * (3.3 / 1023.0);      // converte para volts
     // mapa aproximado: 0V -> 20°C, 1V -> 40°C, 2V -> 60°C etc
-    float temp = voltage * 180.0;       
+    float temp = voltage * 540.0;       
     return temp;
 }
 
