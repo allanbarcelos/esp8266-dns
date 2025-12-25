@@ -690,7 +690,7 @@ void loop() {
     }
 
     // Watchdog de memória
-    if (!restartPending) {
+    if (!restartPending && !otaState.inProgress) {
        if (ESP.getFreeHeap() < 15000 || ESP.getHeapFragmentation() > 35) {
            addLog("Memória crítica detectada");
            scheduleRestart(1000);
