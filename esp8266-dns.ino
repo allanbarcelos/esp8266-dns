@@ -40,10 +40,10 @@ struct Config {
     String ssid;
     String pass;
 
-    char cf_token[64];
-    char cf_zone[32];
-    char cf_record[32];
-    char cf_host[64];
+    char cf_token[48];
+    char cf_zone[40];
+    char cf_record[40];
+    char cf_host[32];
 };
 
 // ========================
