@@ -296,11 +296,17 @@ bool checkVersion(String& latestVersion) {
     client.setInsecure();
     HTTPClient http;
     
-    if (!http.begin(client, VERSION_URL)) {
+    String url = String(VERSION_URL) + "?t=" + String(millis());
+    if (!http.begin(client, url)) {
         addLog("Falha ao conectar para verificar versão");
         return false;
     }
     
+    // HEADERS ANTI-CACHE
+    // http.addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    // http.addHeader("Pragma", "no-cache");
+    // http.addHeader("Expires", "0");
+
     int code = http.GET();
     if (code != HTTP_CODE_OK) {
         addLog("Erro HTTP na versão: %d", code);
