@@ -412,7 +412,6 @@ float readChipTemp() {
     return temp;
 }
 
-
 void handleStatus() {
     pageBegin();
 
@@ -434,8 +433,9 @@ void handleStatus() {
 
     // ===== Memória =====
     htmlBox("Memória");
+    EspClass::HeapStats hs = ESP.getHeapStats();
     server.sendContent("Heap livre: " + String(ESP.getFreeHeap()) + " bytes<br>");
-    server.sendContent("Heap usado: " + String(ESP.getHeapSize() - ESP.getFreeHeap()) + " bytes<br>");
+    server.sendContent("Heap usado: " + String(hs.used) + " bytes<br>");
     server.sendContent("Fragmentação: " + String(ESP.getHeapFragmentation()) + "%<br>");
     htmlBoxEnd();
 
@@ -452,7 +452,12 @@ void handleStatus() {
     LittleFS.info(fs_info);
     server.sendContent("Total: " + String(fs_info.totalBytes) + " bytes<br>");
     server.sendContent("Usado: " + String(fs_info.usedBytes) + " bytes<br>");
-    server.sendContent("Arquivos: " + String(fs_info.fileCount) + "<br>");
+    
+    // Contagem manual de arquivos
+    Dir dir = LittleFS.openDir("/");
+    int fileCount = 0;
+    while (dir.next()) fileCount++;
+    server.sendContent("Arquivos: " + String(fileCount) + "<br>");
     htmlBoxEnd();
 
     // ===== Wi-Fi =====
