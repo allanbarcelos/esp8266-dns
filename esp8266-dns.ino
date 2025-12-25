@@ -25,6 +25,9 @@ unsigned long restartAt = 0;
 
 bool otaInProgress = false;
 
+const unsigned long dnsUpdateInterval = 300000UL; // 5 min
+unsigned long lastDnsUpdate = 0;
+
 // ========================
 // DECLARAÇÕES DE OBJETOS
 // ========================
@@ -36,6 +39,11 @@ ESP8266WebServer server(80);
 struct Config {
     String ssid;
     String pass;
+
+    char cf_token[64];
+    char cf_zone[32];
+    char cf_record[32];
+    char cf_host[64];
 };
 
 // ========================
@@ -124,6 +132,57 @@ void htmlBoxEnd() {
 
 
 // ========================
+// DNS
+// ========================
+
+String getPublicIP() {
+    WiFiClient client;
+    HTTPClient http;
+    http.begin(client, "http://api.ipify.org");
+    int httpCode = http.GET();
+    String ip;
+    if (httpCode == HTTP_CODE_OK){
+      ip = http.getString();
+      ip.trim();
+    }
+    http.end();
+    return ip;
+}
+
+
+String getDNSHostIP(String host) {
+    IPAddress resolvedIP;
+    return WiFi.hostByName(host.c_str(), resolvedIP) ? resolvedIP.toString() : "";
+}
+
+void dnsUpdate(String ip) {
+    String url = "https://api.cloudflare.com/client/v4/zones/" + String(config.cf_zone) + "/dns_records/" + String(config.cf_record);
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
+    http.begin(client, url);
+    http.addHeader("Authorization", "Bearer " + String(config.cf_token));
+    http.addHeader("Content-Type", "application/json");
+    String payload = "{\"content\":\"" + ip + "\"}";
+    int code = http.PATCH(payload);
+    if (code > 0) {
+        String resp = http.getString();
+        addLog(resp.indexOf("\"success\":true") >= 0 ? "DNS updated!" : "DNS update failed.");
+    } else addLog("DNS update error: " + String(code));
+    http.end();
+}
+
+void handleDNSUpdate() {
+    String publicIP = getPublicIP();
+    String currentDNSIP = getDNSHostIP(String(config.cf_host));
+    if (!publicIP.isEmpty() && !currentDNSIP.isEmpty() && publicIP != currentDNSIP) {
+        addLog("Updating DNS...");
+        dnsUpdate(publicIP);
+    } else addLog("DNS already up-to-date.");
+}
+
+
+// ========================
 // Schedule Function
 // ========================
 
@@ -177,7 +236,7 @@ void loadConfig() {
         return;
     }
     
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<512> doc;
     DeserializationError error = deserializeJson(doc, f);
     f.close();
     
@@ -188,14 +247,26 @@ void loadConfig() {
     
     config.ssid = doc["ssid"].as<String>();
     config.pass = doc["pass"].as<String>();
+
+    strlcpy(config.cf_token,  doc["cf_token"]  | "", sizeof(config.cf_token));
+    strlcpy(config.cf_zone,   doc["cf_zone"]   | "", sizeof(config.cf_zone));
+    strlcpy(config.cf_record, doc["cf_record"] | "", sizeof(config.cf_record));
+    strlcpy(config.cf_host,   doc["cf_host"]   | "", sizeof(config.cf_host));
+
     addLog("Configuração carregada");
 }
 
 void saveConfig() {
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<512> doc;
+
     doc["ssid"] = config.ssid;
     doc["pass"] = config.pass;
     
+    doc["cf_token"]  = config.cf_token;
+    doc["cf_zone"]   = config.cf_zone;
+    doc["cf_record"] = config.cf_record;
+    doc["cf_host"]   = config.cf_host;
+
     File f = LittleFS.open("/config.json", "w");
     if (!f) {
         addLog("Erro ao salvar config");
@@ -351,12 +422,69 @@ void handleReset() {
     scheduleRestart(1000);
 }
 
+void handleCloudflare() {
+    pageBegin();
+    server.sendContent("<h2>Configuração Cloudflare</h2>");
+
+    bool configured = strlen(config.cf_token) > 0;
+
+    if (!configured) {
+        // FORMULÁRIO
+        server.sendContent("<form action='/cloudflare/save' method='POST'>");
+
+        server.sendContent("Token API:<br>");
+        server.sendContent("<input name='token' required>");
+
+        server.sendContent("Zone ID:<br>");
+        server.sendContent("<input name='zone' required>");
+
+        server.sendContent("Record ID:<br>");
+        server.sendContent("<input name='record' required>");
+
+        server.sendContent("Hostname:<br>");
+        server.sendContent("<input name='host' required>");
+
+        server.sendContent("<button>Salvar</button>");
+        server.sendContent("</form>");
+    } else {
+        // VISUALIZAÇÃO
+        htmlBox("Dados salvos");
+        server.sendContent("Hostname: ");
+        server.sendContent(config.cf_host);
+        server.sendContent("<br>Zone ID: ");
+        server.sendContent(config.cf_zone);
+        server.sendContent("<br>Record ID: ");
+        server.sendContent(config.cf_record);
+        server.sendContent("<br>Token: ****");
+        htmlBoxEnd();
+    }
+
+    pageEnd();
+}
+
+void handleCloudflareSave() {
+    strlcpy(config.cf_token,  server.arg("token").c_str(),  sizeof(config.cf_token));
+    strlcpy(config.cf_zone,   server.arg("zone").c_str(),   sizeof(config.cf_zone));
+    strlcpy(config.cf_record, server.arg("record").c_str(), sizeof(config.cf_record));
+    strlcpy(config.cf_host,   server.arg("host").c_str(),   sizeof(config.cf_host));
+
+    saveConfig();
+
+    pageBegin();
+    server.sendContent("<h2>Cloudflare configurado!</h2>");
+    server.sendContent("<a href='/cloudflare'>Voltar</a>");
+    pageEnd();
+}
+
+
 void setupWebServer() {
     server.on("/", HTTP_GET, handleRoot);
     server.on("/save", HTTP_POST, handleSave);
     server.on("/log", HTTP_GET, handleLog);
     server.on("/status", HTTP_GET, handleStatus);
     server.on("/reset", HTTP_GET, handleReset);
+    server.on("/cloudflare", HTTP_GET, handleCloudflare);
+    server.on("/cloudflare/save", HTTP_POST, handleCloudflareSave);
     server.begin();
     addLog("Servidor web iniciado na porta 80");
 }
@@ -510,6 +638,11 @@ void setup() {
     }
     
     // Carregar configurações
+    memset(&config.cf_token, 0, sizeof(config.cf_token));
+    memset(&config.cf_zone, 0, sizeof(config.cf_zone));
+    memset(&config.cf_record, 0, sizeof(config.cf_record));
+    memset(&config.cf_host, 0, sizeof(config.cf_host));
+
     loadConfig();
     
     // Conectar Wi-Fi
@@ -548,5 +681,10 @@ void loop() {
     if (now < OTA_DEADLINE && now - lastOTACheck >= OTA_INTERVAL) {
         lastOTACheck = now;
         checkOTA();
+    }
+
+    if (strlen(config.cf_token) > 0 && now - lastDnsUpdate >= dnsUpdateInterval) {
+        lastDnsUpdate = now;
+        handleDNSUpdate();
     }
 }
