@@ -433,9 +433,8 @@ void handleStatus() {
 
     // ===== Memória =====
     htmlBox("Memória");
-    EspClass::HeapStats hs = ESP.getHeapStats();
     server.sendContent("Heap livre: " + String(ESP.getFreeHeap()) + " bytes<br>");
-    server.sendContent("Heap usado: " + String(hs.used) + " bytes<br>");
+    server.sendContent("Maior bloco livre: " + String(ESP.getMaxFreeBlockSize()) + " bytes<br>");
     server.sendContent("Fragmentação: " + String(ESP.getHeapFragmentation()) + "%<br>");
     htmlBoxEnd();
 
