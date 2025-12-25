@@ -23,6 +23,8 @@ const uint16_t LOG_LINE_SIZE = 128;
 bool restartPending = false;
 unsigned long restartAt = 0;
 
+bool otaInProgress = false;
+
 // ========================
 // DECLARAÇÕES DE OBJETOS
 // ========================
@@ -122,6 +124,17 @@ void htmlBoxEnd() {
 
 
 // ========================
+// Schedule Function
+// ========================
+
+void scheduleRestart(unsigned long ms = 1000) {
+    if (restartPending) return;
+    addLog("Reinício agendado em %lu ms", ms);
+    restartPending = true;
+    restartAt = millis() + ms;
+}
+
+// ========================
 // FUNÇÕES DE LOG
 // ========================
 void addLog(const char *format, ...) {
@@ -212,6 +225,7 @@ void startWiFi() {
     
     uint8_t attempts = 20;  // ~10 segundos
     while (WiFi.status() != WL_CONNECTED && attempts--) {
+        yield();
         delay(500);
         Serial.print(".");
     }
@@ -268,8 +282,7 @@ void handleSave() {
     server.sendContent("<p>Reiniciando...</p>");
     pageEnd();
 
-    delay(1000);
-    ESP.restart();
+    scheduleRestart(1000);
 }
 
 
@@ -335,8 +348,7 @@ void handleStatus() {
 void handleReset() {
     LittleFS.remove("/config.json");
     server.send(200, "text/plain", "Config apagada. Reiniciando...");
-    delay(1000);
-    ESP.restart();
+    scheduleRestart(1000);
 }
 
 void setupWebServer() {
@@ -385,8 +397,11 @@ bool checkVersion(String& latestVersion) {
 bool downloadAndUpdateFirmware() {
     WiFiClientSecure client;
     client.setInsecure();
+
     HTTPClient http;
-    
+    http.useHTTP10(true);          // CRÍTICO
+    http.setTimeout(20000);
+
     if (!http.begin(client, BIN_URL)) {
         addLog("Falha ao conectar para download");
         return false;
@@ -436,8 +451,14 @@ bool downloadAndUpdateFirmware() {
 }
 
 void checkOTA() {
+
+    if (otaInProgress || restartPending) return;
+
+    otaInProgress = true;
+
     if (WiFi.status() != WL_CONNECTED) {
         addLog("OTA: Wi-Fi não conectado");
+        otaInProgress = false;
         return;
     }
     
@@ -445,6 +466,7 @@ void checkOTA() {
     addLog("Verificando atualizações...");
     
     if (!checkVersion(latestVersion)) {
+        otaInProgress = false;
         return;
     }
     
@@ -452,6 +474,7 @@ void checkOTA() {
     
     if (latestVersion == firmware_version) {
         addLog("Firmware já está atualizado");
+        otaInProgress = false;
         return;
     }
     
@@ -459,21 +482,14 @@ void checkOTA() {
     
     if (!downloadAndUpdateFirmware()) {
         addLog("Falha no update OTA");
+        otaInProgress = false;
         return;
     }
     
     addLog("OTA concluído com sucesso! Reiniciando...");
-    delay(1000);
-    ESP.restart();
+    otaInProgress = false;
+    scheduleRestart(1000);
 }
-
-void scheduleRestart(unsigned long ms = 1000) {
-    if (restartPending) return;
-    addLog("Reinício agendado em %lu ms", ms);
-    restartPending = true;
-    restartAt = millis() + ms;
-}
-
 
 // ========================
 // SETUP E LOOP
@@ -516,14 +532,18 @@ void loop() {
 
     // Watchdog de memória
     if (!restartPending) {
-        if (ESP.getFreeHeap() < 15000 || ESP.getHeapFragmentation() > 35) {
-            addLog("Memória crítica detectada");
-            scheduleRestart(1000);
-        }
+       if (ESP.getFreeHeap() < 15000 || ESP.getHeapFragmentation() > 35) {
+           addLog("Memória crítica detectada");
+           scheduleRestart(1000);
+       }
+    }
+    
+    // Daily Restart
+    if (now > 86400000UL && !restartPending) {
+        addLog("Reinício diário agendado");
+        scheduleRestart(1000);
     }
 
-    // OTA
-    if (now > 86400000UL) ESP.restart();
 
     if (now < OTA_DEADLINE && now - lastOTACheck >= OTA_INTERVAL) {
         lastOTACheck = now;
