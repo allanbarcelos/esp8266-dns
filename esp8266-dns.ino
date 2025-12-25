@@ -16,6 +16,7 @@
 const char* VERSION_URL = "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/firmware/version.txt";
 const char* BIN_URL     = "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/firmware/firmware.bin";
 const unsigned long OTA_INTERVAL = 60000UL;  // 1 minuto
+const unsigned long OTA_DEADLINE = 82800000UL;  // ~23h00min
 const uint16_t LOG_BUFFER_SIZE = 10;
 const uint16_t LOG_LINE_SIZE = 128;
 
@@ -118,6 +119,54 @@ const char LOG_HTML_FOOT[] PROGMEM = R"rawliteral(
 </body>
 </html>
 )rawliteral";
+
+const char STATUS_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<title>Status do Dispositivo</title>
+<meta http-equiv="refresh" content="5">
+<style>
+body{font-family:Arial;background:#111;color:#0f0;padding:20px;}
+.box{border:1px solid #0f0;padding:15px;margin-bottom:15px;}
+h2{margin-top:0;}
+</style>
+</head>
+<body>
+
+<h2>Status do ESP8266</h2>
+
+<div class="box">
+<b>Firmware:</b> %s<br>
+<b>Uptime:</b> %lu segundos<br>
+<b>Reset reason:</b> %s
+</div>
+
+<div class="box">
+<b>Heap livre:</b> %u bytes<br>
+<b>Heap máximo:</b> %u bytes<br>
+<b>Fragmentação:</b> %u %%
+</div>
+
+<div class="box">
+<b>Flash total:</b> %u bytes<br>
+<b>Flash usado:</b> %u bytes<br>
+<b>Sketch livre:</b> %u bytes
+</div>
+
+<div class="box">
+<b>Wi-Fi SSID:</b> %s<br>
+<b>IP:</b> %s<br>
+<b>RSSI:</b> %d dBm
+</div>
+
+<p>Atualiza a cada 5 segundos</p>
+
+</body>
+</html>
+)rawliteral";
+
 
 // ========================
 // FUNÇÕES DE LOG
@@ -280,10 +329,44 @@ void handleLog() {
     server.sendContent_P(LOG_HTML_FOOT);
 }
 
+void handleStatus() {
+    char page[1024];
+
+    uint32_t heapFree = ESP.getFreeHeap();
+    uint32_t heapMax  = ESP.getMaxFreeBlockSize();
+    uint32_t frag     = ESP.getHeapFragmentation();
+
+    uint32_t flashSize = ESP.getFlashChipSize();
+    uint32_t sketchSize = ESP.getSketchSize();
+    uint32_t sketchFree = ESP.getFreeSketchSpace();
+
+    snprintf(
+        page,
+        sizeof(page),
+        STATUS_HTML,
+        firmware_version,
+        millis() / 1000,
+        ESP.getResetReason().c_str(),
+        heapFree,
+        heapMax,
+        frag,
+        flashSize,
+        sketchSize,
+        sketchFree,
+        WiFi.isConnected() ? WiFi.SSID().c_str() : "Desconectado",
+        WiFi.isConnected() ? WiFi.localIP().toString().c_str() : "-",
+        WiFi.isConnected() ? WiFi.RSSI() : 0
+    );
+
+    server.send(200, "text/html", page);
+}
+
+
 void setupWebServer() {
     server.on("/", HTTP_GET, handleRoot);
     server.on("/save", HTTP_POST, handleSave);
     server.on("/log", HTTP_GET, handleLog);
+    server.on("/status", HTTP_GET, handleStatus);
     server.begin();
     addLog("Servidor web iniciado na porta 80");
 }
@@ -303,9 +386,9 @@ bool checkVersion(String& latestVersion) {
     }
     
     // HEADERS ANTI-CACHE
-    // http.addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    // http.addHeader("Pragma", "no-cache");
-    // http.addHeader("Expires", "0");
+    http.addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    http.addHeader("Pragma", "no-cache");
+    http.addHeader("Expires", "0");
 
     int code = http.GET();
     if (code != HTTP_CODE_OK) {
@@ -438,11 +521,14 @@ void setup() {
 
 void loop() {
     server.handleClient();
+    unsigned long now = millis();
     
-    // Verificar OTA periodicamente
-    unsigned long currentMillis = millis();
-    if (currentMillis - lastOTACheck >= OTA_INTERVAL) {
-        lastOTACheck = currentMillis;
-        checkOTA();
+    if (now > 86400000UL) ESP.restart();
+
+    if (now < OTA_DEADLINE) {
+        if (now - lastOTACheck >= OTA_INTERVAL) {
+            lastOTACheck = currentMillis;
+            checkOTA();
+        }
     }
 }
