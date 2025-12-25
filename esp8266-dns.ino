@@ -160,9 +160,8 @@ void dnsUpdate(String ip) {
     int code = http.PATCH(payload);
     if (code > 0) {
         String resp = http.getString();
-        addLog("DNS %s", resp.c_str());
 
-        StaticJsonDocument<512> doc;
+        StaticJsonDocument<768> doc;
         DeserializationError err = deserializeJson(doc, resp);
 
         if (err) {
