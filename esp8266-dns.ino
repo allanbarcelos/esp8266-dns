@@ -179,7 +179,7 @@ void dnsUpdate(String ip) {
 void handleDNSUpdate() {
     String publicIP = getPublicIP();
     String currentDNSIP = getDNSHostIP(String(config.cf_host));
-    addLog("PublicIP: %s", publicIP);
+    addLog("PublicIP: %s", publicIP.c_str());
     addLog("CurrentDNSIP: %s", currentDNSIP);
     if (!publicIP.isEmpty() && !currentDNSIP.isEmpty() && publicIP != currentDNSIP) {
         addLog("Updating DNS...");
@@ -608,7 +608,7 @@ void checkOTA() {
     }
     
     String latestVersion;
-    addLog("Verificando atualizações...");
+    // addLog("Verificando atualizações...");
     
     if (!checkVersion(latestVersion)) {
         otaInProgress = false;
@@ -618,7 +618,7 @@ void checkOTA() {
     Serial.printf("Versão atual: %s | Disponível: %s\n", firmware_version, latestVersion.c_str());
     
     if (latestVersion == firmware_version) {
-        addLog("Firmware já está atualizado");
+        // addLog("Firmware já está atualizado");
         otaInProgress = false;
         return;
     }
