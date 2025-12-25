@@ -19,8 +19,6 @@ const unsigned long OTA_INTERVAL = 60000UL;  // 1 minuto
 const uint16_t LOG_BUFFER_SIZE = 10;
 const uint16_t LOG_LINE_SIZE = 128;
 
-unsigned long restartTime = 0;
-
 // ========================
 // DECLARAÇÕES DE OBJETOS
 // ========================
@@ -215,7 +213,7 @@ void handleSave() {
                       "</body></html>";
     
     server.send(200, "text/html", response);
-    restartTime = millis() + 1000;
+    delay(1000);
     ESP.restart();
 }
 
@@ -332,6 +330,7 @@ void checkOTA() {
     }
     
     String latestVersion;
+    addLog("Verificando atualizações...");
     
     if (!checkVersion(latestVersion)) {
         return;
@@ -339,8 +338,10 @@ void checkOTA() {
     
     Serial.printf("Versão atual: %s | Disponível: %s\n", firmware_version, latestVersion.c_str());
     
-    if (latestVersion == firmware_version) return;
-    
+    if (latestVersion == firmware_version) {
+        addLog("Firmware já está atualizado");
+        return;
+    }
     
     addLog("Nova versão encontrada! Baixando...");
     
@@ -352,21 +353,6 @@ void checkOTA() {
     addLog("OTA concluído com sucesso! Reiniciando...");
     delay(1000);
     ESP.restart();
-}
-
-
-String getPublicIP() {
-    WiFiClient client;
-    HTTPClient http;
-    http.begin(client, "http://api.ipify.org");
-    int httpCode = http.GET();
-    String ip;
-    if (httpCode == HTTP_CODE_OK){
-      ip = http.getString();
-      ip.trim();
-    }
-    http.end();
-    return ip;
 }
 
 // ========================
@@ -401,20 +387,11 @@ void setup() {
 
 void loop() {
     server.handleClient();
-    unsigned long now = millis();
-
-    static unsigned long bootTime = millis();
-    if (now - bootTime > 86400000UL) ESP.restart();
-
+    
+    // Verificar OTA periodicamente
     unsigned long currentMillis = millis();
     if (currentMillis - lastOTACheck >= OTA_INTERVAL) {
         lastOTACheck = currentMillis;
-        addLog("IP: %s", getPublicIP());
         checkOTA();
     }
-
-    if (millis() >= restartTime) {
-      ESP.restart();
-    }
-
 }
