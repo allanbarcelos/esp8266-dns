@@ -20,6 +20,9 @@ const unsigned long OTA_DEADLINE = 82800000UL;  // ~23h00min
 const uint16_t LOG_BUFFER_SIZE = 10;
 const uint16_t LOG_LINE_SIZE = 128;
 
+bool restartPending = false;
+unsigned long restartAt = 0;
+
 // ========================
 // DECLARAÇÕES DE OBJETOS
 // ========================
@@ -45,127 +48,77 @@ bool logWrapped = false;
 // ========================
 // PROGMEM HTML
 // ========================
-const char WIFI_FORM_HTML[] PROGMEM = R"rawliteral(
+const char HTML_HEAD[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="pt">
 <head>
 <meta charset="utf-8">
-<title>ESP8266 Config</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP8266</title>
 <style>
-body{font-family:Arial;margin:40px;}
-input,button{width:100%;padding:8px;margin:10px 0;}
-</style>
-</head>
-<body>
-<h2>Configurar Wi-Fi</h2>
-<form action="/save" method="POST">
-SSID:<br>
-<input name="ssid" required><br>
-Senha:<br>
-<input name="pass" type="password"><br>
-<button type="submit">Salvar</button>
-</form>
-<hr>
-<p>Firmware: )rawliteral" firmware_version R"rawliteral(</p>
-</body>
-</html>
-)rawliteral";
-
-const char WIFI_STATUS_HTML[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html lang="pt">
-<head>
-<meta charset="utf-8">
-<title>Status Wi-Fi</title>
-<style>
-body{font-family:Arial;margin:40px;}
-.box{padding:15px;border:1px solid #ccc;}
-a{display:inline-block;margin-top:15px;}
-</style>
-</head>
-<body>
-<h2>Wi-Fi Conectado</h2>
-<div class="box">
-<p><b>Rede:</b> %s</p>
-<p><b>IP:</b> %s</p>
-</div>
-<a href="/reset">Reconfigurar Wi-Fi</a>
-<hr>
-<p>Firmware: )rawliteral" firmware_version R"rawliteral(</p>
-</body>
-</html>
-)rawliteral";
-
-const char LOG_HTML_HEAD[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<meta http-equiv="refresh" content="5">
-<title>Logs ESP8266</title>
-<style>
-body{font-family:monospace;background:#111;color:#0f0;padding:10px;}
-pre{white-space:pre-wrap;}
-</style>
-</head>
-<body>
-<h2>Logs ESP8266 DNS Updater</h2>
-<pre>
-)rawliteral";
-
-const char LOG_HTML_FOOT[] PROGMEM = R"rawliteral(
-</pre>
-<p style="color:#888">Atualiza a cada 5 segundos</p>
-</body>
-</html>
-)rawliteral";
-
-const char STATUS_HTML[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html lang="pt">
-<head>
-<meta charset="utf-8">
-<title>Status do Dispositivo</title>
-<meta http-equiv="refresh" content="5">
-<style>
-body{font-family:Arial;background:#111;color:#0f0;padding:20px;}
-.box{border:1px solid #0f0;padding:15px;margin-bottom:15px;}
+body{
+    font-family:Arial;
+    background:#111;
+    color:#0f0;
+    padding:20px;
+}
 h2{margin-top:0;}
+.box{
+    border:1px solid #0f0;
+    padding:15px;
+    margin-bottom:15px;
+}
+input,button{
+    width:100%;
+    padding:8px;
+    margin:8px 0;
+}
+a{
+    color:#0f0;
+    text-decoration:none;
+}
+a:hover{text-decoration:underline;}
+.footer{
+    margin-top:20px;
+    color:#888;
+    font-size:12px;
+}
 </style>
 </head>
 <body>
+)rawliteral";
 
-<h2>Status do ESP8266</h2>
-
-<div class="box">
-<b>Firmware:</b> %s<br>
-<b>Uptime:</b> %lu segundos<br>
-<b>Reset reason:</b> %s
+const char HTML_FOOT[] PROGMEM = R"rawliteral(
+<div class="footer">
+Firmware: )rawliteral" firmware_version R"rawliteral(
 </div>
-
-<div class="box">
-<b>Heap livre:</b> %u bytes<br>
-<b>Heap máximo:</b> %u bytes<br>
-<b>Fragmentação:</b> %u %%
-</div>
-
-<div class="box">
-<b>Flash total:</b> %u bytes<br>
-<b>Flash usado:</b> %u bytes<br>
-<b>Sketch livre:</b> %u bytes
-</div>
-
-<div class="box">
-<b>Wi-Fi SSID:</b> %s<br>
-<b>IP:</b> %s<br>
-<b>RSSI:</b> %d dBm
-</div>
-
-<p>Atualiza a cada 5 segundos</p>
-
 </body>
 </html>
 )rawliteral";
+
+// ========================
+// COMPONENTS
+// ========================
+
+void pageBegin() {
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server.send(200, "text/html", "");
+    server.sendContent_P(HTML_HEAD);
+}
+
+void pageEnd() {
+    server.sendContent_P(HTML_FOOT);
+}
+
+void htmlBox(const char* title) {
+    server.sendContent("<div class='box'><b>");
+    server.sendContent(title);
+    server.sendContent("</b><br>");
+}
+
+void htmlBoxEnd() {
+    server.sendContent("</div>");
+}
 
 
 // ========================
@@ -246,6 +199,7 @@ void saveConfig() {
 // ========================
 void startWiFi() {
     if (config.ssid.length() == 0) {
+        WiFi.mode(WIFI_AP);
         WiFi.softAP("ESP_Config");
         addLog("Modo AP iniciado: ESP_Config");
         return;
@@ -275,98 +229,122 @@ void startWiFi() {
 // HANDLERS WEB
 // ========================
 void handleRoot() {
+    pageBegin();
 
-    // Se não tem SSID salvo, mostra formulário
     if (config.ssid.length() == 0 || WiFi.status() != WL_CONNECTED) {
-        server.send_P(200, "text/html", WIFI_FORM_HTML);
+
+        server.sendContent("<h2>Configurar Wi-Fi</h2>");
+        server.sendContent("<form action='/save' method='POST'>");
+        server.sendContent("SSID:<br><input name='ssid' required>");
+        server.sendContent("Senha:<br><input name='pass' type='password'>");
+        server.sendContent("<button>Salvar</button>");
+        server.sendContent("</form>");
+
+        pageEnd();
         return;
     }
 
-    // HTML dinâmico com SSID e IP
-    char page[512];
-    snprintf(
-        page,
-        sizeof(page),
-        WIFI_STATUS_HTML,
-        WiFi.SSID().c_str(),
-        WiFi.localIP().toString().c_str()
-    );
+    server.sendContent("<h2>Wi-Fi Conectado</h2>");
+    htmlBox("Conexão");
+    server.sendContent("Rede: ");
+    server.sendContent(WiFi.SSID());
+    server.sendContent("<br>IP: ");
+    server.sendContent(WiFi.localIP().toString());
+    htmlBoxEnd();
 
-    server.send_P(200, "text/html", page);
+    server.sendContent("<a href='/reset'>Reconfigurar Wi-Fi</a>");
+
+    pageEnd();
 }
+
 
 void handleSave() {
     config.ssid = server.arg("ssid");
     config.pass = server.arg("pass");
     saveConfig();
-    
-    String response = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-                      "<title>Configuração Salva</title></head><body>"
-                      "<h2>Configuração salva!</h2>"
-                      "<p>O dispositivo está reiniciando...</p>"
-                      "</body></html>";
-    
-    server.send(200, "text/html", response);
+
+    pageBegin();
+    server.sendContent("<h2>Configuração salva!</h2>");
+    server.sendContent("<p>Reiniciando...</p>");
+    pageEnd();
+
     delay(1000);
     ESP.restart();
 }
 
+
 void handleLog() {
-    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-    server.send(200, "text/html", "");
-    
-    server.sendContent_P(LOG_HTML_HEAD);
-    
+    pageBegin();
+    server.sendContent("<h2>Logs</h2><pre>");
+
     int count = logWrapped ? LOG_BUFFER_SIZE : logIndex;
     int start = logWrapped ? logIndex : 0;
-    
+
     for (int i = 0; i < count; i++) {
         int idx = (start + i) % LOG_BUFFER_SIZE;
         server.sendContent(logBuffer[idx]);
         server.sendContent("\n");
     }
-    
-    server.sendContent_P(LOG_HTML_FOOT);
+
+    server.sendContent("</pre>");
+    pageEnd();
 }
+
 
 void handleStatus() {
-    char page[1024];
+    pageBegin();
+    server.sendContent("<h2>Status do ESP8266</h2>");
 
-    uint32_t heapFree = ESP.getFreeHeap();
-    uint32_t heapMax  = ESP.getMaxFreeBlockSize();
-    uint32_t frag     = ESP.getHeapFragmentation();
+    htmlBox("Sistema");
+    server.sendContent("Uptime: ");
+    server.sendContent(String(millis()/1000));
+    server.sendContent(" s<br>Reset: ");
+    server.sendContent(ESP.getResetReason());
+    htmlBoxEnd();
 
-    uint32_t flashSize = ESP.getFlashChipSize();
-    uint32_t sketchSize = ESP.getSketchSize();
-    uint32_t sketchFree = ESP.getFreeSketchSpace();
+    htmlBox("Memória");
+    server.sendContent("Heap livre: ");
+    server.sendContent(String(ESP.getFreeHeap()));
+    server.sendContent(" bytes<br>Fragmentação: ");
+    server.sendContent(String(ESP.getHeapFragmentation()));
+    server.sendContent("%");
+    htmlBoxEnd();
 
-    snprintf(
-        page,
-        sizeof(page),
-        STATUS_HTML,
-        firmware_version,
-        millis() / 1000,
-        ESP.getResetReason().c_str(),
-        heapFree,
-        heapMax,
-        frag,
-        flashSize,
-        sketchSize,
-        sketchFree,
-        WiFi.isConnected() ? WiFi.SSID().c_str() : "Desconectado",
-        WiFi.isConnected() ? WiFi.localIP().toString().c_str() : "-",
-        WiFi.isConnected() ? WiFi.RSSI() : 0
-    );
+    htmlBox("Flash");
+    server.sendContent("Total: ");
+    server.sendContent(String(ESP.getFlashChipSize()));
+    server.sendContent("<br>Sketch: ");
+    server.sendContent(String(ESP.getSketchSize()));
+    server.sendContent("<br>Livre: ");
+    server.sendContent(String(ESP.getFreeSketchSpace()));
+    htmlBoxEnd();
 
-    server.send(200, "text/html", page);
+    htmlBox("Wi-Fi");
+    server.sendContent("SSID: ");
+    server.sendContent(WiFi.isConnected() ? WiFi.SSID() : "Desconectado");
+    server.sendContent("<br>IP: ");
+    server.sendContent(WiFi.isConnected() ? WiFi.localIP().toString() : "-");
+    server.sendContent("<br>RSSI: ");
+    server.sendContent(String(WiFi.RSSI()));
+    server.sendContent(" dBm");
+    htmlBoxEnd();
+
+    pageEnd();
 }
 
+void handleReset() {
+    LittleFS.remove("/config.json");
+    server.send(200, "text/plain", "Config apagada. Reiniciando...");
+    delay(1000);
+    ESP.restart();
+}
 
 void setupWebServer() {
     server.on("/", HTTP_GET, handleRoot);
     server.on("/save", HTTP_POST, handleSave);
     server.on("/log", HTTP_GET, handleLog);
     server.on("/status", HTTP_GET, handleStatus);
+    server.on("/reset", HTTP_GET, handleReset);
     server.begin();
     addLog("Servidor web iniciado na porta 80");
 }
@@ -489,6 +467,14 @@ void checkOTA() {
     ESP.restart();
 }
 
+void scheduleRestart(unsigned long ms = 1000) {
+    if (restartPending) return;
+    addLog("Reinício agendado em %lu ms", ms);
+    restartPending = true;
+    restartAt = millis() + ms;
+}
+
+
 // ========================
 // SETUP E LOOP
 // ========================
@@ -522,13 +508,25 @@ void setup() {
 void loop() {
     server.handleClient();
     unsigned long now = millis();
-    
+
+    // Executa reboot sem bloquear
+    if (restartPending && (long)(now - restartAt) >= 0) {
+        ESP.restart();
+    }
+
+    // Watchdog de memória
+    if (!restartPending) {
+        if (ESP.getFreeHeap() < 15000 || ESP.getHeapFragmentation() > 35) {
+            addLog("Memória crítica detectada");
+            scheduleRestart(1000);
+        }
+    }
+
+    // OTA
     if (now > 86400000UL) ESP.restart();
 
-    if (now < OTA_DEADLINE) {
-        if (now - lastOTACheck >= OTA_INTERVAL) {
-            lastOTACheck = now;
-            checkOTA();
-        }
+    if (now < OTA_DEADLINE && now - lastOTACheck >= OTA_INTERVAL) {
+        lastOTACheck = now;
+        checkOTA();
     }
 }
