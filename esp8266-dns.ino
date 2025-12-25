@@ -44,25 +44,53 @@ bool logWrapped = false;
 // ========================
 // PROGMEM HTML
 // ========================
-const char INDEX_HTML[] PROGMEM = R"rawliteral(
+const char WIFI_FORM_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="pt">
 <head>
-  <meta charset="utf-8">
-  <title>ESP8266 Config</title>
-  <style>body{font-family:Arial;margin:40px;}input{width:100%;padding:8px;margin:10px 0;}</style>
+<meta charset="utf-8">
+<title>ESP8266 Config</title>
+<style>
+body{font-family:Arial;margin:40px;}
+input,button{width:100%;padding:8px;margin:10px 0;}
+</style>
 </head>
 <body>
-  <h2>Configurar Wi-Fi</h2>
-  <form action="/save" method="POST">
-    SSID:<br>
-    <input name="ssid" required><br><br>
-    Senha:<br>
-    <input name="pass" type="password"><br><br>
-    <button type="submit">Salvar</button>
-  </form>
-  <hr>
-  <p>Firmware: )rawliteral" firmware_version R"rawliteral(</p>
+<h2>Configurar Wi-Fi</h2>
+<form action="/save" method="POST">
+SSID:<br>
+<input name="ssid" required><br>
+Senha:<br>
+<input name="pass" type="password"><br>
+<button type="submit">Salvar</button>
+</form>
+<hr>
+<p>Firmware: )rawliteral" firmware_version R"rawliteral(</p>
+</body>
+</html>
+)rawliteral";
+
+const char WIFI_STATUS_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<title>Status Wi-Fi</title>
+<style>
+body{font-family:Arial;margin:40px;}
+.box{padding:15px;border:1px solid #ccc;}
+a{display:inline-block;margin-top:15px;}
+</style>
+</head>
+<body>
+<h2>Wi-Fi Conectado</h2>
+<div class="box">
+<p><b>Rede:</b> %s</p>
+<p><b>IP:</b> %s</p>
+</div>
+<a href="/reset">Reconfigurar Wi-Fi</a>
+<hr>
+<p>Firmware: )rawliteral" firmware_version R"rawliteral(</p>
 </body>
 </html>
 )rawliteral";
@@ -198,7 +226,24 @@ void startWiFi() {
 // HANDLERS WEB
 // ========================
 void handleRoot() {
-    server.send_P(200, "text/html", INDEX_HTML);
+
+    // Se não tem SSID salvo, mostra formulário
+    if (config.ssid.length() == 0 || WiFi.status() != WL_CONNECTED) {
+        server.send_P(200, "text/html", WIFI_FORM_HTML);
+        return;
+    }
+
+    // HTML dinâmico com SSID e IP
+    char page[512];
+    snprintf(
+        page,
+        sizeof(page),
+        WIFI_STATUS_HTML,
+        WiFi.SSID().c_str(),
+        WiFi.localIP().toString().c_str()
+    );
+
+    server.send_P(200, "text/html", page);
 }
 
 void handleSave() {
