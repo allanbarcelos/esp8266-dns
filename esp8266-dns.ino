@@ -23,8 +23,6 @@ const uint16_t LOG_LINE_SIZE = 128;
 bool restartPending = false;
 unsigned long restartAt = 0;
 
-bool otaInProgress = false;
-
 const unsigned long dnsUpdateInterval = 300000UL; // 5 min
 unsigned long lastDnsUpdate = 0;
 
@@ -45,6 +43,15 @@ struct Config {
     char cf_record[40];
     char cf_host[32];
 };
+
+struct OTAState {
+    bool inProgress = false;
+    HTTPClient http;
+    WiFiClientSecure client;
+    int contentLength = 0;
+    size_t written = 0;
+} otaState;
+
 
 // ========================
 // VARIÁVEIS GLOBAIS
@@ -180,7 +187,7 @@ void handleDNSUpdate() {
     String publicIP = getPublicIP();
     String currentDNSIP = getDNSHostIP(String(config.cf_host));
     addLog("PublicIP: %s", publicIP.c_str());
-    addLog("CurrentDNSIP: %s", currentDNSIP);
+    addLog("CurrentDNSIP: %s", currentDNSIP.c_str());
     if (!publicIP.isEmpty() && !currentDNSIP.isEmpty() && publicIP != currentDNSIP) {
         addLog("Updating DNS...");
         dnsUpdate(publicIP);
@@ -539,102 +546,71 @@ bool checkVersion(String& latestVersion) {
     return true;
 }
 
-bool downloadAndUpdateFirmware() {
-    WiFiClientSecure client;
-    client.setInsecure();
+bool startOTA() {
+    if (otaState.inProgress) return false;
 
-    HTTPClient http;
-    http.useHTTP10(true);          // CRÍTICO
-    http.setTimeout(20000);
-
-    if (!http.begin(client, BIN_URL)) {
-        addLog("Falha ao conectar para download");
+    otaState.client.setInsecure();
+    if (!otaState.http.begin(otaState.client, BIN_URL)) {
+        addLog("Falha ao iniciar OTA");
         return false;
     }
-    
-    int code = http.GET();
+
+    int code = otaState.http.GET();
     if (code != HTTP_CODE_OK) {
-        addLog("Erro HTTP no download: %d", code);
-        http.end();
+        addLog("HTTP OTA erro: %d", code);
+        otaState.http.end();
         return false;
     }
-    
-    int contentLength = http.getSize();
-    if (contentLength <= 0) {
+
+    otaState.contentLength = otaState.http.getSize();
+    if (otaState.contentLength <= 0) {
         addLog("Tamanho do firmware inválido");
-        http.end();
+        otaState.http.end();
         return false;
     }
-    
-    addLog("Tamanho do binário: %d bytes", contentLength);
-    
-    if (!Update.begin(contentLength)) {
-        addLog("Espaço insuficiente para OTA");
-        Update.printError(Serial);
-        http.end();
+
+    if (!Update.begin(otaState.contentLength)) {
+        addLog("Sem espaço para OTA");
+        otaState.http.end();
         return false;
     }
-    
-    WiFiClient* stream = http.getStreamPtr();
-    size_t written = Update.writeStream(*stream);
-    
-    if (written != (size_t)contentLength) {
-        addLog("Escrita parcial: %zu / %d bytes", written, contentLength);
-        Update.end(false);
-        http.end();
-        return false;
-    }
-    
-    if (!Update.end()) {
-        addLog("Erro no update: %s", Update.getErrorString().c_str());
-        http.end();
-        return false;
-    }
-    
-    http.end();
+
+    otaState.written = 0;
+    otaState.inProgress = true;
+    addLog("OTA iniciado: %d bytes", otaState.contentLength);
     return true;
 }
 
-void checkOTA() {
 
-    if (otaInProgress || restartPending) return;
+void handleOTANonBlocking() {
+    if (!otaState.inProgress) return;
 
-    otaInProgress = true;
+    WiFiClient* stream = otaState.http.getStreamPtr();
+    
+    // Ler até 512 bytes por vez (não bloqueia)
+    if (stream->available()) {
+        uint8_t buffer[512];
+        int len = stream->readBytes(buffer, sizeof(buffer));
+        if (len > 0) {
+            size_t writtenNow = Update.write(buffer, len);
+            otaState.written += writtenNow;
+            addLog("OTA progresso: %zu / %d bytes", otaState.written, otaState.contentLength);
+        }
+    }
 
-    if (WiFi.status() != WL_CONNECTED) {
-        addLog("OTA: Wi-Fi não conectado");
-        otaInProgress = false;
-        return;
+    // Se terminou o download
+    if (otaState.written >= (size_t)otaState.contentLength) {
+        if (!Update.end()) {
+            addLog("Erro no OTA: %s", Update.getErrorString().c_str());
+        } else {
+            addLog("OTA concluído com sucesso! Reiniciando...");
+            scheduleRestart(1000);
+        }
+        otaState.http.end();
+        otaState.inProgress = false;
     }
-    
-    String latestVersion;
-    // addLog("Verificando atualizações...");
-    
-    if (!checkVersion(latestVersion)) {
-        otaInProgress = false;
-        return;
-    }
-    
-    Serial.printf("Versão atual: %s | Disponível: %s\n", firmware_version, latestVersion.c_str());
-    
-    if (latestVersion == firmware_version) {
-        // addLog("Firmware já está atualizado");
-        otaInProgress = false;
-        return;
-    }
-    
-    addLog("Nova versão encontrada! Baixando...");
-    
-    if (!downloadAndUpdateFirmware()) {
-        addLog("Falha no update OTA");
-        otaInProgress = false;
-        return;
-    }
-    
-    addLog("OTA concluído com sucesso! Reiniciando...");
-    otaInProgress = false;
-    scheduleRestart(1000);
 }
+
 
 // ========================
 // SETUP E LOOP
@@ -694,11 +670,21 @@ void loop() {
         scheduleRestart(1000);
     }
 
-
-    if (now < OTA_DEADLINE && now - lastOTACheck >= OTA_INTERVAL) {
+    if (!otaState.inProgress && !restartPending && now < OTA_DEADLINE && now - lastOTACheck >= OTA_INTERVAL) {
         lastOTACheck = now;
-        checkOTA();
+        String latestVersion;
+        if (checkVersion(latestVersion) && latestVersion != firmware_version) {
+            addLog("Nova versão encontrada: %s", latestVersion.c_str());
+            startOTA();  // inicializa OTA não bloqueante
+        } else {
+            addLog("Firmware já atualizado");
+        }
     }
+
+    // Processa OTA sem bloquear
+    handleOTANonBlocking();
+
+
 
     if (strlen(config.cf_token) > 0 && now - lastDnsUpdate >= dnsUpdateInterval) {
         lastDnsUpdate = now;
