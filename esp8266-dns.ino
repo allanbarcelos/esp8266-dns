@@ -303,6 +303,10 @@ void startWiFi() {
     }
     
     WiFi.mode(WIFI_STA);
+
+    WiFi.setAutoReconnect(true);  // habilita reconexão automática
+    WiFi.persistent(true);        // salva a configuração na flash
+
     WiFi.begin(config.ssid.c_str(), config.pass.c_str());
     
     addLog("Conectando ao Wi-Fi: %s", config.ssid.c_str());
@@ -672,6 +676,13 @@ void setup() {
 
     loadConfig();
     
+    WiFi.onEvent([](WiFiEvent_t event) {
+        if (event == WIFI_EVENT_STAMODE_DISCONNECTED)
+            addLog("Wi-Fi desconectado");
+        if (event == WIFI_EVENT_STAMODE_GOT_IP)
+            addLog("Wi-Fi reconectado: %s", WiFi.localIP().toString().c_str());
+    });
+
     // Conectar Wi-Fi
     startWiFi();
     
