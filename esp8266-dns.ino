@@ -63,48 +63,28 @@ const char HTML_HEAD[] PROGMEM = R"rawliteral(
 <html lang="pt">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ESP8266</title>
-<style>
-body{
-    font-family:Arial;
-    background:#111;
-    color:#0f0;
-    padding:20px;
-}
-h2{margin-top:0;}
-.box{
-    border:1px solid #0f0;
-    padding:15px;
-    margin-bottom:15px;
-}
-input,button{
-    width:100%;
-    padding:8px;
-    margin:8px 0;
-}
-a{
-    color:#0f0;
-    text-decoration:none;
-}
-a:hover{text-decoration:underline;}
-.footer{
-    margin-top:20px;
-    color:#888;
-    font-size:12px;
-}
-</style>
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
 </head>
-<body>
+<body class="bg-dark text-light">
+<div class="container py-3">
 )rawliteral";
 
+
+
 const char HTML_FOOT[] PROGMEM = R"rawliteral(
-<div class="footer">
+<hr class="border-secondary">
+<div class="text-secondary small">
 Firmware: )rawliteral" firmware_version R"rawliteral(
+</div>
 </div>
 </body>
 </html>
 )rawliteral";
+
 
 // ========================
 // COMPONENTS
@@ -121,14 +101,20 @@ void pageEnd() {
 }
 
 void htmlBox(const char* title) {
-    server.sendContent("<div class='box'><b>");
+    server.sendContent(
+        "<div class='card bg-black border-success mb-3'>"
+        "<div class='card-body'>"
+        "<h6 class='card-title text-success'>"
+    );
     server.sendContent(title);
-    server.sendContent("</b><br>");
+    server.sendContent("</h6>");
 }
 
 void htmlBoxEnd() {
-    server.sendContent("</div>");
+    server.sendContent("</div></div>");
 }
+
+
 
 
 // ========================
@@ -167,7 +153,25 @@ void dnsUpdate(String ip) {
     int code = http.PATCH(payload);
     if (code > 0) {
         String resp = http.getString();
-        addLog(resp.indexOf("\"success\":true") >= 0 ? "DNS updated!" : "DNS update failed.");
+        
+        StaticJsonDocument<512> doc;
+        DeserializationError err = deserializeJson(doc, resp);
+
+        if (err) {
+            addLog("DNS resposta inválida (JSON)");
+        } else {
+            bool success = doc["success"] | false;
+
+            if (success) {
+                addLog("DNS updated!");
+            } else {
+                const char* msg = doc["errors"][0]["message"] | "Erro desconhecido";
+                int code = doc["errors"][0]["code"] | 0;
+                addLog("DNS erro %d: %s", code, msg);
+            }
+        }
+
+
     } else addLog("DNS update error: %d", code);
     http.end();
 }
@@ -175,6 +179,8 @@ void dnsUpdate(String ip) {
 void handleDNSUpdate() {
     String publicIP = getPublicIP();
     String currentDNSIP = getDNSHostIP(String(config.cf_host));
+    addLog("PublicIP: %s", publicIP);
+    addLog("CurrentDNSIP: %s", currentDNSIP);
     if (!publicIP.isEmpty() && !currentDNSIP.isEmpty() && publicIP != currentDNSIP) {
         addLog("Updating DNS...");
         dnsUpdate(publicIP);
@@ -318,29 +324,44 @@ void handleRoot() {
 
     if (config.ssid.length() == 0 || WiFi.status() != WL_CONNECTED) {
 
-        server.sendContent("<h2>Configurar Wi-Fi</h2>");
+        server.sendContent("<h4 class='text-warning'>Configurar Wi-Fi</h4>");
+
         server.sendContent("<form action='/save' method='POST'>");
-        server.sendContent("SSID:<br><input name='ssid' required>");
-        server.sendContent("Senha:<br><input name='pass' type='password'>");
-        server.sendContent("<button>Salvar</button>");
+
+        server.sendContent("<div class='mb-3'>");
+        server.sendContent("<label class='form-label'>SSID</label>");
+        server.sendContent("<input name='ssid' class='form-control' required>");
+        server.sendContent("</div>");
+
+        server.sendContent("<div class='mb-3'>");
+        server.sendContent("<label class='form-label'>Senha</label>");
+        server.sendContent("<input name='pass' type='password' class='form-control'>");
+        server.sendContent("</div>");
+
+        server.sendContent("<button class='btn btn-success w-100'>Salvar</button>");
         server.sendContent("</form>");
 
         pageEnd();
         return;
     }
 
-    server.sendContent("<h2>Wi-Fi Conectado</h2>");
-    htmlBox("Conexão");
+    server.sendContent("<h4 class='text-success'>Wi-Fi Conectado</h4>");
+
+    htmlBox("Conexão Wi-Fi");
     server.sendContent("Rede: ");
     server.sendContent(WiFi.SSID());
     server.sendContent("<br>IP: ");
     server.sendContent(WiFi.localIP().toString());
     htmlBoxEnd();
 
-    server.sendContent("<a href='/reset'>Reconfigurar Wi-Fi</a>");
+    server.sendContent(
+        "<a href='/reset' class='btn btn-outline-danger w-100'>"
+        "Reconfigurar Wi-Fi</a>"
+    );
 
     pageEnd();
 }
+
 
 
 void handleSave() {
@@ -359,7 +380,9 @@ void handleSave() {
 
 void handleLog() {
     pageBegin();
-    server.sendContent("<h2>Logs</h2><pre>");
+
+    server.sendContent("<h4 class='text-warning'>Logs</h4>");
+    server.sendContent("<pre class='bg-black text-success p-3 rounded'>");
 
     int count = logWrapped ? LOG_BUFFER_SIZE : logIndex;
     int start = logWrapped ? logIndex : 0;
@@ -377,11 +400,12 @@ void handleLog() {
 
 void handleStatus() {
     pageBegin();
-    server.sendContent("<h2>Status do ESP8266</h2>");
+
+    server.sendContent("<h4 class='text-info'>Status do Sistema</h4>");
 
     htmlBox("Sistema");
     server.sendContent("Uptime: ");
-    server.sendContent(String(millis()/1000));
+    server.sendContent(String(millis() / 1000));
     server.sendContent(" s<br>Reset: ");
     server.sendContent(ESP.getResetReason());
     htmlBoxEnd();
@@ -416,6 +440,7 @@ void handleStatus() {
     pageEnd();
 }
 
+
 void handleReset() {
     LittleFS.remove("/config.json");
     server.send(200, "text/plain", "Config apagada. Reiniciando...");
@@ -424,32 +449,23 @@ void handleReset() {
 
 void handleCloudflare() {
     pageBegin();
-    server.sendContent("<h2>Configuração Cloudflare</h2>");
+    server.sendContent("<h4 class='text-info'>Cloudflare</h4>");
 
     bool configured = strlen(config.cf_token) > 0;
 
     if (!configured) {
-        // FORMULÁRIO
         server.sendContent("<form action='/cloudflare/save' method='POST'>");
 
-        server.sendContent("Token API:<br>");
-        server.sendContent("<input name='token' required>");
+        server.sendContent("<div class='mb-2'><input class='form-control' name='token' placeholder='API Token' required></div>");
+        server.sendContent("<div class='mb-2'><input class='form-control' name='zone' placeholder='Zone ID' required></div>");
+        server.sendContent("<div class='mb-2'><input class='form-control' name='record' placeholder='Record ID' required></div>");
+        server.sendContent("<div class='mb-2'><input class='form-control' name='host' placeholder='Hostname' required></div>");
 
-        server.sendContent("Zone ID:<br>");
-        server.sendContent("<input name='zone' required>");
-
-        server.sendContent("Record ID:<br>");
-        server.sendContent("<input name='record' required>");
-
-        server.sendContent("Hostname:<br>");
-        server.sendContent("<input name='host' required>");
-
-        server.sendContent("<button>Salvar</button>");
+        server.sendContent("<button class='btn btn-success w-100'>Salvar</button>");
         server.sendContent("</form>");
     } else {
-        // VISUALIZAÇÃO
-        htmlBox("Dados salvos");
-        server.sendContent("Hostname: ");
+        htmlBox("Configuração atual");
+        server.sendContent("Host: ");
         server.sendContent(config.cf_host);
         server.sendContent("<br>Zone ID: ");
         server.sendContent(config.cf_zone);
@@ -461,6 +477,7 @@ void handleCloudflare() {
 
     pageEnd();
 }
+
 
 void handleCloudflareSave() {
     strlcpy(config.cf_token,  server.arg("token").c_str(),  sizeof(config.cf_token));
