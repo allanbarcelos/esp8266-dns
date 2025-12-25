@@ -23,7 +23,7 @@ const uint16_t LOG_LINE_SIZE = 128;
 bool restartPending = false;
 unsigned long restartAt = 0;
 
-const unsigned long dnsUpdateInterval = 300000UL; // 5 min
+const unsigned long dnsUpdateInterval = 60000UL; // 1 min
 unsigned long lastDnsUpdate = 0;
 
 // ========================
@@ -161,7 +161,7 @@ void dnsUpdate(String ip) {
     if (code > 0) {
         String resp = http.getString();
         addLog("DNS %s", resp);
-        
+
         StaticJsonDocument<512> doc;
         DeserializationError err = deserializeJson(doc, resp);
 
