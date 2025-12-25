@@ -527,7 +527,7 @@ void loop() {
 
     if (now < OTA_DEADLINE) {
         if (now - lastOTACheck >= OTA_INTERVAL) {
-            lastOTACheck = currentMillis;
+            lastOTACheck = now;
             checkOTA();
         }
     }
