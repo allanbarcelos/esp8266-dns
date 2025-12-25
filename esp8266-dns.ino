@@ -404,6 +404,14 @@ void handleLog() {
     pageEnd();
 }
 
+// Função para estimativa de temperatura via ADC (apenas indicativa)
+float readChipTemp() {
+    int raw = analogRead(A0);                   // lê valor ADC (0-1023)
+    float voltage = raw * (3.3 / 1023.0);      // converte para volts
+    float temp = (1.1 - voltage) * 100.0;      // fórmula aproximada
+    return temp;
+}
+
 
 void handleStatus() {
     pageBegin();
@@ -419,6 +427,9 @@ void handleStatus() {
     server.sendContent("SDK Version: " + String(ESP.getSdkVersion()) + "<br>");
     server.sendContent("Boot Version: " + String(ESP.getBootVersion()) + "<br>");
     server.sendContent("Boot Mode: " + String(ESP.getBootMode()) + "<br>");
+    // Temperatura estimada via ADC
+    float chipTemp = readChipTemp();
+    server.sendContent("Temp estimada (ADC): " + String(chipTemp, 1) + " °C<br>");
     htmlBoxEnd();
 
     // ===== Memória =====
@@ -465,8 +476,6 @@ void handleStatus() {
 
     pageEnd();
 }
-
-
 
 void handleReset() {
     LittleFS.remove("/config.json");
