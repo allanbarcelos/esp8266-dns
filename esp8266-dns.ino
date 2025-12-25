@@ -709,15 +709,11 @@ void loop() {
         if (checkVersion(latestVersion) && latestVersion != firmware_version) {
             addLog("Nova versão encontrada: %s", latestVersion.c_str());
             startOTA();  // inicializa OTA não bloqueante
-        } else {
-            addLog("Firmware já atualizado");
         }
     }
 
     // Processa OTA sem bloquear
     handleOTANonBlocking();
-
-
 
     if (strlen(config.cf_token) > 0 && now - lastDnsUpdate >= dnsUpdateInterval) {
         lastDnsUpdate = now;
