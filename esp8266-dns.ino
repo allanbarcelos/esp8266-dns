@@ -26,6 +26,14 @@ unsigned long restartAt = 0;
 const unsigned long dnsUpdateInterval = 60000UL; // 1 min
 unsigned long lastDnsUpdate = 0;
 
+uint8_t wifiFailCount = 0;
+unsigned long lastWifiCheck = 0;
+
+bool wifiReconnecting = false;
+unsigned long wifiReconnectAt = 0;
+const unsigned long WIFI_RECONNECT_DELAY = 500;
+
+
 // ========================
 // DECLARAÇÕES DE OBJETOS
 // ========================
@@ -131,6 +139,7 @@ void htmlBoxEnd() {
 String getPublicIP() {
     WiFiClient client;
     HTTPClient http;
+    http.setTimeout(5000);
     http.begin(client, "http://api.ipify.org");
     int httpCode = http.GET();
     String ip;
@@ -145,14 +154,21 @@ String getPublicIP() {
 
 String getDNSHostIP(String host) {
     IPAddress resolvedIP;
-    return WiFi.hostByName(host.c_str(), resolvedIP) ? resolvedIP.toString() : "";
+    if (WiFi.hostByName(host.c_str(), resolvedIP)) {
+        return resolvedIP.toString();
+    }
+    addLog("Falha DNS hostByName");
+    wifiFail();
+    return "";
 }
+
 
 void dnsUpdate(String ip) {
     String url = "https://api.cloudflare.com/client/v4/zones/" + String(config.cf_zone) + "/dns_records/" + String(config.cf_record);
     WiFiClientSecure client;
     client.setInsecure();
     HTTPClient http;
+    http.setTimeout(5000);
     http.begin(client, url);
     http.addHeader("Authorization", "Bearer " + String(config.cf_token));
     http.addHeader("Content-Type", "application/json");
@@ -171,6 +187,7 @@ void dnsUpdate(String ip) {
 
             if (success) {
                 addLog("DNS updated!");
+                wifiOk();
             } else {
                 const char* msg = doc["errors"][0]["message"] | "Erro desconhecido";
                 int code = doc["errors"][0]["code"] | 0;
@@ -558,7 +575,7 @@ bool checkVersion(String& latestVersion) {
     WiFiClientSecure client;
     client.setInsecure();
     HTTPClient http;
-    
+    http.setTimeout(5000);
     String url = String(VERSION_URL) + "?t=" + String(millis());
     if (!http.begin(client, url)) {
         addLog("Falha ao conectar para verificar versão");
@@ -588,6 +605,8 @@ bool startOTA() {
     if (otaState.inProgress) return false;
 
     otaState.client.setInsecure();
+    otaState.http.setTimeout(5000); 
+
     if (!otaState.http.begin(otaState.client, BIN_URL)) {
         addLog("Falha ao iniciar OTA");
         return false;
@@ -623,6 +642,15 @@ bool startOTA() {
 void handleOTANonBlocking() {
     if (!otaState.inProgress) return;
 
+    if (WiFi.status() != WL_CONNECTED) {
+        addLog("Wi-Fi caiu durante OTA, abortando");
+        Update.abort();
+        otaState.http.end();
+        otaState.inProgress = false;
+        wifiFail();
+        return;
+    }
+
     WiFiClient* stream = otaState.http.getStreamPtr();
     
     // Ler até 512 bytes por vez (não bloqueia)
@@ -646,6 +674,54 @@ void handleOTANonBlocking() {
         }
         otaState.http.end();
         otaState.inProgress = false;
+    }
+}
+
+
+bool hasInternet() {
+    WiFiClient client;
+    HTTPClient http;
+    http.setTimeout(5000);
+
+    if (!http.begin(client, "http://clients3.google.com/generate_204"))
+        return false;
+
+    int code = http.GET();
+    http.end();
+
+    return (code == 204);
+}
+
+void wifiFail() {
+    wifiFailCount++;
+    if (wifiFailCount >= 5) {
+        addLog("Falhas repetidas de Wi-Fi, reiniciando");
+        scheduleRestart(1000);
+    }
+}
+
+void wifiOk() {
+    wifiFailCount = 0;
+}
+
+void startWifiReconnect() {
+    if (wifiReconnecting) return;
+
+    addLog("Iniciando reconexão Wi-Fi");
+    wifiFail();
+
+    WiFi.disconnect();
+    wifiReconnecting = true;
+    wifiReconnectAt = millis() + WIFI_RECONNECT_DELAY;
+}
+
+void processWifiReconnect() {
+    if (!wifiReconnecting) return;
+
+    if ((long)(millis() - wifiReconnectAt) >= 0) {
+        addLog("Tentando reconectar Wi-Fi");
+        WiFi.begin(config.ssid.c_str(), config.pass.c_str());
+        wifiReconnecting = false;
     }
 }
 
@@ -679,8 +755,10 @@ void setup() {
     WiFi.onEvent([](WiFiEvent_t event) {
         if (event == WIFI_EVENT_STAMODE_DISCONNECTED)
             addLog("Wi-Fi desconectado");
-        if (event == WIFI_EVENT_STAMODE_GOT_IP)
+        if (event == WIFI_EVENT_STAMODE_GOT_IP) {
             addLog("Wi-Fi reconectado: %s", WiFi.localIP().toString().c_str());
+            wifiOk();
+        }
     });
 
     // Conectar Wi-Fi
@@ -695,6 +773,24 @@ void setup() {
 void loop() {
     server.handleClient();
     unsigned long now = millis();
+
+    if (now - lastWifiCheck > 15000) {
+        lastWifiCheck = now;
+
+        if (WiFi.status() != WL_CONNECTED) {
+            addLog("Wi-Fi desconectado");
+            startWifiReconnect();
+        }
+        else if (!hasInternet()) {
+            addLog("Wi-Fi conectado, sem internet");
+            wifiFail();
+        }
+        else {
+            wifiOk();
+        }
+    }
+
+    processWifiReconnect();
 
     // Executa reboot sem bloquear
     if (restartPending && (long)(now - restartAt) >= 0) {
