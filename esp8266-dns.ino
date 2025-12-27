@@ -649,6 +649,7 @@ void handleOTANonBlocking() {
         otaState.inProgress = false;
         wifiFail();
         return;
+
     }
 
     WiFiClient* stream = otaState.http.getStreamPtr();
