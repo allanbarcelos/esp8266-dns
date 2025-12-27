@@ -644,7 +644,7 @@ void handleOTANonBlocking() {
 
     if (WiFi.status() != WL_CONNECTED) {
         addLog("Wi-Fi caiu durante OTA, abortando");
-        Update.abort();
+        Update.end(false);   // ESP8266 way
         otaState.http.end();
         otaState.inProgress = false;
         wifiFail();
