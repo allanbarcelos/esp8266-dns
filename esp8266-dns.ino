@@ -23,7 +23,8 @@ const uint16_t LOG_LINE_SIZE = 128;
 bool restartPending = false;
 unsigned long restartAt = 0;
 
-const unsigned long dnsUpdateInterval = 60000UL; // 1 min
+const unsigned long dnsCheckInterval = 60000UL; // 1 min
+unsigned long lastDnsCheck = 0;
 unsigned long lastDnsUpdate = 0;
 
 uint8_t wifiFailCount = 0;
@@ -33,6 +34,7 @@ bool wifiReconnecting = false;
 unsigned long wifiReconnectAt = 0;
 const unsigned long WIFI_RECONNECT_DELAY = 500;
 
+char publicIP[16] = {0}
 
 // ========================
 // DECLARAÇÕES DE OBJETOS
@@ -136,19 +138,29 @@ void htmlBoxEnd() {
 // DNS
 // ========================
 
-String getPublicIP() {
+bool getPublicIP(char* out, size_t len) {
     WiFiClient client;
     HTTPClient http;
     http.setTimeout(5000);
-    http.begin(client, "http://api.ipify.org");
+
+    if (!http.begin(client, "http://api.ipify.org"))
+        return false;
+
     int httpCode = http.GET();
-    String ip;
-    if (httpCode == HTTP_CODE_OK){
-      ip = http.getString();
-      ip.trim();
+    if (httpCode != HTTP_CODE_OK) {
+        http.end();
+        return false;
     }
+
+    String ip = http.getString();
+    ip.trim();
     http.end();
-    return ip;
+
+    if (ip.length() >= len)
+        return false;
+
+    strlcpy(out, ip.c_str(), len);
+    return true;
 }
 
 
@@ -187,6 +199,7 @@ void dnsUpdate(String ip) {
 
             if (success) {
                 addLog("DNS updated!");
+                lastDnsUpdate = millis();
                 wifiOk();
             } else {
                 const char* msg = doc["errors"][0]["message"] | "Erro desconhecido";
@@ -201,15 +214,34 @@ void dnsUpdate(String ip) {
 }
 
 void handleDNSUpdate() {
-    String publicIP = getPublicIP();
-    String currentDNSIP = getDNSHostIP(String(config.cf_host));
-    addLog("PublicIP: %s", publicIP.c_str());
-    addLog("CurrentDNSIP: %s", currentDNSIP.c_str());
-    if (!publicIP.isEmpty() && !currentDNSIP.isEmpty() && publicIP != currentDNSIP) {
+    char currentDNSIP[16] = {0};
+
+    // Obtém IP público
+    if (!getPublicIP(publicIP, sizeof(publicIP))) {
+        addLog("Falha ao obter IP público");
+        return;
+    }
+
+    // Obtém IP atual do DNS
+    String dnsIP = getDNSHostIP(String(config.cf_host));
+    if (dnsIP.length() >= sizeof(currentDNSIP)) {
+        addLog("IP DNS inválido");
+        return;
+    }
+    strlcpy(currentDNSIP, dnsIP.c_str(), sizeof(currentDNSIP));
+
+    addLog("PublicIP: %s", publicIP);
+    addLog("CurrentDNSIP: %s", currentDNSIP);
+
+    // Compara
+    if (strcmp(publicIP, currentDNSIP) != 0) {
         addLog("Updating DNS...");
-        dnsUpdate(publicIP);
-    } else addLog("DNS already up-to-date.");
+        dnsUpdate(String(publicIP)); 
+    } else {
+        addLog("DNS already up-to-date.");
+    }
 }
+
 
 
 // ========================
@@ -434,6 +466,31 @@ float readChipTemp() {
     return temp;
 }
 
+String formatUptime() {
+    unsigned long seconds = millis() / 1000;
+
+    unsigned int s = seconds % 60;
+    unsigned int m = (seconds / 60) % 60;
+    unsigned int h = (seconds / 3600);
+
+    char buf[20];
+    snprintf(buf, sizeof(buf), "%uh:%um:%us", h, m, s);
+    return String(buf);
+}
+
+String formatElapsed(unsigned long ms) {
+    unsigned long seconds = ms / 1000;
+
+    unsigned int s = seconds % 60;
+    unsigned int m = (seconds / 60) % 60;
+    unsigned int h = seconds / 3600;
+
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%uh:%um:%us", h, m, s);
+    return String(buf);
+}
+
+
 void handleStatus() {
     pageBegin();
 
@@ -441,7 +498,7 @@ void handleStatus() {
 
     // ===== Sistema Básico =====
     htmlBox("Sistema");
-    server.sendContent("Uptime: " + String(millis() / 1000) + " s<br>");
+    server.sendContent("Uptime: " + formatUptime() + "<br>");
     server.sendContent("Reset: " + String(ESP.getResetReason()) + "<br>");
     server.sendContent("Chip ID: " + String(ESP.getChipId()) + "<br>");
     server.sendContent("CPU Freq: " + String(ESP.getCpuFreqMHz()) + " MHz<br>");
@@ -493,11 +550,22 @@ void handleStatus() {
     server.sendContent("Modo: " + String(WiFi.getMode()) + "<br>");
     htmlBoxEnd();
 
-    // ===== OTA & DNS =====
+    // ======== OTA ========
     htmlBox("Serviços");
     server.sendContent("OTA em progresso: " + String(otaState.inProgress ? "Sim" : "Não") + "<br>");
     server.sendContent("Bytes OTA escritos: " + String(otaState.written) + " / " + String(otaState.contentLength) + "<br>");
-    server.sendContent("Última atualização DNS: " + String((millis() - lastDnsUpdate) / 1000) + " s atrás<br>");
+    
+    // ======== DNS ========
+    server.sendContent("IP Publico: ");
+    server.sendContent(publicIP);
+    server.sendContent("<br>");
+
+    if (lastDnsUpdate == 0) {
+        server.sendContent("Última atualização DNS: nunca desde o reset<br>");
+    } else {
+        server.sendContent("Última atualização DNS: " + formatElapsed(millis() - lastDnsUpdate) + " atrás<br>");
+    }
+
     htmlBoxEnd();
 
     pageEnd();
@@ -826,8 +894,8 @@ void loop() {
     // Processa OTA sem bloquear
     handleOTANonBlocking();
 
-    if (strlen(config.cf_token) > 0 && now - lastDnsUpdate >= dnsUpdateInterval) {
-        lastDnsUpdate = now;
+    if (strlen(config.cf_token) > 0 && now - lastDnsCheck >= dnsCheckInterval) {
+        lastDnsCheck = now;
         handleDNSUpdate();
     }
 }
