@@ -34,7 +34,7 @@ bool wifiReconnecting = false;
 unsigned long wifiReconnectAt = 0;
 const unsigned long WIFI_RECONNECT_DELAY = 500;
 
-char publicIP[16] = {0}
+char publicIP[16] = {0};
 
 // ========================
 // DECLARAÇÕES DE OBJETOS
@@ -550,22 +550,23 @@ void handleStatus() {
     server.sendContent("Modo: " + String(WiFi.getMode()) + "<br>");
     htmlBoxEnd();
 
-    // ======== OTA ========
-    htmlBox("Serviços");
-    server.sendContent("OTA em progresso: " + String(otaState.inProgress ? "Sim" : "Não") + "<br>");
-    server.sendContent("Bytes OTA escritos: " + String(otaState.written) + " / " + String(otaState.contentLength) + "<br>");
-    
     // ======== DNS ========
+
+    htmlBox("DNS");
     server.sendContent("IP Publico: ");
     server.sendContent(publicIP);
     server.sendContent("<br>");
-
     if (lastDnsUpdate == 0) {
         server.sendContent("Última atualização DNS: nunca desde o reset<br>");
     } else {
         server.sendContent("Última atualização DNS: " + formatElapsed(millis() - lastDnsUpdate) + " atrás<br>");
     }
+    htmlBoxEnd();
 
+    // ======== OTA ========
+    htmlBox("Serviços");
+    server.sendContent("OTA em progresso: " + String(otaState.inProgress ? "Sim" : "Não") + "<br>");
+    server.sendContent("Bytes OTA escritos: " + String(otaState.written) + " / " + String(otaState.contentLength) + "<br>");
     htmlBoxEnd();
 
     pageEnd();
