@@ -382,7 +382,8 @@ void startWiFi() {
 void handleRoot() {
     pageBegin();
 
-    if (config.ssid.length() == 0 || WiFi.status() != WL_CONNECTED) {
+    // if (WiFi.getMode() == WIFI_AP && (config.ssid.length() == 0 || WiFi.status() != WL_CONNECTED)) {
+    if (WiFi.getMode() == WIFI_AP) {
 
         server.sendContent("<h4 class='text-warning'>Configurar Wi-Fi</h4>");
 
@@ -790,7 +791,10 @@ void processWifiReconnect() {
 
     if ((long)(millis() - wifiReconnectAt) >= 0) {
         addLog("Tentando reconectar Wi-Fi");
+
+        WiFi.mode(WIFI_STA);
         WiFi.begin(config.ssid.c_str(), config.pass.c_str());
+
         wifiReconnecting = false;
     }
 }
@@ -825,10 +829,16 @@ void setup() {
     WiFi.onEvent([](WiFiEvent_t event) {
         if (event == WIFI_EVENT_STAMODE_DISCONNECTED)
             addLog("Wi-Fi desconectado");
+
         if (event == WIFI_EVENT_STAMODE_GOT_IP) {
-            addLog("Wi-Fi reconectado: %s", WiFi.localIP().toString().c_str());
+            addLog("Wi-Fi conectado: %s", WiFi.localIP().toString().c_str());
             wifiOk();
+            if (WiFi.getMode() != WIFI_STA) {
+                WiFi.mode(WIFI_STA);
+                addLog("Modo AP desligado");
+            }
         }
+     
     });
 
     // Conectar Wi-Fi
