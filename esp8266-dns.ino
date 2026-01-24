@@ -138,29 +138,57 @@ void htmlBoxEnd() {
 // DNS
 // ========================
 
+// Lista de serviços de IP em PROGMEM para economizar RAM
+const char* const IP_SERVICES[] PROGMEM = {
+    "http://api.ipify.org",
+    "http://ifconfig.me/ip",
+    "http://checkip.amazonaws.com",
+    "http://v4.ident.me"
+};
+const uint8_t NUM_SERVICES = 4;
+
 bool getPublicIP(char* out, size_t len) {
     WiFiClient client;
     HTTPClient http;
-    http.setTimeout(5000);
+    http.setTimeout(4000); // 4 segundos para não travar o loop
+    
+    for (uint8_t i = 0; i < NUM_SERVICES; i++) {
+        // Recupera a URL da Flash
+        char url[40];
+        strcpy_P(url, (char*)pgm_read_ptr(&(IP_SERVICES[i])));
+        
+        addLog(F("Tentando obter IP via: %s"), url);
 
-    if (!http.begin(client, "http://api.ipify.org"))
-        return false;
-
-    int httpCode = http.GET();
-    if (httpCode != HTTP_CODE_OK) {
-        http.end();
-        return false;
+        if (http.begin(client, url)) {
+            int httpCode = http.GET();
+            
+            if (httpCode == HTTP_CODE_OK) {
+                // Em vez de getString(), lemos diretamente para o buffer de saída
+                // Isso evita criar uma cópia da String na RAM
+                WiFiClient* stream = http.getStreamPtr();
+                size_t size = 0;
+                
+                while (stream->available() && size < len - 1) {
+                    char c = stream->read();
+                    // Filtra apenas caracteres válidos de IP (números e pontos)
+                    if (isDigit(c) || c == '.') {
+                        out[size++] = c;
+                    }
+                }
+                out[size] = '\0'; // Finaliza a string C
+                
+                http.end();
+                if (size > 6) { // Mínimo de caracteres para um IP: x.x.x.x
+                    return true;
+                }
+            }
+            http.end();
+        }
+        yield(); // Alimenta o cão de guarda do ESP8266 entre tentativas
     }
-
-    String ip = http.getString();
-    ip.trim();
-    http.end();
-
-    if (ip.length() >= len)
-        return false;
-
-    strlcpy(out, ip.c_str(), len);
-    return true;
+    
+    addLog(F("Erro: Todos os serviços de IP falharam"));
+    return false;
 }
 
 
