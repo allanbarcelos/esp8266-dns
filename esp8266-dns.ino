@@ -157,7 +157,7 @@ bool getPublicIP(char* out, size_t len) {
         char url[40];
         strcpy_P(url, (char*)pgm_read_ptr(&(IP_SERVICES[i])));
         
-        addLog(F("Tentando obter IP via: %s"), url);
+        addLog("Tentando obter IP via: %s", url);
 
         if (http.begin(client, url)) {
             int httpCode = http.GET();
@@ -187,7 +187,7 @@ bool getPublicIP(char* out, size_t len) {
         yield(); // Alimenta o cão de guarda do ESP8266 entre tentativas
     }
     
-    addLog(F("Erro: Todos os serviços de IP falharam"));
+    addLog("Erro: Todos os serviços de IP falharam");
     return false;
 }
 
