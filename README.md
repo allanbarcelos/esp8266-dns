@@ -289,3 +289,13 @@ ESP8266         Cloudflare         GitHub
 | **Resilient Wi-Fi**       | Automatic reconnection with safe fallback       |
 | **Local Web Server**      | Basic health and connectivity check             |
 | **Fault Tolerance**       | EEPROM counters prevent boot loops              |
+
+
+## Python
+- python -m venv venv
+- pip install -r requirements.txt
+
+## Arduino
+- arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=no_ota
+- arduino-cli upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32:PartitionScheme=no_ota
+- arduino-cli monitor --port /dev/ttyUSB0 --config 115200
