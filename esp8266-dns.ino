@@ -10,6 +10,8 @@
 #define firmware_version "dev"
 #endif
 
+#define MAX_RECORDS 5
+
 // ========================
 // CONSTANTES
 // ========================
@@ -50,7 +52,8 @@ struct Config {
 
     char cf_token[48];
     char cf_zone[40];
-    char cf_record[40];
+    char cf_records[MAX_RECORDS][40];
+    uint8_t cf_record_count;
     char cf_host[32];
 };
 
@@ -204,41 +207,48 @@ String getDNSHostIP(String host) {
 
 
 void dnsUpdate(String ip) {
-    String url = "https://api.cloudflare.com/client/v4/zones/" + String(config.cf_zone) + "/dns_records/" + String(config.cf_record);
-    WiFiClientSecure client;
-    client.setInsecure();
-    HTTPClient http;
-    http.setTimeout(5000);
-    http.begin(client, url);
-    http.addHeader("Authorization", "Bearer " + String(config.cf_token));
-    http.addHeader("Content-Type", "application/json");
-    String payload = "{\"content\":\"" + ip + "\"}";
-    int code = http.PATCH(payload);
-    if (code > 0) {
-        String resp = http.getString();
+    
+    for (uint8_t i = 0; i < config.cf_record_count; i++) {
 
-        StaticJsonDocument<768> doc;
-        DeserializationError err = deserializeJson(doc, resp);
+        String url = "https://api.cloudflare.com/client/v4/zones/" +
+                 String(config.cf_zone) + "/dns_records/" +
+                 String(config.cf_records[i]);
 
-        if (err) {
-            addLog("DNS resposta inválida (JSON)");
-        } else {
-            bool success = doc["success"] | false;
+        WiFiClientSecure client;
+        client.setInsecure();
+        HTTPClient http;
+        http.setTimeout(5000);
+        http.begin(client, url);
+        http.addHeader("Authorization", "Bearer " + String(config.cf_token));
+        http.addHeader("Content-Type", "application/json");
+        String payload = "{\"content\":\"" + ip + "\"}";
+        int code = http.PATCH(payload);
+        if (code > 0) {
+            String resp = http.getString();
 
-            if (success) {
-                addLog("DNS updated!");
-                lastDnsUpdate = millis();
-                wifiOk();
+            StaticJsonDocument<768> doc;
+            DeserializationError err = deserializeJson(doc, resp);
+
+            if (err) {
+                addLog("DNS resposta inválida (JSON)");
             } else {
-                const char* msg = doc["errors"][0]["message"] | "Erro desconhecido";
-                int code = doc["errors"][0]["code"] | 0;
-                addLog("DNS erro %d: %s", code, msg);
+                bool success = doc["success"] | false;
+
+                if (success) {
+                    addLog("DNS updated!");
+                    lastDnsUpdate = millis();
+                    wifiOk();
+                } else {
+                    const char* msg = doc["errors"][0]["message"] | "Erro desconhecido";
+                    int code = doc["errors"][0]["code"] | 0;
+                    addLog("DNS erro %d: %s", code, msg);
+                }
             }
-        }
 
 
-    } else addLog("DNS update error: %d", code);
-    http.end();
+        } else addLog("DNS update error: %d", code);
+        http.end();
+    }
 }
 
 void handleDNSUpdate() {
@@ -340,7 +350,12 @@ void loadConfig() {
 
     strlcpy(config.cf_token,  doc["cf_token"]  | "", sizeof(config.cf_token));
     strlcpy(config.cf_zone,   doc["cf_zone"]   | "", sizeof(config.cf_zone));
-    strlcpy(config.cf_record, doc["cf_record"] | "", sizeof(config.cf_record));
+
+    config.cf_record_count = doc["cf_records"].size();
+    for (uint8_t i = 0; i < config.cf_record_count && i < MAX_RECORDS; i++) {
+        strlcpy(config.cf_records[i], doc["cf_records"][i] | "", sizeof(config.cf_records[i]));
+    }
+
     strlcpy(config.cf_host,   doc["cf_host"]   | "", sizeof(config.cf_host));
 
     addLog("Configuração carregada");
@@ -354,7 +369,12 @@ void saveConfig() {
     
     doc["cf_token"]  = config.cf_token;
     doc["cf_zone"]   = config.cf_zone;
-    doc["cf_record"] = config.cf_record;
+
+    JsonArray arr = doc.createNestedArray("cf_records");
+    for (uint8_t i = 0; i < config.cf_record_count; i++) {
+        arr.add(config.cf_records[i]);
+    }
+
     doc["cf_host"]   = config.cf_host;
 
     File f = LittleFS.open("/config.json", "w");
@@ -614,15 +634,22 @@ void handleCloudflare() {
     bool configured = strlen(config.cf_token) > 0;
 
     if (!configured) {
+
         server.sendContent("<form action='/cloudflare/save' method='POST'>");
 
-        server.sendContent("<div class='mb-2'><input class='form-control' name='token' placeholder='API Token' required></div>");
-        server.sendContent("<div class='mb-2'><input class='form-control' name='zone' placeholder='Zone ID' required></div>");
-        server.sendContent("<div class='mb-2'><input class='form-control' name='record' placeholder='Record ID' required></div>");
-        server.sendContent("<div class='mb-2'><input class='form-control' name='host' placeholder='Hostname' required></div>");
+        server.sendContent("<input class='form-control mb-2' name='token' placeholder='API Token' required>");
+        server.sendContent("<input class='form-control mb-2' name='zone' placeholder='Zone ID' required>");
+        server.sendContent("<input class='form-control mb-2' name='host' placeholder='Hostname' required>");
+
+        server.sendContent("<label>Record IDs:</label>");
+        for (int i = 0; i < MAX_RECORDS; i++) {
+            server.sendContent("<input class='form-control mb-2' name='record" + String(i) + "' placeholder='Record ID " + String(i+1) + "'>");
+        }
 
         server.sendContent("<button class='btn btn-success w-100'>Salvar</button>");
         server.sendContent("</form>");
+
+
     } else {
         htmlBox("Configuração atual");
         server.sendContent("Host: ");
@@ -642,7 +669,19 @@ void handleCloudflare() {
 void handleCloudflareSave() {
     strlcpy(config.cf_token,  server.arg("token").c_str(),  sizeof(config.cf_token));
     strlcpy(config.cf_zone,   server.arg("zone").c_str(),   sizeof(config.cf_zone));
-    strlcpy(config.cf_record, server.arg("record").c_str(), sizeof(config.cf_record));
+
+    config.cf_record_count = 0;
+
+    for (uint8_t i = 0; i < MAX_RECORDS; i++) {
+        String key = "record" + String(i);
+        if (server.hasArg(key) && server.arg(key).length() > 0) {
+            strlcpy(config.cf_records[config.cf_record_count],
+                    server.arg(key).c_str(),
+                    sizeof(config.cf_records[0]));
+            config.cf_record_count++;
+        }
+    }
+
     strlcpy(config.cf_host,   server.arg("host").c_str(),   sizeof(config.cf_host));
 
     saveConfig();
