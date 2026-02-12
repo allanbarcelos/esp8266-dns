@@ -657,7 +657,16 @@ void handleCloudflare() {
         server.sendContent("<br>Zone ID: ");
         server.sendContent(config.cf_zone);
         server.sendContent("<br>Record ID: ");
-        server.sendContent(config.cf_record);
+
+        for (uint8_t i = 0; i < config.cf_record_count; i++) {
+            server.sendContent("Record ");
+            server.sendContent(String(i+1));
+            server.sendContent(": ");
+            server.sendContent(config.cf_records[i]);
+            server.sendContent("<br>");
+        }
+
+
         server.sendContent("<br>Token: ****");
         htmlBoxEnd();
     }
@@ -888,7 +897,10 @@ void setup() {
     // Carregar configurações
     memset(&config.cf_token, 0, sizeof(config.cf_token));
     memset(&config.cf_zone, 0, sizeof(config.cf_zone));
-    memset(&config.cf_record, 0, sizeof(config.cf_record));
+
+    memset(&config.cf_records, 0, sizeof(config.cf_records));
+    config.cf_record_count = 0;
+
     memset(&config.cf_host, 0, sizeof(config.cf_host));
 
     loadConfig();
