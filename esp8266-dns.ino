@@ -633,7 +633,7 @@ void handleCloudflare() {
 
     bool configured = strlen(config.cf_token) > 0;
 
-    if (!configured) {
+    // if (!configured) {
 
         server.sendContent("<form action='/cloudflare/save' method='POST'>");
 
@@ -650,26 +650,26 @@ void handleCloudflare() {
         server.sendContent("</form>");
 
 
-    } else {
-        htmlBox("Configuração atual");
-        server.sendContent("Host: ");
-        server.sendContent(config.cf_host);
-        server.sendContent("<br>Zone ID: ");
-        server.sendContent(config.cf_zone);
-        server.sendContent("<br>Record ID: ");
+    // } else {
+    //     htmlBox("Configuração atual");
+    //     server.sendContent("Host: ");
+    //     server.sendContent(config.cf_host);
+    //     server.sendContent("<br>Zone ID: ");
+    //     server.sendContent(config.cf_zone);
+    //     server.sendContent("<br>Record ID: ");
 
-        for (uint8_t i = 0; i < config.cf_record_count; i++) {
-            server.sendContent("Record ");
-            server.sendContent(String(i+1));
-            server.sendContent(": ");
-            server.sendContent(config.cf_records[i]);
-            server.sendContent("<br>");
-        }
+    //     for (uint8_t i = 0; i < config.cf_record_count; i++) {
+    //         server.sendContent("Record ");
+    //         server.sendContent(String(i+1));
+    //         server.sendContent(": ");
+    //         server.sendContent(config.cf_records[i]);
+    //         server.sendContent("<br>");
+    //     }
 
 
-        server.sendContent("<br>Token: ****");
-        htmlBoxEnd();
-    }
+    //     server.sendContent("<br>Token: ****");
+    //     htmlBoxEnd();
+    // }
 
     pageEnd();
 }
