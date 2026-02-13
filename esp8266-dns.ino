@@ -635,19 +635,22 @@ void handleCloudflare() {
 
     // if (!configured) {
 
-        server.sendContent("<form action='/cloudflare/save' method='POST'>");
+    server.sendContent("<form action='/cloudflare/save' method='POST'>");
 
-        server.sendContent("<input class='form-control mb-2' name='token' placeholder='API Token' required>");
-        server.sendContent("<input class='form-control mb-2' name='zone' placeholder='Zone ID' required>");
-        server.sendContent("<input class='form-control mb-2' name='host' placeholder='Hostname' required>");
+    // Exibe os valores atuais usando value=""
+    server.sendContent("<input class='form-control mb-2' name='token' placeholder='API Token' required value='" + String(config.cf_token) + "'>");
+    server.sendContent("<input class='form-control mb-2' name='zone' placeholder='Zone ID' required value='" + String(config.cf_zone) + "'>");
+    server.sendContent("<input class='form-control mb-2' name='host' placeholder='Hostname' required value='" + String(config.cf_host) + "'>");
 
-        server.sendContent("<label>Record IDs:</label>");
-        for (int i = 0; i < MAX_RECORDS; i++) {
-            server.sendContent("<input class='form-control mb-2' name='record" + String(i) + "' placeholder='Record ID " + String(i+1) + "'>");
-        }
+    server.sendContent("<label>Record IDs:</label>");
+    for (int i = 0; i < MAX_RECORDS; i++) {
+        String val = "";
+        if (i < config.cf_record_count) val = String(config.cf_records[i]);
+        server.sendContent("<input class='form-control mb-2' name='record" + String(i) + "' placeholder='Record ID " + String(i+1) + "' value='" + val + "'>");
+    }
 
-        server.sendContent("<button class='btn btn-success w-100'>Salvar</button>");
-        server.sendContent("</form>");
+    server.sendContent("<button class='btn btn-success w-100'>Salvar</button>");
+    server.sendContent("</form>");
 
 
     // } else {
