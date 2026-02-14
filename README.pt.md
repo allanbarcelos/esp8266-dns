@@ -289,4 +289,3 @@ ESP8266         Cloudflare         GitHub
 | **WiFi Resiliente**       | Reconexão automática com espera controlada |
 | **Servidor Local**        | Diagnóstico mínimo                         |
 | **Falha Tolerante**       | Usa EEPROM para evitar loops de falha      |
-

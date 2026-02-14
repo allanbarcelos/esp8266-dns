@@ -88,11 +88,26 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          # ------------------------
+          # Commit na main
+          # ------------------------
           git add firmware/firmware.bin
           git add firmware/version.txt
-
           git commit -m "chore: update firmware.bin (${new_tag})" || echo "No changes to commit"
-          git push
+          git push origin main
+
+          # ------------------------
+          # Commit na branch firmware
+          # ------------------------
+          # Cria branch firmware se não existir
+          git fetch origin firmware || echo "Branch firmware não existe ainda"
+          git checkout -B firmware
+
+          git add firmware/firmware.bin
+          git add firmware/version.txt
+          git commit -m "chore: update firmware.bin (${new_tag})" || echo "No changes to commit"
+          git push -u origin firmware --force
+
 
       # ========================
       # RELEASE

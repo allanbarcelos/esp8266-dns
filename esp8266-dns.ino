@@ -47,6 +47,9 @@ ESP8266WebServer server(80);
 // ESTRUTURAS DE DADOS
 // ========================
 struct Config {
+    String webusr;
+    String webpss;
+
     String ssid;
     String pass;
 
@@ -133,9 +136,6 @@ void htmlBox(const char* title) {
 void htmlBoxEnd() {
     server.sendContent("</div></div>");
 }
-
-
-
 
 // ========================
 // DNS
@@ -345,6 +345,10 @@ void loadConfig() {
         return;
     }
     
+    // Credenciais do painel
+    config.webusr  = doc["webusr"]  | "admin"; // padrão
+    config.webpss = doc["webpss"] | "";      // vazio = sem senha
+
     config.ssid = doc["ssid"].as<String>();
     config.pass = doc["pass"].as<String>();
 
@@ -363,6 +367,10 @@ void loadConfig() {
 
 void saveConfig() {
     StaticJsonDocument<512> doc;
+
+    // Credenciais do painel
+    doc["webusr"] = config.webusr;
+    doc["webpss"] = config.webpss;
 
     doc["ssid"] = config.ssid;
     doc["pass"] = config.pass;
@@ -430,7 +438,6 @@ void startWiFi() {
 void handleRoot() {
     pageBegin();
 
-    // if (WiFi.getMode() == WIFI_AP && (config.ssid.length() == 0 || WiFi.status() != WL_CONNECTED)) {
     if (WiFi.getMode() == WIFI_AP) {
 
         server.sendContent("<h4 class='text-warning'>Configurar Wi-Fi</h4>");
@@ -462,11 +469,6 @@ void handleRoot() {
     server.sendContent("<br>IP: ");
     server.sendContent(WiFi.localIP().toString());
     htmlBoxEnd();
-
-    // server.sendContent(
-    //     "<a href='/reset' class='btn btn-outline-danger w-100'>"
-    //     "Reconfigurar Wi-Fi</a>"
-    // );
 
     pageEnd();
 }
@@ -517,11 +519,9 @@ float readChipTemp() {
 
 String formatUptime() {
     unsigned long seconds = millis() / 1000;
-
     unsigned int s = seconds % 60;
     unsigned int m = (seconds / 60) % 60;
     unsigned int h = (seconds / 3600);
-
     char buf[20];
     snprintf(buf, sizeof(buf), "%uh:%um:%us", h, m, s);
     return String(buf);
@@ -529,11 +529,9 @@ String formatUptime() {
 
 String formatElapsed(unsigned long ms) {
     unsigned long seconds = ms / 1000;
-
     unsigned int s = seconds % 60;
     unsigned int m = (seconds / 60) % 60;
     unsigned int h = seconds / 3600;
-
     char buf[24];
     snprintf(buf, sizeof(buf), "%uh:%um:%us", h, m, s);
     return String(buf);
@@ -621,24 +619,25 @@ void handleStatus() {
     pageEnd();
 }
 
-// void handleReset() {
-//     LittleFS.remove("/config.json");
-//     server.send(200, "text/plain", "Config apagada. Reiniciando...");
-//     scheduleRestart(1000);
-// }
-
 void handleCloudflare() {
+    if (!checkAuth()) return;
+
     pageBegin();
     server.sendContent("<h4 class='text-info'>Cloudflare</h4>");
 
     bool configured = strlen(config.cf_token) > 0;
 
-    // if (!configured) {
+    if (configured) {
+        server.sendContent("<div class='alert alert-success'>Token configurado</div>");
+    } else {
+        server.sendContent("<div class='alert alert-warning'>Token não configurado</div>");
+    }
 
     server.sendContent("<form action='/cloudflare/save' method='POST'>");
 
-    // Exibe os valores atuais usando value=""
     server.sendContent("<input class='form-control mb-2' name='token' placeholder='API Token' required value='" + String(config.cf_token) + "'>");
+    server.sendContent("<input class='form-control mb-2' name='token' placeholder='API Token (preencha apenas para alterar)'>");
+
     server.sendContent("<input class='form-control mb-2' name='zone' placeholder='Zone ID' required value='" + String(config.cf_zone) + "'>");
     server.sendContent("<input class='form-control mb-2' name='host' placeholder='Hostname' required value='" + String(config.cf_host) + "'>");
 
@@ -652,28 +651,6 @@ void handleCloudflare() {
     server.sendContent("<button class='btn btn-success w-100'>Salvar</button>");
     server.sendContent("</form>");
 
-
-    // } else {
-    //     htmlBox("Configuração atual");
-    //     server.sendContent("Host: ");
-    //     server.sendContent(config.cf_host);
-    //     server.sendContent("<br>Zone ID: ");
-    //     server.sendContent(config.cf_zone);
-    //     server.sendContent("<br>Record ID: ");
-
-    //     for (uint8_t i = 0; i < config.cf_record_count; i++) {
-    //         server.sendContent("Record ");
-    //         server.sendContent(String(i+1));
-    //         server.sendContent(": ");
-    //         server.sendContent(config.cf_records[i]);
-    //         server.sendContent("<br>");
-    //     }
-
-
-    //     server.sendContent("<br>Token: ****");
-    //     htmlBoxEnd();
-    // }
-
     pageEnd();
 }
 
@@ -681,9 +658,7 @@ void handleCloudflare() {
 void handleCloudflareSave() {
     strlcpy(config.cf_token,  server.arg("token").c_str(),  sizeof(config.cf_token));
     strlcpy(config.cf_zone,   server.arg("zone").c_str(),   sizeof(config.cf_zone));
-
     config.cf_record_count = 0;
-
     for (uint8_t i = 0; i < MAX_RECORDS; i++) {
         String key = "record" + String(i);
         if (server.hasArg(key) && server.arg(key).length() > 0) {
@@ -693,11 +668,8 @@ void handleCloudflareSave() {
             config.cf_record_count++;
         }
     }
-
     strlcpy(config.cf_host,   server.arg("host").c_str(),   sizeof(config.cf_host));
-
     saveConfig();
-
     pageBegin();
     server.sendContent("<h2>Cloudflare configurado!</h2>");
     server.sendContent("<a href='/cloudflare'>Voltar</a>");
@@ -705,14 +677,55 @@ void handleCloudflareSave() {
 }
 
 
+void handlePasswordPage() {
+    pageBegin();
+    server.sendContent("<h4 class='text-info'>Senha do Painel</h4>");
+
+    server.sendContent("<form action='/password/save' method='POST'>");
+
+    server.sendContent("<input class='form-control mb-2' name='user' placeholder='Usuário' required value='" + config.webusr + "'>");
+    server.sendContent("<input type='password' class='form-control mb-2' name='pass1' placeholder='Nova senha' required>");
+    server.sendContent("<input type='password' class='form-control mb-2' name='pass2' placeholder='Confirmar senha' required>");
+
+    server.sendContent("<button class='btn btn-primary w-100'>Salvar senha</button>");
+    server.sendContent("</form>");
+
+    pageEnd();
+}
+
+void handlePasswordSave() {
+    if (!server.hasArg("pass1") || !server.hasArg("pass2")) {
+        server.send(400, "text/plain", "Erro");
+        return;
+    }
+
+    if (server.arg("pass1") != server.arg("pass2")) {
+        pageBegin();
+        server.sendContent("<div class='alert alert-danger'>As senhas não coincidem</div>");
+        pageEnd();
+        return;
+    }
+
+    config.webusr = server.arg("user");
+    config.webpss = server.arg("pass1");
+
+    saveConfig();
+
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
 void setupWebServer() {
     server.on("/", HTTP_GET, handleRoot);
     server.on("/save", HTTP_POST, handleSave);
     server.on("/log", HTTP_GET, handleLog);
     server.on("/status", HTTP_GET, handleStatus);
-    // server.on("/reset", HTTP_GET, handleReset);
     server.on("/cloudflare", HTTP_GET, handleCloudflare);
     server.on("/cloudflare/save", HTTP_POST, handleCloudflareSave);
+
+    server.on("/password", handlePasswordPage);
+    server.on("/password/save", handlePasswordSave);
+
     server.begin();
     addLog("Servidor web iniciado na porta 80");
 }
@@ -876,6 +889,17 @@ void processWifiReconnect() {
 
         wifiReconnecting = false;
     }
+}
+
+
+bool checkAuth() {
+    if (config.webpss.length() == 0) return true;
+
+    if (!server.authenticate(config.webusr.c_str(), config.webpss.c_str())) {
+        server.requestAuthentication();
+        return false;
+    }
+    return true;
 }
 
 
