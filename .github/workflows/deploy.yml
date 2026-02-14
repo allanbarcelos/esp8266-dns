@@ -79,34 +79,26 @@ jobs:
       # ========================
       # PUBLISH TO REPO (RAW)
       # ========================
-      - name: Publish firmware to repository
+      - name: Publish firmware to branch "firmware"
         run: |
-          mkdir -p firmware
-          cp build/firmware.bin firmware/firmware.bin
-          echo ${new_tag} > firmware/version.txt
-
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # ------------------------
-          # Commit na main
-          # ------------------------
-          git add firmware/firmware.bin
-          git add firmware/version.txt
-          git commit -m "chore: update firmware.bin (${new_tag})" || echo "No changes to commit"
-          git push origin main
-
-          # ------------------------
-          # Commit na branch firmware
-          # ------------------------
-          # Cria branch firmware se não existir
+          # Cria branch firmware ou reseta se já existir
           git fetch origin firmware || echo "Branch firmware não existe ainda"
           git checkout -B firmware
 
-          git add firmware/firmware.bin
-          git add firmware/version.txt
+          # Limpa tudo, exceto .git
+          git ls-files -z | xargs -0 rm -f
+
+          # Copia apenas os arquivos que queremos
+          cp build/firmware.bin ./firmware.bin
+          echo "${new_tag}" > version.txt
+
+          git add firmware.bin version.txt
           git commit -m "chore: update firmware.bin (${new_tag})" || echo "No changes to commit"
           git push -u origin firmware --force
+
 
 
       # ========================
