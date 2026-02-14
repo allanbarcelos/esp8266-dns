@@ -15,8 +15,8 @@
 // ========================
 // CONSTANTES
 // ========================
-const char* VERSION_URL = "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/firmware/version.txt";
-const char* BIN_URL     = "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/firmware/firmware.bin";
+const char* VERSION_URL = "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/firmware/version.txt";
+const char* BIN_URL     = "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/firmware/firmware.bin";
 const unsigned long OTA_INTERVAL = 60000UL;  // 1 minuto
 const unsigned long OTA_DEADLINE = 82800000UL;  // ~23h00min
 const uint16_t LOG_BUFFER_SIZE = 10;

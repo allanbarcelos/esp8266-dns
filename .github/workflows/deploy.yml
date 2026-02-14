@@ -100,6 +100,20 @@ jobs:
           git push -u origin firmware --force
 
 
+      - name: Publish firmware to repository
+        run: |
+          mkdir -p firmware
+          cp build/firmware.bin firmware/firmware.bin
+          echo ${new_tag} > firmware/version.txt
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add firmware/firmware.bin
+          git add firmware/version.txt
+
+          git commit -m "chore: update firmware.bin (${new_tag})" || echo "No changes to commit"
+          git push
 
       # ========================
       # RELEASE
