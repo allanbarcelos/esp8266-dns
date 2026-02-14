@@ -1008,7 +1008,6 @@ void loop() {
         }
     }
 
-    // Processa OTA sem bloquear
     handleOTANonBlocking();
 
     if (strlen(config.cf_token) > 0 && now - lastDnsCheck >= dnsCheckInterval) {
