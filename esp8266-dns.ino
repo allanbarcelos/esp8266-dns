@@ -900,7 +900,6 @@ void processWifiReconnect() {
     }
 }
 
-
 bool checkAuth() {
     if (config.webpss.length() == 0) return true;
 
@@ -911,11 +910,9 @@ bool checkAuth() {
     return true;
 }
 
-
 String getBinURL(const String& version) {
     return "https://github.com/allanbarcelos/esp8266-dns/releases/download/" + version + "/firmware.bin";
 }
-
 
 // ========================
 // SETUP E LOOP
