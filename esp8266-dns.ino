@@ -15,8 +15,7 @@
 // ========================
 // CONSTANTES
 // ========================
-const char* VERSION_URL = "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/firmware/version.txt";
-const char* BIN_URL     = "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/firmware/firmware.bin";
+const char* VERSION_URL = "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/version.txt";
 const unsigned long OTA_INTERVAL = 60000UL;  // 1 minuto
 const unsigned long OTA_DEADLINE = 82800000UL;  // ~23h00min
 const uint16_t LOG_BUFFER_SIZE = 10;
@@ -766,10 +765,20 @@ bool checkVersion(String& latestVersion) {
 bool startOTA() {
     if (otaState.inProgress) return false;
 
+   
+    String latestVersion;
+    if (!checkVersion(latestVersion)) {
+        addLog("Falha ao obter versão OTA");
+        return false;
+    }
+
+    String binURL = getBinURL(latestVersion);
+    addLog("URL do firmware: %s", binURL.c_str());
+
     otaState.client.setInsecure();
     otaState.http.setTimeout(5000); 
 
-    if (!otaState.http.begin(otaState.client, BIN_URL)) {
+    if (!otaState.http.begin(otaState.client, binURL)) {
         addLog("Falha ao iniciar OTA");
         return false;
     }
@@ -900,6 +909,11 @@ bool checkAuth() {
         return false;
     }
     return true;
+}
+
+
+String getBinURL(const String& version) {
+    return "https://github.com/allanbarcelos/esp8266-dns/releases/download/" + version + "/firmware.bin";
 }
 
 
