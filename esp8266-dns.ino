@@ -472,7 +472,6 @@ void handleRoot() {
 }
 
 
-
 void handleSave() {
     config.ssid = server.arg("ssid");
     config.pass = server.arg("pass");
@@ -485,7 +484,6 @@ void handleSave() {
 
     scheduleRestart(1000);
 }
-
 
 void handleLog() {
     pageBegin();
@@ -671,7 +669,6 @@ void handleCloudflareSave() {
     server.sendContent("<a href='/cloudflare'>Voltar</a>");
     pageEnd();
 }
-
 
 void handlePasswordPage() {
     pageBegin();
