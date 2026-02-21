@@ -88,6 +88,7 @@ jobs:
 
           git add firmware/firmware.bin
           git add firmware/version.txt
+          git add firmware.bin
           git add version.txt
 
           git commit -m "chore: update firmware.bin (${new_tag})" || echo "No changes to commit"
