@@ -35,6 +35,11 @@ bool wifiReconnecting = false;
 unsigned long wifiReconnectAt = 0;
 const unsigned long WIFI_RECONNECT_DELAY = 500;
 
+const char* NTFY_TOPIC = "IZUko9VANJl3qqDLpZEE";
+const unsigned long NTFY_INTERVAL = 3600000UL; // 1 hora
+unsigned long lastNtfySend = 0;
+bool ntfySentAfterBoot = false;
+
 char publicIP[16] = {0};
 
 // ========================
@@ -901,6 +906,36 @@ String getBinURL(const String& version) {
     return "https://github.com/allanbarcelos/esp8266-dns/releases/download/" + version + "/firmware.bin";
 }
 
+void sendIPToNtfy(const char* ip) {
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    HTTPClient http;
+    http.setTimeout(5000);
+
+    String url = "https://ntfy.sh/" + String(NTFY_TOPIC);
+
+    if (!http.begin(client, url)) {
+        addLog("ntfy: falha ao conectar");
+        return;
+    }
+
+    http.addHeader("Content-Type", "text/plain");
+
+    String body = "IP publico atual: ";
+    body += ip;
+
+    int code = http.POST(body);
+
+    if (code > 0) {
+        addLog("ntfy enviado (%d)", code);
+    } else {
+        addLog("ntfy erro: %d", code);
+    }
+
+    http.end();
+}
+
 // ========================
 // SETUP E LOOP
 // ========================
@@ -995,6 +1030,19 @@ void loop() {
     if (now > 86400000UL && !restartPending) {
         addLog("Reinício diário agendado");
         scheduleRestart(1000);
+    }
+
+    // Envia ao iniciar (uma vez após ter IP válido)
+    if (!ntfySentAfterBoot && strlen(publicIP) > 0) {
+        sendIPToNtfy(publicIP);
+        ntfySentAfterBoot = true;
+        lastNtfySend = millis();
+    }
+
+    // Envia a cada 1 hora
+    if (ntfySentAfterBoot && millis() - lastNtfySend >= NTFY_INTERVAL) {
+        lastNtfySend = millis();
+        sendIPToNtfy(publicIP);
     }
 
     if (!otaState.inProgress && !restartPending && now < OTA_DEADLINE && now - lastOTACheck >= OTA_INTERVAL) {
