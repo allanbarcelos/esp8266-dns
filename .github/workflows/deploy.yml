@@ -80,6 +80,8 @@ jobs:
         run: |
           mkdir -p firmware
           cp build/firmware.bin firmware/firmware.bin
+          cp build/firmware.bin firmware.bin
+
           echo ${new_tag} > firmware/version.txt
           echo ${new_tag} > version.txt
 
