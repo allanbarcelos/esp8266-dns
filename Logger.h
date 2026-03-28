@@ -18,7 +18,8 @@ public:
         vsnprintf(msg, sizeof(msg), fmt, args);
         va_end(args);
 
-        snprintf(_buf[_head], LOG_LINE_SIZE, "[%lus] %s", millis() / 1000, msg);
+        snprintf(_buf[_head], LOG_LINE_SIZE, "[%lus] %.*s",
+                 millis() / 1000, LOG_LINE_SIZE - 10, msg);
         Serial.println(_buf[_head]);
 
         if (++_head >= LOG_BUFFER_SIZE) {

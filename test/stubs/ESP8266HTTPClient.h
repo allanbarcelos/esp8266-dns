@@ -6,6 +6,9 @@
 #include <utility>
 
 #define HTTP_CODE_OK 200
+#define HTTPC_FORCE_FOLLOW_REDIRECTS  1
+#define HTTPC_STRICT_FOLLOW_REDIRECTS 2
+#define HTTPC_DISABLE_FOLLOW_REDIRECTS 0
 
 // ── Estado compartilhado do mock ─────────────────────────────────────────────
 namespace MockHTTP {
@@ -53,6 +56,7 @@ public:
     bool begin(WiFiClientSecure&, const String& url) { return _open(url); }
 
     void setTimeout(int) {}
+    void setFollowRedirects(int) {}
     void addHeader(const char*, const String&) {}
     void addHeader(const String&, const String&) {}
 
