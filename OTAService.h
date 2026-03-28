@@ -99,7 +99,8 @@ private:
         _log.log("URL firmware: %s", url.c_str());
 
         _client.setInsecure();
-        _http.setTimeout(5000);
+        _http.setTimeout(10000);
+        _http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
 
         if (!_http.begin(_client, url)) {
             _log.log("Falha ao iniciar OTA");
