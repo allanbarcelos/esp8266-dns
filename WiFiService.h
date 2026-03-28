@@ -44,19 +44,22 @@ public:
     }
 
     void registerEvents() {
-        WiFi.onEvent([this](WiFiEvent_t event) {
-            if (event == WIFI_EVENT_STAMODE_DISCONNECTED) {
-                _log.log("Wi-Fi desconectado");
-            }
-            if (event == WIFI_EVENT_STAMODE_GOT_IP) {
-                _log.log("Wi-Fi conectado: %s", WiFi.localIP().toString().c_str());
-                notifySuccess();
-                if (WiFi.getMode() != WIFI_STA) {
-                    WiFi.mode(WIFI_STA);
-                    _log.log("Modo AP desligado");
-                }
+        // onEvent() no core 3.1.2 só aceita ponteiro de função (sem captura).
+        // Os handlers específicos por evento aceitam std::function e capturam this.
+        _evtGotIP = WiFi.onStationModeGotIP([this](const WiFiEventStationModeGotIP&) {
+            _log.log("Wi-Fi conectado: %s", WiFi.localIP().toString().c_str());
+            notifySuccess();
+            if (WiFi.getMode() != WIFI_STA) {
+                WiFi.mode(WIFI_STA);
+                _log.log("Modo AP desligado");
             }
         });
+
+        _evtDisconnected = WiFi.onStationModeDisconnected(
+            [this](const WiFiEventStationModeDisconnected&) {
+                _log.log("Wi-Fi desconectado");
+            }
+        );
     }
 
     // Chamado a cada loop() — verifica saúde e processa reconexão
@@ -131,6 +134,9 @@ private:
     unsigned long _restartAt;
     unsigned long _lastHealthCheck;
     bool          _otaInProgress = false;
+
+    WiFiEventHandler _evtGotIP;
+    WiFiEventHandler _evtDisconnected;
 
     static const unsigned long RECONNECT_DELAY = 500UL;
 

@@ -2,6 +2,11 @@
 #include "Arduino.h"
 #include <functional>
 
+// Tipos globais — espelham o escopo do core ESP8266 3.1.2
+struct WiFiEventStationModeGotIP      { String ip; };
+struct WiFiEventStationModeDisconnected {};
+using  WiFiEventHandler = int; // stub: valor de retorno ignorado
+
 typedef enum {
     WIFI_EVENT_STAMODE_DISCONNECTED = 0,
     WIFI_EVENT_STAMODE_GOT_IP       = 1,
@@ -56,6 +61,12 @@ public:
     bool hostByName(const char*, IPAddress& ip) { ip._addr = 1; return true; }
 
     void onEvent(std::function<void(WiFiEvent_t)>) {}
+
+    WiFiEventHandler onStationModeGotIP(
+        std::function<void(const WiFiEventStationModeGotIP&)>) { return 0; }
+
+    WiFiEventHandler onStationModeDisconnected(
+        std::function<void(const WiFiEventStationModeDisconnected&)>) { return 0; }
 };
 
 inline WiFiClass WiFi;
