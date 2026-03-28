@@ -9,6 +9,8 @@ on:
       - main
     paths:
       - "**/*.ino"
+      - "**/*.h"
+      - "**/*.cpp"
   workflow_dispatch:
 
 jobs:
