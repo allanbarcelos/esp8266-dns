@@ -1,7 +1,7 @@
 name: Build and Publish ESP8266 Firmware
 
 permissions:
-  contents: write
+  contents: write   # necessário para criar GitHub Releases
 
 on:
   push:
@@ -43,6 +43,20 @@ jobs:
           arduino-cli lib install "ArduinoWebsockets@0.5.4"
 
       # ========================
+      # TESTES
+      # ========================
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install PlatformIO
+        run: pip install -r requirements.txt
+
+      - name: Run native tests
+        run: pio test -e native
+
+      # ========================
       # VERSIONING
       # ========================
       - name: Get highest tag and increment
@@ -73,28 +87,7 @@ jobs:
             --output-dir build
 
       - name: Rename firmware
-        run: |
-          mv build/*.bin build/firmware.bin
-
-      - name: Publish firmware to repository
-        run: |
-          mkdir -p firmware
-          cp build/firmware.bin firmware/firmware.bin
-          cp build/firmware.bin firmware.bin
-
-          echo ${new_tag} > firmware/version.txt
-          echo ${new_tag} > version.txt
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add firmware/firmware.bin
-          git add firmware/version.txt
-          git add firmware.bin
-          git add version.txt
-
-          git commit -m "chore: update firmware.bin (${new_tag})" || echo "No changes to commit"
-          git push -u origin main
+        run: mv build/*.bin build/firmware.bin
 
       # ========================
       # RELEASE
