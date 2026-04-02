@@ -29,7 +29,7 @@ public:
             return false;
         }
 
-        StaticJsonDocument<512> doc;
+        StaticJsonDocument<640> doc;
         DeserializationError err = deserializeJson(doc, f);
         f.close();
 
@@ -43,6 +43,7 @@ public:
         _cfg.ssid   = doc["ssid"].as<String>();
         _cfg.pass   = doc["pass"].as<String>();
 
+        strlcpy(_cfg.ntfy_topic, doc["ntfy_topic"] | "", sizeof(_cfg.ntfy_topic));
         strlcpy(_cfg.cf_token, doc["cf_token"] | "", sizeof(_cfg.cf_token));
         strlcpy(_cfg.cf_zone,  doc["cf_zone"]  | "", sizeof(_cfg.cf_zone));
         strlcpy(_cfg.cf_host,  doc["cf_host"]  | "", sizeof(_cfg.cf_host));
@@ -57,12 +58,13 @@ public:
     }
 
     bool save() {
-        StaticJsonDocument<512> doc;
+        StaticJsonDocument<640> doc;
 
         doc["webusr"]   = _cfg.webusr;
         doc["webpss"]   = _cfg.webpss;
         doc["ssid"]     = _cfg.ssid;
         doc["pass"]     = _cfg.pass;
+        doc["ntfy_topic"] = _cfg.ntfy_topic;
         doc["cf_token"] = _cfg.cf_token;
         doc["cf_zone"]  = _cfg.cf_zone;
         doc["cf_host"]  = _cfg.cf_host;

@@ -28,17 +28,18 @@ OTAService       ota(logger, wifi);
 NtfyNotifier     ntfy(config, logger);
 
 // Camada 3 — agrega tudo
-WebService webService(config, logger, configStore, wifi, dns, ota);
+WebService webService(config, logger, configStore, wifi, dns, ota, ntfy);
 
 void setup() {
     Serial.begin(115200);
     delay(1000);
     Serial.printf("\n=== ESP8266 DNS Updater v%s ===\n", firmware_version);
 
-    memset(config.cf_token,   0, sizeof(config.cf_token));
-    memset(config.cf_zone,    0, sizeof(config.cf_zone));
-    memset(config.cf_records, 0, sizeof(config.cf_records));
-    memset(config.publicIP,   0, sizeof(config.publicIP));
+    memset(config.cf_token,    0, sizeof(config.cf_token));
+    memset(config.cf_zone,     0, sizeof(config.cf_zone));
+    memset(config.cf_records,  0, sizeof(config.cf_records));
+    memset(config.ntfy_topic,  0, sizeof(config.ntfy_topic));
+    memset(config.publicIP,    0, sizeof(config.publicIP));
     config.cf_record_count = 0;
     config.lastDnsUpdate   = 0;
 

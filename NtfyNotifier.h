@@ -11,6 +11,7 @@ public:
 
     void tick(unsigned long now) {
         if (strlen(_cfg.publicIP) == 0) return;
+        if (strlen(_cfg.ntfy_topic) == 0) return;
 
         if (!_sentAfterBoot) {
             _send(_cfg.publicIP);
@@ -33,7 +34,6 @@ private:
 
     unsigned long _lastSend;
     bool          _sentAfterBoot;
-    static const char          NTFY_TOPIC[];
 
     void _send(const char* ip) {
         WiFiClientSecure client;
@@ -42,7 +42,7 @@ private:
         http.setTimeout(5000);
 
         String url = "https://ntfy.sh/";
-        url += NTFY_TOPIC;
+        url += _cfg.ntfy_topic;
 
         if (!http.begin(client, url)) {
             _log.log("ntfy: falha ao conectar");
@@ -62,5 +62,3 @@ private:
         http.end();
     }
 };
-
-const char NtfyNotifier::NTFY_TOPIC[] = "IZUko9VANJl3qqDLpZEE";
