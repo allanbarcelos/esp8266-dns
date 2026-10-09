@@ -1,0 +1,23 @@
+name: Setup Arduino CLI (ESP8266)
+description: Instala arduino-cli, o core ESP8266 3.1.2 e as bibliotecas do firmware
+runs:
+  using: composite
+  steps:
+    - uses: arduino/setup-arduino-cli@v2
+
+    - name: Cache do core e bibliotecas
+      uses: actions/cache@v6
+      with:
+        path: |
+          ~/.arduino15
+          ~/Arduino/libraries
+        key: arduino-esp8266-3.1.2-arduinojson-6.21.4
+
+    - name: Instala core e bibliotecas
+      shell: bash
+      run: |
+        arduino-cli config init --overwrite
+        arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
+        arduino-cli core update-index
+        arduino-cli core install esp8266:esp8266@3.1.2
+        arduino-cli lib install "ArduinoJson@6.21.4"

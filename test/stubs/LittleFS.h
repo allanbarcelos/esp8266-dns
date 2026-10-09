@@ -8,49 +8,44 @@
 // ── FS in-memory ─────────────────────────────────────────────────────────────
 namespace MockFS {
     inline std::map<std::string, std::string> files;
-    inline void reset()                                    { files.clear(); }
-    inline void put(const char* path, const std::string& content) {
-        files[path] = content;
+    inline bool beginOk       = true;
+    inline bool failReadOpen  = false;
+    inline bool failWriteOpen = false;
+    inline bool failRename    = false;
+
+    inline void reset() {
+        files.clear();
+        beginOk = true; failReadOpen = false; failWriteOpen = false; failRename = false;
     }
+    inline void put(const char* path, const std::string& content) { files[path] = content; }
 }
 
 struct FSInfo {
-    size_t totalBytes = 1048576;
-    size_t usedBytes  = 4096;
-    size_t blockSize  = 4096;
-    size_t pageSize   = 256;
-    size_t maxOpenFiles = 5;
-    size_t maxPathLength = 32;
+    size_t totalBytes = 65536;
+    size_t usedBytes  = 8192;
 };
 
-// ── Arquivo mock com interface Stream (leitura) e Print (escrita) ─────────────
+// ── Arquivo mock com interface de leitura (Stream) e escrita (Print) ──────────
 class File {
 public:
     File() : _valid(false) {}
     File(const std::string& data, bool writing, std::string path)
         : _data(data), _pos(0), _writing(writing), _path(std::move(path)), _valid(true) {}
 
-    operator bool() const { return _valid; }
+    explicit operator bool() const { return _valid; }
 
     // Leitura (deserializeJson)
-    int    available() { return _writing ? 0 : (int)(_data.size() - _pos); }
-    int    read()      { return (!_writing && _pos < _data.size()) ? (uint8_t)_data[_pos++] : -1; }
+    int read() { return (!_writing && _pos < _data.size()) ? (uint8_t)_data[_pos++] : -1; }
     size_t readBytes(char* buf, size_t n) {
         size_t k = std::min(n, _data.size() - _pos);
-        if (!_writing) { std::memcpy(buf, _data.data() + _pos, k); _pos += k; }
+        std::memcpy(buf, _data.data() + _pos, k);
+        _pos += k;
         return k;
     }
 
     // Escrita (serializeJson)
-    size_t write(uint8_t c)                    { if (_writing) _data += (char)c; return 1; }
-    size_t write(const uint8_t* b, size_t n)   {
-        if (_writing) _data.append((const char*)b, n); return n;
-    }
-    size_t print(const char* s) {
-        size_t n = std::strlen(s);
-        if (_writing) _data += s;
-        return n;
-    }
+    size_t write(uint8_t c)                  { _data += (char)c; return 1; }
+    size_t write(const uint8_t* b, size_t n) { _data.append((const char*)b, n); return n; }
 
     void close() {
         if (_valid && _writing) MockFS::files[_path] = _data;
@@ -77,18 +72,27 @@ public:
 // ── LittleFS mock ─────────────────────────────────────────────────────────────
 class LittleFSClass {
 public:
-    bool begin() { return true; }
-    bool end()   { return true; }
+    bool begin() { return MockFS::beginOk; }
 
     bool exists(const char* path) { return MockFS::files.count(path) > 0; }
 
     File open(const char* path, const char* mode) {
         if (mode[0] == 'r') {
-            if (!exists(path)) return File();
+            if (MockFS::failReadOpen || !exists(path)) return File();
             return File(MockFS::files[path], false, path);
         }
+        if (MockFS::failWriteOpen) return File();
         return File("", true, path);
     }
+
+    bool rename(const char* from, const char* to) {
+        if (MockFS::failRename || !exists(from)) return false;
+        MockFS::files[to] = MockFS::files[from];
+        MockFS::files.erase(from);
+        return true;
+    }
+
+    bool remove(const char* path) { return MockFS::files.erase(path) > 0; }
 
     bool info(FSInfo& i) { i = FSInfo(); return true; }
     Dir  openDir(const char*) { return Dir(); }

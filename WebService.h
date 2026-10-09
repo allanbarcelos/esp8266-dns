@@ -3,9 +3,9 @@
 #include <LittleFS.h>
 #include "Config.h"
 #include "Logger.h"
+#include "Version.h"
 #include "ConfigStore.h"
 #include "WiFiService.h"
-#include "CloudflareDNS.h"
 #include "OTAService.h"
 #include "NtfyNotifier.h"
 
@@ -44,36 +44,70 @@ static const char _HTML_FOOT_A[] PROGMEM = R"(<hr class="border-secondary mt-4">
 
 static const char _HTML_FOOT_B[] PROGMEM = R"(</p></div></body></html>)";
 
+#define _INPUT_CLS "form-control bg-dark text-light border-secondary"
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 class WebService {
 public:
     WebService(Config& cfg, Logger& log, ConfigStore& store,
-               WiFiService& wifi, CloudflareDNS& dns, OTAService& ota,
-               NtfyNotifier& ntfy)
+               WiFiService& wifi, OTAService& ota)
         : _server(80), _cfg(cfg), _log(log), _store(store),
-          _wifi(wifi), _dns(dns), _ota(ota), _ntfy(ntfy)
-    {
-        _instance = this;
-        _generateCSRF();
+          _wifi(wifi), _ota(ota) {
+        _csrfToken[0] = '\0';
     }
 
     void begin() {
-        _server.on("/",                HTTP_GET,  _hRoot);
-        _server.on("/save",            HTTP_POST, _hSave);
-        _server.on("/log",             HTTP_GET,  _hLog);
-        _server.on("/status",          HTTP_GET,  _hStatus);
-        _server.on("/cloudflare",      HTTP_GET,  _hCloudflare);
-        _server.on("/cloudflare/save", HTTP_POST, _hCloudflareSave);
-        _server.on("/ntfy",            HTTP_GET,  _hNtfy);
-        _server.on("/ntfy/save",       HTTP_POST, _hNtfySave);
-        _server.on("/password",        HTTP_GET,  _hPassword);
-        _server.on("/password/save",   HTTP_POST, _hPasswordSave);
+        _generateCSRF();
+
+        _server.on("/",                HTTP_GET,  [this]() { _handleRoot(); });
+        _server.on("/save",            HTTP_POST, [this]() { _handleSave(); });
+        _server.on("/log",             HTTP_GET,  [this]() { _handleLog(); });
+        _server.on("/status",          HTTP_GET,  [this]() { _handleStatus(); });
+        _server.on("/cloudflare",      HTTP_GET,  [this]() { _handleCloudflare(); });
+        _server.on("/cloudflare/save", HTTP_POST, [this]() { _handleCloudflareSave(); });
+        _server.on("/ntfy",            HTTP_GET,  [this]() { _handleNtfy(); });
+        _server.on("/ntfy/save",       HTTP_POST, [this]() { _handleNtfySave(); });
+        _server.on("/password",        HTTP_GET,  [this]() { _handlePassword(); });
+        _server.on("/password/save",   HTTP_POST, [this]() { _handlePasswordSave(); });
         _server.begin();
         _log.log("Servidor web iniciado na porta 80");
     }
 
     void tick() { _server.handleClient(); }
+
+    const char* csrfToken() const { return _csrfToken; }
+
+    // Escapa texto para uso seguro em conteúdo e atributos HTML
+    static String escape(const String& s) {
+        String out;
+        for (size_t i = 0; i < s.length(); i++) {
+            char c = s.c_str()[i];
+            switch (c) {
+                case '&':  out += "&amp;";  break;
+                case '<':  out += "&lt;";   break;
+                case '>':  out += "&gt;";   break;
+                case '"':  out += "&quot;"; break;
+                case '\'': out += "&#39;";  break;
+                default:   out += c;
+            }
+        }
+        return out;
+    }
+
+    // Máscara para tokens sensíveis: mostra apenas os últimos 4 chars
+    static String maskSecret(const char* s) {
+        size_t len = strlen(s);
+        if (len == 0) return String();
+        return String("****") + String(s + (len > 4 ? len - 4 : 0));
+    }
+
+    static String formatDuration(unsigned long ms) {
+        unsigned long s = ms / 1000;
+        char buf[24];
+        snprintf(buf, sizeof(buf), "%luh %02lum %02lus", s / 3600, (s / 60) % 60, s % 60);
+        return String(buf);
+    }
 
 private:
     ESP8266WebServer _server;
@@ -81,23 +115,28 @@ private:
     Logger&          _log;
     ConfigStore&     _store;
     WiFiService&     _wifi;
-    CloudflareDNS&   _dns;
     OTAService&      _ota;
-    NtfyNotifier&    _ntfy;
 
-    char _csrfToken[9]; // 8 hex + null
-
-    static WebService* _instance;
+    char _csrfToken[17]; // 16 hex + null
 
     // ── Segurança ─────────────────────────────────────────────────────────────
 
+    // Token gerado pelo RNG de hardware a cada boot e a cada troca de senha
     void _generateCSRF() {
-        uint32_t seed = ESP.getChipId() ^ (uint32_t)(millis() ^ 0xDEADBEEFUL);
-        snprintf(_csrfToken, sizeof(_csrfToken), "%08lx", (unsigned long)seed);
+        snprintf(_csrfToken, sizeof(_csrfToken), "%08lx%08lx",
+                 (unsigned long)ESP.random(), (unsigned long)ESP.random());
     }
 
-    bool _checkAuth() {
-        if (_cfg.webpss.length() == 0) return true;
+    // Autenticação + exigência de senha definida.
+    // Sem senha configurada, o painel só libera o modo AP (configuração
+    // inicial) e a página de definição de senha (allowSetup).
+    bool _guard(bool allowSetup = false) {
+        if (_cfg.webpss.length() == 0) {
+            if (allowSetup || _wifi.inConfigMode()) return true;
+            _server.sendHeader("Location", "/password");
+            _server.send(302, "text/plain", "");
+            return false;
+        }
         if (!_server.authenticate(_cfg.webusr.c_str(), _cfg.webpss.c_str())) {
             _server.requestAuthentication();
             return false;
@@ -106,7 +145,7 @@ private:
     }
 
     bool _checkCSRF() {
-        if (_server.arg("_csrf") != String(_csrfToken)) {
+        if (_server.arg("_csrf") != _csrfToken) {
             _server.send(403, "text/plain", "Token CSRF invalido");
             return false;
         }
@@ -115,9 +154,9 @@ private:
 
     // ── Helpers HTML ──────────────────────────────────────────────────────────
 
-    void _pageBegin(bool autoRefresh = false) {
+    void _pageBegin(bool autoRefresh = false, int code = 200) {
         _server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-        _server.send(200, "text/html", "");
+        _server.send(code, "text/html", "");
         _server.sendContent_P(_HTML_HEAD_A);
         if (autoRefresh)
             _server.sendContent("<meta http-equiv='refresh' content='30'>");
@@ -141,14 +180,14 @@ private:
 
     void _boxEnd() { _server.sendContent("</div></div>"); }
 
-    // Label + valor numa linha com separador
+    // Label + valor numa linha com separador (valor sempre escapado)
     void _row(const char* label, const String& value) {
         _server.sendContent(
             "<div class='d-flex justify-content-between px-3 py-1 border-bottom border-secondary'>"
             "<span class='text-secondary small'>");
         _server.sendContent(label);
         _server.sendContent("</span><span class='small text-end ms-2'>");
-        _server.sendContent(value);
+        _server.sendContent(escape(value));
         _server.sendContent("</span></div>");
     }
 
@@ -157,10 +196,25 @@ private:
             String("<input type='hidden' name='_csrf' value='") + _csrfToken + "'>");
     }
 
-    void _alert(const char* cls, const char* msg) {
+    void _alert(const char* cls, const String& msg) {
         _server.sendContent(String("<div class='alert alert-") + cls + " py-2'>");
-        _server.sendContent(msg);
+        _server.sendContent(escape(msg));
         _server.sendContent("</div>");
+    }
+
+    void _input(const char* label, const char* name, const String& value,
+                const char* extra = "") {
+        _server.sendContent(
+            String("<div class='mb-2'><label class='form-label small'>") + label +
+            "</label><input class='" _INPUT_CLS "' name='" + name +
+            "' value='" + escape(value) + "' " + extra + "></div>");
+    }
+
+    void _passwordInput(const char* label, const char* name, const char* extra = "") {
+        _server.sendContent(
+            String("<div class='mb-2'><label class='form-label small'>") + label +
+            "</label><input type='password' autocomplete='new-password' class='"
+            _INPUT_CLS "' name='" + name + "' " + extra + "></div>");
     }
 
     // Página de confirmação com redirect automático
@@ -169,44 +223,55 @@ private:
         _alert("success", msg);
         _server.sendContent(
             String("<meta http-equiv='refresh' content='2;url=") + backHref + "'>"
-            "<a href='" + backHref + "' class='btn btn-outline-secondary btn-sm'>Voltar</a>"
-        );
+            "<a href='" + backHref + "' class='btn btn-outline-secondary btn-sm'>Voltar</a>");
         _pageEnd();
     }
 
-    // Máscara para tokens sensíveis: mostra apenas os últimos 4 chars
-    static String _maskSecret(const char* s) {
-        size_t len = strlen(s);
-        if (len == 0) return String();
-        return String("●●●●") + String(s + (len > 4 ? len - 4 : 0));
+    void _errorPage(const char* msg, const char* backHref) {
+        _pageBegin(false, 400);
+        _alert("danger", msg);
+        _server.sendContent(
+            String("<a href='") + backHref + "' class='btn btn-outline-secondary btn-sm'>Voltar</a>");
+        _pageEnd();
     }
 
-    // ── Utilitários ───────────────────────────────────────────────────────────
-
-    static String _uptime() {
-        unsigned long s = millis() / 1000;
-        char buf[20];
-        snprintf(buf, sizeof(buf), "%luh %02lum %02lus", s/3600, (s/60)%60, s%60);
-        return String(buf);
+    // Copia o argumento para dst se couber; caso contrário responde 400
+    bool _argInto(const char* name, char* dst, size_t size, const char* backHref) {
+        String v = _server.arg(name);
+        v.trim();
+        if (v.length() >= size) {
+            _errorPage("Valor muito longo", backHref);
+            return false;
+        }
+        strlcpy(dst, v.c_str(), size);
+        return true;
     }
 
-    static String _elapsed(unsigned long ms) {
-        unsigned long s = ms / 1000;
-        char buf[24];
-        snprintf(buf, sizeof(buf), "%luh %02lum %02lus", s/3600, (s/60)%60, s%60);
-        return String(buf);
-    }
-
-    static float _chipTemp() {
-        float v = analogRead(A0) * (3.3f / 1023.0f);
-        return v * 540.0f;
+    // Valida usuário/senha do painel enviados nos campos user/pass1/pass2
+    bool _readPanelCredentials(const char* backHref) {
+        String user  = _server.arg("user");
+        String pass1 = _server.arg("pass1");
+        user.trim();
+        if (user.length() == 0 || user.length() > 32) {
+            _errorPage("Usuario invalido", backHref);
+            return false;
+        }
+        if (pass1 != _server.arg("pass2")) {
+            _errorPage("As senhas nao coincidem", backHref);
+            return false;
+        }
+        if (pass1.length() < MIN_PANEL_PASSWORD_LEN || pass1.length() > 64) {
+            _errorPage("A senha deve ter de 8 a 64 caracteres", backHref);
+            return false;
+        }
+        _cfg.webusr = user;
+        _cfg.webpss = pass1;
+        return true;
     }
 
     void _otaProgressBar() {
         if (!_ota.inProgress()) return;
-        int pct = (_ota.contentLength() > 0)
-            ? (int)(_ota.bytesWritten() * 100UL / (size_t)_ota.contentLength())
-            : 0;
+        int pct = _ota.progressPercent();
         _server.sendContent(
             "<div class='alert alert-info py-2 mb-3'>"
             "<div class='d-flex justify-content-between small mb-1'>"
@@ -215,59 +280,45 @@ private:
             "<div class='progress-bar progress-bar-striped progress-bar-animated bg-success' "
             "style='width:" + String(pct) + "%'></div></div>"
             "<div class='text-secondary small mt-1'>" +
-            String(_ota.bytesWritten()) + " / " + String(_ota.contentLength()) + " bytes"
-            "</div></div>"
-        );
+            String((unsigned long)_ota.bytesWritten()) + " / " + String(_ota.contentLength()) + " bytes"
+            "</div></div>");
     }
-
-    // ── Dispatch estático ─────────────────────────────────────────────────────
-
-    static void _hRoot()           { _instance->_handleRoot(); }
-    static void _hSave()           { _instance->_handleSave(); }
-    static void _hLog()            { _instance->_handleLog(); }
-    static void _hStatus()         { _instance->_handleStatus(); }
-    static void _hCloudflare()     { _instance->_handleCloudflare(); }
-    static void _hCloudflareSave() { _instance->_handleCloudflareSave(); }
-    static void _hNtfy()           { _instance->_handleNtfy(); }
-    static void _hNtfySave()       { _instance->_handleNtfySave(); }
-    static void _hPassword()       { _instance->_handlePassword(); }
-    static void _hPasswordSave()   { _instance->_handlePasswordSave(); }
 
     // ── Handlers ─────────────────────────────────────────────────────────────
 
     void _handleRoot() {
-        if (!_checkAuth()) return;
+        if (!_guard()) return;
         _pageBegin();
 
-        if (WiFi.getMode() == WIFI_AP) {
-            _alert("warning", "Modo de configuração — conecte ao Wi-Fi");
+        if (_wifi.inConfigMode()) {
+            _alert("warning", "Modo de configuracao - conecte ao Wi-Fi");
             _server.sendContent("<form action='/save' method='POST'>");
             _csrfField();
-            _server.sendContent(
-                "<div class='mb-3'><label class='form-label'>SSID</label>"
-                "<input name='ssid' class='form-control bg-dark text-light border-secondary' required></div>"
-                "<div class='mb-3'><label class='form-label'>Senha</label>"
-                "<input name='pass' type='password' autocomplete='new-password' "
-                "class='form-control bg-dark text-light border-secondary'></div>"
-                "<button class='btn btn-success w-100'>Conectar</button></form>"
-            );
+            _input("SSID", "ssid", _cfg.ssid, "required maxlength='32'");
+            _passwordInput("Senha do Wi-Fi", "pass", "maxlength='63'");
+            if (_cfg.webpss.length() == 0) {
+                _server.sendContent("<h6 class='mt-3'>Acesso ao painel</h6>");
+                _input("Usuario", "user", _cfg.webusr.length() ? _cfg.webusr : String("admin"),
+                       "required maxlength='32'");
+                _passwordInput("Senha do painel (min. 8)", "pass1", "required minlength='8'");
+                _passwordInput("Confirmar senha", "pass2", "required minlength='8'");
+            }
+            _server.sendContent("<button class='btn btn-success w-100'>Conectar</button></form>");
         } else {
             _otaProgressBar();
 
             _box("Rede");
             _row("SSID",       WiFi.SSID());
             _row("IP Local",   WiFi.localIP().toString());
-            _row("IP Público", _cfg.publicIP[0] ? String(_cfg.publicIP) : String("—"));
+            _row("IP Publico", _cfg.publicIP[0] ? String(_cfg.publicIP) : String("-"));
             _row("RSSI",       String(WiFi.RSSI()) + " dBm");
             _boxEnd();
 
             _box("DNS Cloudflare");
-            _row("Host", _cfg.cf_host[0] ? String(_cfg.cf_host) : String("—"));
-            if (_cfg.lastDnsUpdate == 0) {
-                _row("Última atualização", "nunca");
-            } else {
-                _row("Última atualização", _elapsed(millis() - _cfg.lastDnsUpdate) + " atrás");
-            }
+            _row("Host", _cfg.cf_host[0] ? String(_cfg.cf_host) : String("-"));
+            _row("Ultima atualizacao", _cfg.lastDnsUpdate == 0
+                    ? String("nunca")
+                    : formatDuration(millis() - _cfg.lastDnsUpdate) + " atras");
             _boxEnd();
         }
 
@@ -275,23 +326,40 @@ private:
     }
 
     void _handleSave() {
+        if (!_guard()) return;
         if (!_checkCSRF()) return;
-        _cfg.ssid = _server.arg("ssid");
-        _cfg.pass = _server.arg("pass");
-        _store.save();
+
+        String ssid = _server.arg("ssid");
+        String pass = _server.arg("pass");
+        if (ssid.length() == 0 || ssid.length() > 32) {
+            _errorPage("SSID invalido", "/");
+            return;
+        }
+        if (pass.length() > 63 || (pass.length() > 0 && pass.length() < 8)) {
+            _errorPage("Senha do Wi-Fi deve ter de 8 a 63 caracteres", "/");
+            return;
+        }
+        if (_cfg.webpss.length() == 0 && !_readPanelCredentials("/")) return;
+
+        _cfg.ssid = ssid;
+        _cfg.pass = pass;
+        if (!_store.save()) {
+            _errorPage("Falha ao salvar configuracao", "/");
+            return;
+        }
         _savedPage("Wi-Fi configurado! Reiniciando...", "/");
         _wifi.scheduleRestart(2000);
     }
 
     void _handleLog() {
-        if (!_checkAuth()) return;
+        if (!_guard()) return;
         _pageBegin();
         _server.sendContent("<h5 class='text-warning mb-3'>Log do sistema</h5>"
                             "<pre class='bg-black text-success p-3 rounded small'>");
         uint8_t cnt   = _log.count();
         uint8_t start = _log.startIndex();
         for (uint8_t i = 0; i < cnt; i++) {
-            _server.sendContent(_log.entry((start + i) % LOG_BUFFER_SIZE));
+            _server.sendContent(escape(_log.entry(start + i)));
             _server.sendContent("\n");
         }
         _server.sendContent("</pre>");
@@ -299,24 +367,23 @@ private:
     }
 
     void _handleStatus() {
-        if (!_checkAuth()) return;
+        if (!_guard()) return;
         _pageBegin(true); // auto-refresh a cada 30s
 
         _otaProgressBar();
 
         _box("Sistema");
-        _row("Uptime",     _uptime());
-        _row("Reset",      ESP.getResetReason());
-        _row("Chip ID",    String(ESP.getChipId(), HEX));
-        _row("CPU",        String(ESP.getCpuFreqMHz()) + " MHz");
-        _row("SDK",        String(ESP.getSdkVersion()));
-        _row("Temp (ADC)", String(_chipTemp(), 1) + " °C");
+        _row("Uptime",  formatDuration(millis()));
+        _row("Reset",   ESP.getResetReason());
+        _row("Chip ID", String(ESP.getChipId(), HEX));
+        _row("CPU",     String(ESP.getCpuFreqMHz()) + " MHz");
+        _row("SDK",     String(ESP.getSdkVersion()));
         _boxEnd();
 
-        _box("Memória");
+        _box("Memoria");
         _row("Heap livre",   String(ESP.getFreeHeap()) + " B");
         _row("Maior bloco",  String(ESP.getMaxFreeBlockSize()) + " B");
-        _row("Fragmentação", String(ESP.getHeapFragmentation()) + "%");
+        _row("Fragmentacao", String(ESP.getHeapFragmentation()) + "%");
         _boxEnd();
 
         _box("Flash");
@@ -326,21 +393,23 @@ private:
         _boxEnd();
 
         _box("LittleFS");
-        FSInfo fs; LittleFS.info(fs);
-        _row("Total", String(fs.totalBytes) + " B");
-        _row("Usado", String(fs.usedBytes) + " B");
+        FSInfo fs;
+        LittleFS.info(fs);
+        _row("Total", String((unsigned long)fs.totalBytes) + " B");
+        _row("Usado", String((unsigned long)fs.usedBytes) + " B");
         Dir dir = LittleFS.openDir("/");
-        int fc = 0; while (dir.next()) fc++;
+        int fc = 0;
+        while (dir.next()) fc++;
         _row("Arquivos", String(fc));
         _boxEnd();
 
         _box("Wi-Fi");
         bool con = WiFi.isConnected();
-        _row("SSID",    con ? WiFi.SSID()                : String("—"));
-        _row("IP",      con ? WiFi.localIP().toString()  : String("—"));
-        _row("Gateway", con ? WiFi.gatewayIP().toString(): String("—"));
-        _row("Máscara", con ? WiFi.subnetMask().toString(): String("—"));
-        _row("DNS",     con ? WiFi.dnsIP().toString()    : String("—"));
+        _row("SSID",    con ? WiFi.SSID()                 : String("-"));
+        _row("IP",      con ? WiFi.localIP().toString()   : String("-"));
+        _row("Gateway", con ? WiFi.gatewayIP().toString() : String("-"));
+        _row("Mascara", con ? WiFi.subnetMask().toString(): String("-"));
+        _row("DNS",     con ? WiFi.dnsIP().toString()     : String("-"));
         _row("MAC",     WiFi.macAddress());
         _row("RSSI",    String(WiFi.RSSI()) + " dBm");
         _boxEnd();
@@ -349,154 +418,133 @@ private:
     }
 
     void _handleCloudflare() {
-        if (!_checkAuth()) return;
+        if (!_guard()) return;
         _pageBegin();
         _server.sendContent("<h5 class='text-info mb-3'>Cloudflare DDNS</h5>");
 
-        bool hasToken = strlen(_cfg.cf_token) > 0;
-        if (hasToken)
-            _alert("success", ("Token configurado: " + _maskSecret(_cfg.cf_token)).c_str());
+        if (_cfg.cf_token[0])
+            _alert("success", "Token configurado: " + maskSecret(_cfg.cf_token));
         else
-            _alert("warning", "Token não configurado");
+            _alert("warning", "Token nao configurado");
 
         _server.sendContent("<form action='/cloudflare/save' method='POST'>");
         _csrfField();
 
         // Token: campo vazio = mantém o atual; preenchido = substitui
-        _server.sendContent(
-            "<div class='mb-2'><label class='form-label small'>API Token"
-            " <span class='text-secondary'>(deixe em branco para manter)</span></label>"
-            "<input class='form-control bg-dark text-light border-secondary' "
-            "name='token' type='password' autocomplete='new-password' "
-            "placeholder='Novo token'></div>"
+        _passwordInput("API Token <span class='text-secondary'>(deixe em branco para manter)</span>",
+                       "token", "placeholder='Novo token' maxlength='47'");
+        _input("Zone ID", "zone", _cfg.cf_zone, "maxlength='39'");
+        _input("Hostname (exibicao)", "host", _cfg.cf_host, "maxlength='63'");
+        _server.sendContent("<label class='form-label small'>Record IDs</label>");
 
-            "<div class='mb-2'><label class='form-label small'>Zone ID</label>"
-            "<input class='form-control bg-dark text-light border-secondary' "
-            "name='zone' value='"
-        );
-        _server.sendContent(String(_cfg.cf_zone) + "'></div>"
-
-            "<div class='mb-2'><label class='form-label small'>Hostname</label>"
-            "<input class='form-control bg-dark text-light border-secondary' "
-            "name='host' value='" + String(_cfg.cf_host) + "'></div>"
-            "<label class='form-label small'>Record IDs</label>"
-        );
-
-        for (int i = 0; i < MAX_RECORDS; i++) {
-            String val = (i < _cfg.cf_record_count) ? String(_cfg.cf_records[i]) : "";
+        for (uint8_t i = 0; i < MAX_RECORDS; i++) {
+            String val = (i < _cfg.cf_record_count) ? String(_cfg.cf_records[i]) : String();
             _server.sendContent(
-                "<input class='form-control bg-dark text-light border-secondary mb-1' "
-                "name='record" + String(i) + "' placeholder='Record ID " +
-                String(i+1) + "' value='" + val + "'>"
-            );
+                "<input class='" _INPUT_CLS " mb-1' maxlength='39' name='record" + String(i) +
+                "' placeholder='Record ID " + String(i + 1) + "' value='" + escape(val) + "'>");
         }
 
-        _server.sendContent(
-            "<button class='btn btn-success w-100 mt-2'>Salvar</button></form>"
-        );
+        _server.sendContent("<button class='btn btn-success w-100 mt-2'>Salvar</button></form>");
         _pageEnd();
     }
 
     void _handleCloudflareSave() {
-        if (!_checkAuth()) return;
+        if (!_guard()) return;
         if (!_checkCSRF()) return;
 
-        String newToken = _server.arg("token");
-        if (newToken.length() > 0)
-            strlcpy(_cfg.cf_token, newToken.c_str(), sizeof(_cfg.cf_token));
+        // Valida tudo em buffers temporários antes de alterar a config
+        char token[sizeof(_cfg.cf_token)];
+        char zone[sizeof(_cfg.cf_zone)];
+        char host[sizeof(_cfg.cf_host)];
+        char records[MAX_RECORDS][sizeof(_cfg.cf_records[0])];
+        uint8_t count = 0;
 
-        strlcpy(_cfg.cf_zone, _server.arg("zone").c_str(), sizeof(_cfg.cf_zone));
-        strlcpy(_cfg.cf_host, _server.arg("host").c_str(), sizeof(_cfg.cf_host));
-
-        _cfg.cf_record_count = 0;
+        if (!_argInto("token", token, sizeof(token), "/cloudflare")) return;
+        if (!_argInto("zone",  zone,  sizeof(zone),  "/cloudflare")) return;
+        if (!_argInto("host",  host,  sizeof(host),  "/cloudflare")) return;
         for (uint8_t i = 0; i < MAX_RECORDS; i++) {
             String key = "record" + String(i);
-            if (_server.hasArg(key) && _server.arg(key).length() > 0)
-                strlcpy(_cfg.cf_records[_cfg.cf_record_count++],
-                        _server.arg(key).c_str(), sizeof(_cfg.cf_records[0]));
+            if (!_argInto(key.c_str(), records[count], sizeof(records[0]), "/cloudflare")) return;
+            if (records[count][0]) count++;
         }
-        _store.save();
+
+        if (token[0]) strlcpy(_cfg.cf_token, token, sizeof(_cfg.cf_token));
+        strlcpy(_cfg.cf_zone, zone, sizeof(_cfg.cf_zone));
+        strlcpy(_cfg.cf_host, host, sizeof(_cfg.cf_host));
+        memcpy(_cfg.cf_records, records, sizeof(records));
+        _cfg.cf_record_count = count;
+
+        if (!_store.save()) {
+            _errorPage("Falha ao salvar configuracao", "/cloudflare");
+            return;
+        }
         _savedPage("Cloudflare configurado!", "/cloudflare");
     }
 
     void _handleNtfy() {
-        if (!_checkAuth()) return;
+        if (!_guard()) return;
         _pageBegin();
-        _server.sendContent("<h5 class='text-success mb-3'>Notificações ntfy</h5>");
+        _server.sendContent("<h5 class='text-success mb-3'>Notificacoes ntfy</h5>");
 
-        bool hasTopic = strlen(_cfg.ntfy_topic) > 0;
-        if (hasTopic)
-            _alert("success", ("Tópico: " + String(_cfg.ntfy_topic)).c_str());
+        if (_cfg.ntfy_topic[0])
+            _alert("success", String("Topico: ") + _cfg.ntfy_topic);
         else
-            _alert("warning", "Tópico não configurado — notificações desativadas");
+            _alert("warning", "Topico nao configurado - notificacoes desativadas");
 
         _server.sendContent("<form action='/ntfy/save' method='POST'>");
         _csrfField();
+        _input("Topico ntfy.sh", "topic", _cfg.ntfy_topic,
+               "maxlength='63' pattern='[A-Za-z0-9_\\-]*' placeholder='meu-topico-secreto'");
         _server.sendContent(
-            "<div class='mb-2'><label class='form-label small'>Tópico ntfy.sh</label>"
-            "<input class='form-control bg-dark text-light border-secondary' "
-            "name='topic' value='" + String(_cfg.ntfy_topic) + "' "
-            "placeholder='meu-topico-secreto'></div>"
             "<div class='text-secondary small mb-3'>"
-            "Deixe em branco para desativar as notificações.</div>"
-            "<button class='btn btn-success w-100'>Salvar</button></form>"
-        );
+            "Enviado no boot e quando o IP mudar. Deixe em branco para desativar.</div>"
+            "<button class='btn btn-success w-100'>Salvar</button></form>");
         _pageEnd();
     }
 
     void _handleNtfySave() {
-        if (!_checkAuth()) return;
+        if (!_guard()) return;
         if (!_checkCSRF()) return;
-        strlcpy(_cfg.ntfy_topic, _server.arg("topic").c_str(), sizeof(_cfg.ntfy_topic));
-        _store.save();
-        _savedPage("Configuração ntfy salva!", "/ntfy");
+
+        String topic = _server.arg("topic");
+        topic.trim();
+        if (topic.length() > 0 && !NtfyNotifier::isValidTopic(topic)) {
+            _errorPage("Topico invalido (use letras, numeros, _ ou -)", "/ntfy");
+            return;
+        }
+        strlcpy(_cfg.ntfy_topic, topic.c_str(), sizeof(_cfg.ntfy_topic));
+        if (!_store.save()) {
+            _errorPage("Falha ao salvar configuracao", "/ntfy");
+            return;
+        }
+        _savedPage("Configuracao ntfy salva!", "/ntfy");
     }
 
     void _handlePassword() {
-        if (!_checkAuth()) return;
+        if (!_guard(true)) return;
         _pageBegin();
-        _server.sendContent(
-            "<h5 class='text-info mb-3'>Senha do painel</h5>"
-            "<form action='/password/save' method='POST'>"
-        );
+        _server.sendContent("<h5 class='text-info mb-3'>Senha do painel</h5>");
+        if (_cfg.webpss.length() == 0)
+            _alert("warning", "Defina uma senha para liberar o painel");
+        _server.sendContent("<form action='/password/save' method='POST'>");
         _csrfField();
-        _server.sendContent(
-            "<div class='mb-2'><label class='form-label small'>Usuário</label>"
-            "<input class='form-control bg-dark text-light border-secondary' "
-            "name='user' value='" + _cfg.webusr + "' required></div>"
-            "<div class='mb-2'><label class='form-label small'>Nova senha</label>"
-            "<input type='password' class='form-control bg-dark text-light border-secondary' "
-            "name='pass1' autocomplete='new-password' required></div>"
-            "<div class='mb-2'><label class='form-label small'>Confirmar senha</label>"
-            "<input type='password' class='form-control bg-dark text-light border-secondary' "
-            "name='pass2' autocomplete='new-password' required></div>"
-            "<button class='btn btn-primary w-100'>Salvar</button></form>"
-        );
+        _input("Usuario", "user", _cfg.webusr.length() ? _cfg.webusr : String("admin"),
+               "required maxlength='32'");
+        _passwordInput("Nova senha (min. 8)", "pass1", "required minlength='8' maxlength='64'");
+        _passwordInput("Confirmar senha", "pass2", "required minlength='8' maxlength='64'");
+        _server.sendContent("<button class='btn btn-primary w-100'>Salvar</button></form>");
         _pageEnd();
     }
 
     void _handlePasswordSave() {
-        if (!_checkAuth()) return;
+        if (!_guard(true)) return;
         if (!_checkCSRF()) return;
-        if (!_server.hasArg("pass1") || !_server.hasArg("pass2")) {
-            _server.send(400, "text/plain", "Parametros ausentes");
+        if (!_readPanelCredentials("/password")) return;
+        if (!_store.save()) {
+            _errorPage("Falha ao salvar configuracao", "/password");
             return;
         }
-        if (_server.arg("pass1") != _server.arg("pass2")) {
-            _pageBegin();
-            _alert("danger", "As senhas não coincidem");
-            _server.sendContent(
-                "<a href='/password' class='btn btn-outline-secondary btn-sm'>Voltar</a>"
-            );
-            _pageEnd();
-            return;
-        }
-        _cfg.webusr = _server.arg("user");
-        _cfg.webpss = _server.arg("pass1");
-        _store.save();
         _generateCSRF(); // rotaciona CSRF após mudança de credenciais
         _savedPage("Senha atualizada!", "/");
     }
 };
-
-WebService* WebService::_instance = nullptr;

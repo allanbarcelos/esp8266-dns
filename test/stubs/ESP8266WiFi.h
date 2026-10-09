@@ -3,17 +3,11 @@
 #include <functional>
 
 // Tipos globais — espelham o escopo do core ESP8266 3.1.2
-struct WiFiEventStationModeGotIP      { String ip; };
+struct WiFiEventStationModeGotIP        {};
 struct WiFiEventStationModeDisconnected {};
 using  WiFiEventHandler = int; // stub: valor de retorno ignorado
 
-typedef enum {
-    WIFI_EVENT_STAMODE_DISCONNECTED = 0,
-    WIFI_EVENT_STAMODE_GOT_IP       = 1,
-} WiFiEvent_t;
-
-enum WiFiMode_t { WIFI_AP = 1, WIFI_STA = 2 };
-using WiFiMode = WiFiMode_t;
+enum WiFiMode_t { WIFI_OFF = 0, WIFI_STA = 1, WIFI_AP = 2, WIFI_AP_STA = 3 };
 
 enum wl_status_t {
     WL_IDLE_STATUS  = 0,
@@ -24,33 +18,67 @@ enum wl_status_t {
 class IPAddress {
 public:
     uint32_t _addr = 0x0101A8C0; // 192.168.1.1
+
     String toString() const {
         char b[16];
-        std::snprintf(b, sizeof(b), "%d.%d.%d.%d",
+        std::snprintf(b, sizeof(b), "%u.%u.%u.%u",
             _addr & 0xFF, (_addr >> 8) & 0xFF,
             (_addr >> 16) & 0xFF, (_addr >> 24) & 0xFF);
         return String(b);
     }
-    operator bool() const { return _addr != 0; }
+
+    // Mesma semântica do core: exatamente 4 octetos decimais 0–255
+    bool fromString(const String& s) {
+        const char* p = s.c_str();
+        uint32_t out = 0;
+        for (int part = 0; part < 4; part++) {
+            if (!isdigit((unsigned char)*p)) return false;
+            unsigned v = 0;
+            while (isdigit((unsigned char)*p)) {
+                v = v * 10 + (*p++ - '0');
+                if (v > 255) return false;
+            }
+            out |= v << (8 * part);
+            if (part < 3) {
+                if (*p != '.') return false;
+                p++;
+            }
+        }
+        if (*p != '\0') return false;
+        _addr = out;
+        return true;
+    }
 };
 
 class WiFiClass {
 public:
     wl_status_t _status = WL_CONNECTED;
-    WiFiMode    _mode   = WIFI_STA;
+    WiFiMode_t  _mode   = WIFI_STA;
 
-    wl_status_t status()      { return _status; }
-    bool        isConnected() { return _status == WL_CONNECTED; }
-    WiFiMode    getMode()     { return _mode; }
+    int         beginCalls      = 0;
+    int         disconnectCalls = 0;
+    std::string beginSSID, beginPass;
+    std::string apSSID, apPass;
+    bool        persistentFlag    = true;
+    bool        autoReconnectFlag = false;
 
-    void begin(const char*, const char*) {}
-    void disconnect()            {}
-    void setAutoReconnect(bool)  {}
-    void persistent(bool)        {}
-    bool softAP(const char*)     { return true; }
-    void mode(WiFiMode m)        { _mode = m; }
+    std::function<void(const WiFiEventStationModeGotIP&)>        gotIP;
+    std::function<void(const WiFiEventStationModeDisconnected&)> disconnected;
 
-    String    SSID()        { return String("TestSSID"); }
+    void reset() { *this = WiFiClass(); }
+
+    wl_status_t status()            { return _status; }
+    bool        isConnected()       { return _status == WL_CONNECTED; }
+    WiFiMode_t  getMode()           { return _mode; }
+
+    void begin(const char* s, const char* p) { beginCalls++; beginSSID = s; beginPass = p; }
+    void disconnect()               { disconnectCalls++; }
+    void setAutoReconnect(bool v)   { autoReconnectFlag = v; }
+    void persistent(bool v)         { persistentFlag = v; }
+    bool softAP(const char* s, const char* p) { apSSID = s; apPass = p; return true; }
+    void mode(WiFiMode_t m)         { _mode = m; }
+
+    String    SSID()        { return String("Test<SSID>"); }
     IPAddress localIP()     { return IPAddress(); }
     IPAddress gatewayIP()   { return IPAddress(); }
     IPAddress subnetMask()  { return IPAddress(); }
@@ -58,33 +86,40 @@ public:
     String    macAddress()  { return String("AA:BB:CC:DD:EE:FF"); }
     int32_t   RSSI()        { return -70; }
 
-    bool hostByName(const char*, IPAddress& ip) { ip._addr = 1; return true; }
-
-    void onEvent(std::function<void(WiFiEvent_t)>) {}
-
     WiFiEventHandler onStationModeGotIP(
-        std::function<void(const WiFiEventStationModeGotIP&)>) { return 0; }
+        std::function<void(const WiFiEventStationModeGotIP&)> f) { gotIP = f; return 1; }
 
     WiFiEventHandler onStationModeDisconnected(
-        std::function<void(const WiFiEventStationModeDisconnected&)>) { return 0; }
+        std::function<void(const WiFiEventStationModeDisconnected&)> f) { disconnected = f; return 2; }
 };
 
 inline WiFiClass WiFi;
 
-// WiFiClient mínimo (sem herança de Stream para não introduzir ambiguidade)
 class WiFiClient {
 public:
     virtual ~WiFiClient() {}
-    virtual bool   connect(const char*, uint16_t) { return true; }
-    virtual bool   connected()                     { return true; }
-    virtual int    available()                     { return 0; }
-    virtual int    read()                          { return -1; }
-    virtual size_t readBytes(uint8_t*, size_t)     { return 0; }
-    virtual void   stop()                          {}
+    virtual int    available()                 { return 0; }
+    virtual size_t readBytes(uint8_t*, size_t) { return 0; }
 };
+
+namespace BearSSL {
+    class X509List {
+    public:
+        explicit X509List(const char* pem) : pem(pem) {}
+        const char* pem;
+    };
+}
+
+namespace MockTLS {
+    inline int                       insecureCalls = 0;
+    inline const char*               lastTrustPem  = nullptr; // o X509List em si é temporário
+    inline time_t                    lastTime      = 0;
+    inline void reset() { insecureCalls = 0; lastTrustPem = nullptr; lastTime = 0; }
+}
 
 class WiFiClientSecure : public WiFiClient {
 public:
-    void setInsecure()                {}
-    void setFingerprint(const char*)  {}
+    void setInsecure()                                 { MockTLS::insecureCalls++; }
+    void setTrustAnchors(const BearSSL::X509List* ta)  { MockTLS::lastTrustPem = ta->pem; }
+    void setX509Time(time_t t)                         { MockTLS::lastTime = t; }
 };

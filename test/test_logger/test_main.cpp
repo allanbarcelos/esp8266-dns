@@ -1,16 +1,13 @@
 #include <unity.h>
-#include "Logger.h"
+#include "../test_support.h"
 
 static Logger lgr;
 
-void setUp()    { lgr = Logger(); mock::_millis = 0; }
+void setUp()    { lgr = Logger(); resetMocks(); }
 void tearDown() {}
-
-// ── Testes ───────────────────────────────────────────────────────────────────
 
 void test_single_entry() {
     lgr.log("hello %s", "world");
-
     TEST_ASSERT_EQUAL(1, lgr.count());
     TEST_ASSERT_NOT_NULL(std::strstr(lgr.entry(0), "hello world"));
 }
@@ -18,28 +15,20 @@ void test_single_entry() {
 void test_timestamp_in_entry() {
     setMillis(5000);
     lgr.log("msg");
-
-    // Formato: "[5s] msg"
     TEST_ASSERT_NOT_NULL(std::strstr(lgr.entry(0), "[5s]"));
 }
 
 void test_buffer_nao_excede_limite() {
-    for (int i = 0; i < LOG_BUFFER_SIZE + 3; i++)
-        lgr.log("msg %d", i);
-
+    for (int i = 0; i < LOG_BUFFER_SIZE + 3; i++) lgr.log("msg %d", i);
     TEST_ASSERT_EQUAL(LOG_BUFFER_SIZE, lgr.count());
 }
 
 void test_buffer_circular_ordem_correta() {
-    // Escreve LOG_BUFFER_SIZE + 2 entradas; as primeiras 2 devem ter sido sobrescritas
-    for (int i = 0; i < LOG_BUFFER_SIZE + 2; i++)
-        lgr.log("item %d", i);
+    for (int i = 0; i < LOG_BUFFER_SIZE + 2; i++) lgr.log("item %d", i);
 
-    // A entrada mais antiga disponível deve ser "item 2"
     int start = lgr.startIndex();
     TEST_ASSERT_NOT_NULL(std::strstr(lgr.entry(start), "item 2"));
 
-    // A última deve ser "item 11" (LOG_BUFFER_SIZE + 2 - 1 = 11)
     int last = (start + lgr.count() - 1) % LOG_BUFFER_SIZE;
     char expected[32];
     std::snprintf(expected, sizeof(expected), "item %d", LOG_BUFFER_SIZE + 1);
@@ -47,27 +36,31 @@ void test_buffer_circular_ordem_correta() {
 }
 
 void test_count_antes_do_wrap() {
-    lgr.log("a");
-    lgr.log("b");
-    lgr.log("c");
-
+    lgr.log("a"); lgr.log("b"); lgr.log("c");
     TEST_ASSERT_EQUAL(3, lgr.count());
-    TEST_ASSERT_EQUAL(0, lgr.startIndex()); // sem wrap ainda
+    TEST_ASSERT_EQUAL(0, lgr.startIndex());
 }
 
 void test_count_apos_wrap() {
-    for (int i = 0; i < LOG_BUFFER_SIZE; i++)
-        lgr.log("x");
-
-    // Exatamente no limite: não wrappou ainda
+    for (int i = 0; i < LOG_BUFFER_SIZE; i++) lgr.log("x");
     TEST_ASSERT_EQUAL(LOG_BUFFER_SIZE, lgr.count());
 
-    lgr.log("extra"); // agora wrappou
+    lgr.log("extra");
     TEST_ASSERT_EQUAL(LOG_BUFFER_SIZE, lgr.count());
-    TEST_ASSERT_EQUAL(1, lgr.startIndex()); // head avançou para 1
+    TEST_ASSERT_EQUAL(1, lgr.startIndex());
 }
 
-// ── Runner ────────────────────────────────────────────────────────────────────
+void test_mensagem_longa_e_truncada() {
+    std::string big(500, 'A');
+    lgr.log("%s", big.c_str());
+    TEST_ASSERT_TRUE(std::strlen(lgr.entry(0)) < LOG_LINE_SIZE);
+}
+
+void test_entry_indice_circular() {
+    lgr.log("zero");
+    TEST_ASSERT_EQUAL_STRING(lgr.entry(0), lgr.entry(LOG_BUFFER_SIZE));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_single_entry);
@@ -76,5 +69,7 @@ int main() {
     RUN_TEST(test_buffer_circular_ordem_correta);
     RUN_TEST(test_count_antes_do_wrap);
     RUN_TEST(test_count_apos_wrap);
+    RUN_TEST(test_mensagem_longa_e_truncada);
+    RUN_TEST(test_entry_indice_circular);
     return UNITY_END();
 }

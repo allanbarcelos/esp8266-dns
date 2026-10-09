@@ -21,3 +21,8 @@ __pycache__/
 # ── IDEs ───────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
+
+# ── Chave privada de assinatura OTA (NUNCA versionar) ──────────────────────────
+private.key
+*.key
+!public.key

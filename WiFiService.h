@@ -6,24 +6,17 @@
 
 class WiFiService {
 public:
-    WiFiService(Config& cfg, Logger& log)
-        : _cfg(cfg), _log(log),
-          _failCount(0),
-          _reconnecting(false), _reconnectAt(0),
-          _restartPending(false), _restartAt(0),
-          _lastHealthCheck(0) {}
+    WiFiService(Config& cfg, Logger& log) : _cfg(cfg), _log(log) {}
 
     void begin() {
         if (_cfg.ssid.length() == 0) {
-            WiFi.mode(WIFI_AP);
-            WiFi.softAP("ESP_Config");
-            _log.log("Modo AP iniciado: ESP_Config");
+            _startConfigMode(WIFI_AP);
             return;
         }
 
         WiFi.mode(WIFI_STA);
+        WiFi.persistent(false); // credenciais ficam no LittleFS; evita desgaste da flash
         WiFi.setAutoReconnect(true);
-        WiFi.persistent(true);
         WiFi.begin(_cfg.ssid.c_str(), _cfg.pass.c_str());
 
         _log.log("Conectando ao Wi-Fi: %s", _cfg.ssid.c_str());
@@ -37,9 +30,10 @@ public:
         if (WiFi.status() == WL_CONNECTED) {
             _log.log("Conectado! IP: %s", WiFi.localIP().toString().c_str());
         } else {
-            _log.log("Falha na conexao. Iniciando modo AP");
-            WiFi.mode(WIFI_AP);
-            WiFi.softAP("ESP_Config");
+            // AP + STA: o painel fica acessível e a estação segue tentando
+            // conectar em segundo plano (autoReconnect).
+            _log.log("Falha na conexao");
+            _startConfigMode(WIFI_AP_STA);
         }
     }
 
@@ -49,8 +43,9 @@ public:
         _evtGotIP = WiFi.onStationModeGotIP([this](const WiFiEventStationModeGotIP&) {
             _log.log("Wi-Fi conectado: %s", WiFi.localIP().toString().c_str());
             notifySuccess();
-            if (WiFi.getMode() != WIFI_STA) {
+            if (_configMode) {
                 WiFi.mode(WIFI_STA);
+                _configMode = false;
                 _log.log("Modo AP desligado");
             }
         });
@@ -62,35 +57,40 @@ public:
         );
     }
 
-    // Chamado a cada loop() — verifica saúde e processa reconexão
+    // Chamado a cada loop() — verifica saúde e processa reconexão.
+    // Em modo de configuração nada é feito: forçar WIFI_STA derrubaria o AP.
     void tick(unsigned long now) {
-        if (now - _lastHealthCheck > 15000UL) {
-            _lastHealthCheck = now;
+        if (_configMode) return;
 
+        if (now - _lastStatusCheck >= STATUS_INTERVAL) {
+            _lastStatusCheck = now;
             if (WiFi.status() != WL_CONNECTED) {
                 _log.log("Wi-Fi desconectado");
-                _startReconnect();
-            } else if (!_hasInternet()) {
+                _startReconnect(now);
+            }
+        }
+
+        if (isConnected() && now - _lastInternetCheck >= INTERNET_INTERVAL) {
+            _lastInternetCheck = now;
+            if (_hasInternet()) {
+                notifySuccess();
+            } else {
                 _log.log("Wi-Fi conectado, sem internet");
                 notifyFailure();
-            } else {
-                notifySuccess();
             }
         }
 
         _processReconnect(now);
     }
 
-    // Verifica restart agendado e watchdog de memória/uptime
+    // Verifica restart agendado e watchdogs de memória/uptime
     void tickRestart(unsigned long now) {
-        if (!_restartPending) {
-            if (!_otaInProgress) {
-                if (ESP.getFreeHeap() < 15000 || ESP.getHeapFragmentation() > 35) {
-                    _log.log("Memoria critica detectada");
-                    scheduleRestart(1000);
-                }
+        if (!_restartPending && !_otaInProgress) {
+            if (now - _lastMemCheck >= MEM_CHECK_INTERVAL) {
+                _lastMemCheck = now;
+                _checkMemory();
             }
-            if (now > 86400000UL) {
+            if (now > DAILY_RESTART) {
                 _log.log("Reinicio diario agendado");
                 scheduleRestart(1000);
             }
@@ -111,58 +111,92 @@ public:
     void notifySuccess() { _failCount = 0; }
 
     void notifyFailure() {
-        if (++_failCount >= 5) {
+        if (++_failCount >= MAX_FAILURES) {
             _log.log("Falhas repetidas de Wi-Fi, reiniciando");
             scheduleRestart(1000);
         }
     }
 
-    bool isConnected() const { return WiFi.status() == WL_CONNECTED; }
+    bool isConnected()    const { return WiFi.status() == WL_CONNECTED; }
     bool restartPending() const { return _restartPending; }
+    bool inConfigMode()   const { return _configMode; }
 
-    // Sinaliza ao WiFiService que OTA está em progresso (inibe watchdog de memória)
+    // Sinaliza que há OTA em progresso (inibe watchdogs de memória e uptime)
     void setOTAInProgress(bool v) { _otaInProgress = v; }
+
+    static constexpr unsigned long STATUS_INTERVAL    = 15000UL;
+    static constexpr unsigned long INTERNET_INTERVAL  = 60000UL;
+    static constexpr unsigned long MEM_CHECK_INTERVAL = 10000UL;
+    static constexpr unsigned long DAILY_RESTART      = 86400000UL;
+    static constexpr unsigned long RECONNECT_DELAY    = 500UL;
+    static constexpr uint8_t       MAX_FAILURES       = 5;
+    static constexpr uint8_t       MEM_STRIKES        = 3;
+    static constexpr uint32_t      MIN_FREE_HEAP      = 15000;
+    static constexpr uint8_t       MAX_FRAGMENTATION  = 50;
 
 private:
     Config& _cfg;
     Logger& _log;
 
-    uint8_t       _failCount;
-    bool          _reconnecting;
-    unsigned long _reconnectAt;
-    bool          _restartPending;
-    unsigned long _restartAt;
-    unsigned long _lastHealthCheck;
-    bool          _otaInProgress = false;
+    uint8_t       _failCount         = 0;
+    bool          _configMode        = false;
+    bool          _reconnecting      = false;
+    unsigned long _reconnectAt       = 0;
+    bool          _restartPending    = false;
+    unsigned long _restartAt         = 0;
+    unsigned long _lastStatusCheck   = 0;
+    unsigned long _lastInternetCheck = 0;
+    unsigned long _lastMemCheck      = 0;
+    uint8_t       _memStrikes        = 0;
+    bool          _otaInProgress     = false;
 
     WiFiEventHandler _evtGotIP;
     WiFiEventHandler _evtDisconnected;
 
-    static const unsigned long RECONNECT_DELAY = 500UL;
+    void _startConfigMode(WiFiMode_t mode) {
+        WiFi.mode(mode);
+        WiFi.softAP(AP_SSID, AP_PASSWORD);
+        _configMode = true;
+        _log.log("Modo AP iniciado: %s", AP_SSID);
+    }
 
-    void _startReconnect() {
+    // Só reinicia se a memória ficar crítica em verificações consecutivas;
+    // picos momentâneos (ex.: handshake TLS) não disparam reboot.
+    void _checkMemory() {
+        bool critical = ESP.getFreeHeap() < MIN_FREE_HEAP ||
+                        ESP.getHeapFragmentation() > MAX_FRAGMENTATION;
+        if (!critical) {
+            _memStrikes = 0;
+            return;
+        }
+        if (++_memStrikes >= MEM_STRIKES) {
+            _log.log("Memoria critica detectada");
+            scheduleRestart(1000);
+        }
+    }
+
+    void _startReconnect(unsigned long now) {
         if (_reconnecting) return;
         notifyFailure();
         WiFi.disconnect();
         _reconnecting = true;
-        _reconnectAt = millis() + RECONNECT_DELAY;
+        _reconnectAt = now + RECONNECT_DELAY;
         _log.log("Iniciando reconexao Wi-Fi");
     }
 
     void _processReconnect(unsigned long now) {
         if (!_reconnecting) return;
-        if ((long)(now - _reconnectAt) >= 0) {
-            _log.log("Tentando reconectar Wi-Fi");
-            WiFi.mode(WIFI_STA);
-            WiFi.begin(_cfg.ssid.c_str(), _cfg.pass.c_str());
-            _reconnecting = false;
-        }
+        if ((long)(now - _reconnectAt) < 0) return;
+        _log.log("Tentando reconectar Wi-Fi");
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(_cfg.ssid.c_str(), _cfg.pass.c_str());
+        _reconnecting = false;
     }
 
     bool _hasInternet() {
         WiFiClient client;
         HTTPClient http;
-        http.setTimeout(5000);
+        http.setTimeout(3000);
         if (!http.begin(client, "http://clients3.google.com/generate_204"))
             return false;
         int code = http.GET();

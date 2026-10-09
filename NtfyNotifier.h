@@ -4,40 +4,49 @@
 #include "Config.h"
 #include "Logger.h"
 
+// Notifica o IP público via ntfy.sh no boot e sempre que ele mudar.
 class NtfyNotifier {
 public:
     NtfyNotifier(Config& cfg, Logger& log)
-        : _cfg(cfg), _log(log), _lastSend(0), _sentAfterBoot(false) {}
+        : _cfg(cfg), _log(log), _lastAttempt(0), _attempted(false) {
+        _lastSent[0] = '\0';
+    }
 
     void tick(unsigned long now) {
-        if (strlen(_cfg.publicIP) == 0) return;
-        if (strlen(_cfg.ntfy_topic) == 0) return;
+        if (_cfg.publicIP[0] == '\0' || _cfg.ntfy_topic[0] == '\0') return;
+        if (strcmp(_cfg.publicIP, _lastSent) == 0) return;
+        if (_attempted && now - _lastAttempt < RETRY_INTERVAL) return;
 
-        if (!_sentAfterBoot) {
-            _send(_cfg.publicIP);
-            _sentAfterBoot = true;
-            _lastSend = now;
-            return;
-        }
-
-        if (now - _lastSend >= SEND_INTERVAL) {
-            _lastSend = now;
-            _send(_cfg.publicIP);
+        _attempted   = true;
+        _lastAttempt = now;
+        if (_send(_cfg.publicIP)) {
+            strlcpy(_lastSent, _cfg.publicIP, sizeof(_lastSent));
         }
     }
 
-    static const unsigned long SEND_INTERVAL = 3600000UL; // 1 hora
+    // Tópicos ntfy: 1–64 caracteres [A-Za-z0-9_-]
+    static bool isValidTopic(const String& topic) {
+        if (topic.length() == 0 || topic.length() >= sizeof(Config::ntfy_topic)) return false;
+        for (size_t i = 0; i < topic.length(); i++) {
+            char c = topic.c_str()[i];
+            if (!isalnum((unsigned char)c) && c != '_' && c != '-') return false;
+        }
+        return true;
+    }
+
+    static constexpr unsigned long RETRY_INTERVAL = 60000UL; // 1 min após falha
 
 private:
     Config& _cfg;
     Logger& _log;
 
-    unsigned long _lastSend;
-    bool          _sentAfterBoot;
+    char          _lastSent[16];
+    unsigned long _lastAttempt;
+    bool          _attempted;
 
-    void _send(const char* ip) {
+    bool _send(const char* ip) {
         WiFiClientSecure client;
-        client.setInsecure();
+        client.setInsecure(); // o conteúdo (IP público) não é sigiloso
         HTTPClient http;
         http.setTimeout(5000);
 
@@ -46,7 +55,7 @@ private:
 
         if (!http.begin(client, url)) {
             _log.log("ntfy: falha ao conectar");
-            return;
+            return false;
         }
 
         http.addHeader("Content-Type", "text/plain");
@@ -54,11 +63,13 @@ private:
         body += ip;
 
         int code = http.POST(body);
-        if (code > 0) {
-            _log.log("ntfy enviado (%d)", code);
-        } else {
-            _log.log("ntfy erro: %d", code);
-        }
         http.end();
+
+        if (code >= 200 && code < 300) {
+            _log.log("ntfy enviado (%d)", code);
+            return true;
+        }
+        _log.log("ntfy erro: %d", code);
+        return false;
     }
 };

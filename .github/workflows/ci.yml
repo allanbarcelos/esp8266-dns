@@ -1,0 +1,158 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Publicar release mesmo sem mudanças no firmware"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Nunca cancelar na main: um release interrompido deixaria tag sem binário
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  # ── Decide se este push publica release e qual será a versão ──────────────
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # histórico + tags para o diff e o versionamento
+
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BEFORE: ${{ github.event.before }}
+          FORCE: ${{ inputs.release }}
+        run: |
+          release=false
+          if [ "$REF" = "refs/heads/main" ]; then
+            if [ "$EVENT" = "workflow_dispatch" ] && [ "$FORCE" = "true" ]; then
+              release=true
+            elif [ "$EVENT" = "push" ]; then
+              # Só arquivos do firmware (raiz) disparam release; testes e docs não
+              if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+                release=true
+              elif git diff --name-only "$BEFORE" "$GITHUB_SHA" \
+                   | grep -qE '^([^/]+\.(ino|h)|public\.key)$'; then
+                release=true
+              fi
+            fi
+          fi
+
+          # Maior tag vN existente (ordenação numérica, sem limite de paginação)
+          last=$(git tag -l 'v*' | sed -n 's/^v\([0-9][0-9]*\)$/\1/p' | sort -n | tail -1)
+          if [ "$release" = "true" ]; then
+            version="v$(( ${last:-0} + 1 ))"
+          else
+            version="ci-${GITHUB_SHA::7}"
+          fi
+
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Release: $release — versão: $version (última tag: v${last:-0})"
+
+  # ── Testes nativos com cobertura obrigatória de 100% ──────────────────────
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini', 'requirements.txt') }}
+
+      - name: Instala PlatformIO e gcovr
+        run: pip install -r requirements.txt
+
+      - name: Testes + cobertura (100% linhas/funções/branches)
+        run: ./test/coverage.sh
+
+  # ── Compila o firmware real e valida o empacotamento OTA ─────────────────
+  build:
+    needs: [plan, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-arduino
+
+      - name: Compila (ESP-01 1MB, FS 64KB)
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          arduino-cli compile \
+            --fqbn esp8266:esp8266:generic:eesz=1M64 \
+            --build-property "build.extra_flags=-Dfirmware_version=\"$VERSION\"" \
+            --output-dir build
+          cp build/esp8266-dns.ino.bin build/firmware.raw.bin
+
+      - name: Verifica que a checagem de assinatura foi embutida
+        run: grep -q "updaterSigningVerifier" build/esp8266-dns.ino.map
+
+      - name: Empacota e valida OTA (sem assinatura)
+        run: python3 .github/scripts/package_ota.py build/firmware.raw.bin dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: firmware-${{ needs.plan.outputs.version }}
+          path: build/firmware.raw.bin
+          retention-days: 14
+
+  # ── Assina e publica (apenas push na main com mudanças no firmware) ──────
+  release:
+    needs: [plan, build]
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: firmware-${{ needs.plan.outputs.version }}
+          path: build
+
+      - name: Assina e valida OTA
+        env:
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+        run: |
+          if [ -z "$OTA_SIGNING_KEY" ]; then
+            echo "::error::Secret OTA_SIGNING_KEY não configurado — release abortado"
+            exit 1
+          fi
+          key="$RUNNER_TEMP/ota.key"
+          umask 077
+          printf '%s\n' "$OTA_SIGNING_KEY" > "$key"
+          python3 .github/scripts/package_ota.py build/firmware.raw.bin dist --key "$key"
+          rm -f "$key"
+
+      - name: Publica GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.plan.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: ESP8266 Firmware ${{ needs.plan.outputs.version }}
+          files: |
+            dist/firmware.bin
+            dist/firmware.signed.bin
+          fail_on_unmatched_files: true

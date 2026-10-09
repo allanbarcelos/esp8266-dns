@@ -1,301 +1,150 @@
-# 📘 **Technical Documentation — ESP8266 DDNS + OTA Firmware**
+# 📘 ESP8266 Firmware — Cloudflare DDNS + OTA
 
 English | [Português](README.pt.md)
 
-## 📋 **Project Overview**
+Firmware for the **ESP-01 (ESP8266, 1 MB)** that acts as an autonomous dynamic-DNS agent:
 
-The goal of this firmware is to use an **ESP8266** as a lightweight, autonomous agent for **dynamic IP updates** and **remote firmware management**.
-It performs the following tasks:
-
-1. **Automatically updates the public IP** on **Cloudflare DNS**, keeping the domain synchronized with the current residential IP.
-2. **Manages Wi-Fi connection** with fault tolerance and backoff mechanisms.
-3. **Performs secure OTA (Over-The-Air) updates** from **GitHub Releases**, supporting **firmware decryption**.
-4. Runs a **local HTTP server** for diagnostics.
-5. Implements **anti-blocking and anti-reboot-loop mechanisms**, ensuring high resilience.
+1. **Keeps Cloudflare A records** pointing at the residential public IP.
+2. **Sends the public IP via [ntfy.sh](https://ntfy.sh)** at boot and whenever it changes.
+3. **Updates its own firmware (OTA)** from GitHub Releases, with **on-device RSA signature verification**.
+4. Provides an **authenticated local web panel** for configuration and diagnostics.
+5. Has **watchdogs** for Wi-Fi, internet reachability, memory and a daily reboot.
 
 ---
 
-## ⚙️ **Main Components**
+## 🧩 Architecture
 
-| Module                | Function                                                                 |
-| --------------------- | ------------------------------------------------------------------------ |
-| `ESP8266WiFi.h`       | Wi-Fi connection and management                                          |
-| `ESP8266HTTPClient.h` | HTTP and HTTPS communication                                             |
-| `Updater.h`           | OTA firmware update handling                                             |
-| `EEPROM.h`            | Non-volatile storage for failure counters                                |
-| `ESP8266WebServer.h`  | Local HTTP web server                                                    |
-| `secrets.h`           | Sensitive configuration (SSID, Cloudflare tokens, GitHub API URLs, etc.) |
-| `crypto.h`            | Functions for decrypting OTA binary data                                 |
+Each service is a header with dependencies injected by reference, composed in layers by `App.h`. The `.ino` only calls `app.begin()` and `app.tick()`. Every `tick(now)` is non-blocking.
 
----
-
-## 🧩 **System Architecture**
-
-```
-+----------------------------+
-|         User               |
-|  (Access via DNS domain)   |
-+-------------+--------------+
-              |
-              v
-+----------------------------+
-|        Cloudflare          |
-| (DNS points to public IP)  |
-+-------------+--------------+
-              ^
-              |
-     +--------+--------+
-     |      ESP8266     |
-     |------------------|
-     |  Wi-Fi Manager   |
-     |  OTA Updater     |
-     |  DNS Updater     |
-     |  Web Server      |
-     +--------+---------+
-              |
-              v
-     Residential Network (Dynamic IP)
-```
+| File                 | Responsibility                                                              |
+| -------------------- | --------------------------------------------------------------------------- |
+| `App.h`              | Service composition, `setup()`/`loop()`                                     |
+| `Config.h`           | Configuration and runtime state; AP credentials                             |
+| `ConfigStore.h`      | Persistence in `/config.json` (LittleFS) with **atomic writes**             |
+| `Logger.h`           | Ring buffer of log lines (Serial + panel)                                   |
+| `Clock.h`            | SNTP wall clock (required to validate TLS certificates)                     |
+| `WiFiService.h`      | Connection, configuration mode (AP), reconnection and watchdogs             |
+| `PublicIPResolver.h` | Discovers the public IP from several services, with IPv4 validation         |
+| `CloudflareDNS.h`    | PATCHes records through the Cloudflare API (TLS validated by `CloudflareCA.h`) |
+| `NtfyNotifier.h`     | Public IP notification                                                      |
+| `OTAService.h`       | Version check and signed firmware download                                  |
+| `WebService.h`       | HTTP panel (Basic Auth + CSRF + HTML escaping)                              |
+| `Version.h`          | `firmware_version` (injected by CI; `"dev"` for local builds)               |
 
 ---
 
-## 🔄 **Main Execution Flow**
+## 🚀 First use
 
-1. **Initialization (`setup()`)**
+1. Flash over serial (see [Local build](#-local-build)).
+2. With no Wi-Fi configured, the ESP creates the **`ESP_Config`** network (default password **`esp8266dns`**, override at build time with `-DAP_PASSWORD=\"...\"`).
+3. Open `http://192.168.4.1`, enter the Wi-Fi credentials and **set the panel user and password** (at least 8 characters).
+4. After the reboot, open the ESP's local IP and configure **Cloudflare** (token, Zone ID, Record IDs) and, optionally, the **ntfy** topic.
 
-   * Reads the failure counter from EEPROM.
-   * Determines whether to enter “wait mode” after too many failures.
-   * Initializes Wi-Fi and the HTTP server.
+> The panel requires a password. Until one is set, every page redirects to `/password`.
+> If the configured Wi-Fi fails at boot, the ESP brings up the AP **and** keeps trying the network in the background. Once it connects, the AP is turned off.
 
-2. **Main Loop (`loop()`)**
+### Cloudflare token
 
-   * Handles the **HTTP server** (`server.handleClient()`).
-   * Maintains the **Wi-Fi state machine**.
-   * Performs **OTA checks** and **DNS updates** asynchronously (non-blocking).
-   * Performs a **daily reboot** to free memory.
-
-3. **Wi-Fi Management (`handleWiFi()`)**
-
-   * Automatically reconnects when disconnected.
-   * Uses EEPROM counters to avoid infinite reboot loops.
-   * “WAIT” mode prevents continuous reboot cycles after multiple connection failures.
-
-4. **OTA Update (`checkForUpdate()`)**
-
-   * Queries the **GitHub API** for the latest firmware release.
-   * If a new version is found → downloads the `.bin` → decrypts it via `decryptBuffer()` → installs via `Update.write()`.
-   * Reboots after successful update.
-
-5. **DNS Update (`handleDNSUpdate()`)**
-
-   * Retrieves the current public IP using `api.ipify.org`.
-   * Resolves the current DNS IP via `WiFi.hostByName()`.
-   * If the two differ → updates the DNS record via the **Cloudflare API**.
+Create a least-privilege token: **Zone → DNS → Edit**, restricted to the zone in use.
 
 ---
 
-## 🧠 **Wi-Fi State Diagram**
+## 🌐 DNS updates
+
+Every 60 s (while Wi-Fi is up and the clock is synchronized):
+
+1. Fetch the public IP (ipify → ifconfig.me → checkip.amazonaws → ident.me) and validate it as IPv4.
+2. If it differs from the **last synchronized IP** (kept in memory), send a `PATCH` for each record.
+3. Mark it synchronized only when **all** records succeed. On any failure, retry on the next cycle.
+
+The firmware does not rely on local DNS resolution: it is cached by TTL and returns Cloudflare IPs for *proxied* records. Each boot performs one initial `PATCH`, which is idempotent.
+
+The connection to `api.cloudflare.com` validates the certificate against the roots in `CloudflareCA.h` (GTS Root R1/R4, ISRG Root X1/X2).
+
+---
+
+## 🔄 Signed OTA
 
 ```text
-┌───────────────────┐
-│     WIFI_OK       │
-│ (Connected)       │
-└───┬───────────────┘
-    │
-    │ Wi-Fi lost
-    ▼
-┌───────────────────┐
-│ WIFI_RECONNECTING │
-│ (Trying to connect) │
-└───┬───────────────┘
-    │
-    ├─ Successfully reconnected → WIFI_OK
-    │
-    ├─ Repeated failure → increment counter
-    │
-    └─ Too many failures → WIFI_WAIT
-        │
-        ▼
-┌───────────────────┐
-│    WIFI_WAIT      │
-│ (Wait 30 minutes) │
-└───┬───────────────┘
-    │ Timeout expired
-    ▼
-┌───────────────────┐
-│ WIFI_RECONNECTING │
-└───────────────────┘
+GitHub Releases ──(vN)──► ESP8266
+  firmware.signed.bin = gzip(firmware) + RSA-2048/SHA-256 signature
+```
+
+- Hourly (up to ~23 h of uptime) it queries `releases/latest`. It only installs `vN` tags **greater** than the current one, which prevents downgrades.
+- The build embeds `public.key`. The core `Updater` **verifies the signature** in `Update.end()` and rejects tampered images. This is why the transport may use unvalidated TLS.
+- The image is **gzip-compressed** (the bootloader decompresses it). Without compression, the current and new firmware would not fit together in the 1 MB sketch area.
+- The download is aborted if Wi-Fi drops, a flash write fails, or no data arrives for 30 s.
+
+### Release assets
+
+| File                  | Purpose                                                                        |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `firmware.signed.bin` | gzip + signature: used by the current firmware                                 |
+| `firmware.bin`        | unsigned gzip: only for migrating devices running old (non-verifying) firmware |
+
+### Signing key
+
+- `public.key` is committed to the repository.
+- The private key is **never** committed (it is in `.gitignore`). CI reads it from the **`OTA_SIGNING_KEY`** secret (PEM contents).
+- **Back up the private key.** Without it, devices on the new firmware reject every OTA update and can only be reflashed over serial.
+
+To generate a new pair:
+
+```bash
+openssl genrsa -out private.key 2048
+openssl rsa -in private.key -outform PEM -pubout -out public.key
+gh secret set OTA_SIGNING_KEY < private.key
 ```
 
 ---
 
-## 🌐 **DNS Update Flow**
+## 🛡️ Resilience
 
-```text
-┌─────────────────────────────┐
-│ handleDNSUpdate()           │
-├─────────────────────────────┤
-│ 1. Get public IP (ipify)    │
-│ 2. Resolve current DNS IP   │
-│ 3. Compare both             │
-│ 4. If different → PATCH via │
-│    Cloudflare API           │
-│ 5. Log success or failure   │
-└─────────────────────────────┘
+| Mechanism           | Behaviour                                                                  |
+| ------------------- | -------------------------------------------------------------------------- |
+| Wi-Fi lost          | Checked every 15 s and reconnected; 5 consecutive failures → reboot        |
+| No internet         | `generate_204` every 60 s counts as a failure                              |
+| Critical memory     | Heap < 15 KB or fragmentation > 50 % on 3 consecutive checks (10 s) → reboot |
+| Daily reboot        | After 24 h of uptime (postponed during OTA)                                |
+| Configuration mode  | No watchdog takes the AP down while it is active                           |
+
+---
+
+## 🧪 Tests
+
+Native tests (Unity + PlatformIO) use Arduino core stubs in `test/stubs`. CI requires **100 % line, function and branch coverage** of the firmware headers.
+
+```bash
+python -m venv venv && . venv/bin/activate
+pip install -r requirements.txt
+
+pio test -e native        # any host compiler
+./test/coverage.sh        # requires gcc (Linux) — same command as CI
 ```
 
 ---
 
-## 🔄 **Secure OTA Update Flow (GitHub → ESP8266)**
+## 🤖 CI/CD (`.github/workflows/ci.yml`)
 
-```text
-┌──────────────────────────────┐
-│ checkForUpdate()             │
-├──────────────────────────────┤
-│ 1. Query GitHub API          │
-│    → Extract tag and binary  │
-│ 2. Compare with local version│
-│ 3. Download `.bin` over HTTPS│
-│ 4. Decrypt using crypto.h    │
-│ 5. Flash via Update.write()  │
-│ 6. Restart ESP8266           │
-└──────────────────────────────┘
+| Job       | When                               | What it does                                                            |
+| --------- | ---------------------------------- | ----------------------------------------------------------------------- |
+| `plan`    | always                             | Decides whether to release and computes the next `vN` tag (numeric sort) |
+| `test`    | always                             | Tests + 100 % coverage                                                  |
+| `build`   | always                             | Compiles with arduino-cli, checks the signature verifier and flash limits |
+| `release` | push to `main` touching firmware   | Compresses, signs, **verifies the signature** and publishes the release |
+
+Changes limited to tests, docs or the workflow do not create a release. To force one, use *Run workflow* with `release: true`.
+
+---
+
+## 🔧 Local build
+
+```bash
+arduino-cli core install esp8266:esp8266@3.1.2
+arduino-cli lib install "ArduinoJson@6.21.4"
+arduino-cli compile --fqbn esp8266:esp8266:generic:eesz=1M64 --output-dir build
+arduino-cli upload  --fqbn esp8266:esp8266:generic:eesz=1M64 -p /dev/ttyUSB0 --input-dir build
+arduino-cli monitor -p /dev/ttyUSB0 --config 115200
 ```
 
----
-
-## 💾 **State Persistence (EEPROM)**
-
-| Address | Data              | Description                                       |
-| ------- | ----------------- | ------------------------------------------------- |
-| 0       | `rebootFailCount` | Number of consecutive Wi-Fi reconnection failures |
-
-**Purpose:**
-Prevents infinite reboot loops by entering a *non-blocking wait mode* after a configurable number of failed connection attempts.
-
----
-
-## 🔐 **Security Features**
-
-| Mechanism                       | Description                                                 |
-| ------------------------------- | ----------------------------------------------------------- |
-| **HTTPS via WiFiClientSecure**  | Encrypted communication with GitHub and Cloudflare          |
-| **Bearer Token Authentication** | Secure API access on Cloudflare                             |
-| **Encrypted OTA Binaries**      | Prevents malicious firmware updates                         |
-| **EEPROM Counters**             | Protects against endless reboot loops and DoS-like behavior |
-
----
-
-## 🌍 **Local HTTP Server**
-
-* Port: **80**
-* Endpoint: `/`
-* Response: simple HTML page with “ESP8266” title
-  (Used only for health check and diagnostics)
-
----
-
-## ⚡ **Timing and Intervals**
-
-| Function            | Interval   | Description                               |
-| ------------------- | ---------- | ----------------------------------------- |
-| `checkInterval`     | 1 hour     | OTA version check interval                |
-| `dnsUpdateInterval` | 5 minutes  | DNS record update interval                |
-| `reconnectDelay`    | 5 seconds  | Delay between Wi-Fi reconnection attempts |
-| `waitAfterFails`    | 30 minutes | Wait time after multiple failures         |
-| `daily reboot`      | 24 hours   | Preventive reboot to clean memory         |
-
----
-
-## 🧩 **Key Variables**
-
-| Variable                      | Type          | Purpose                                 |
-| ----------------------------- | ------------- | --------------------------------------- |
-| `WifiConnState`               | Enum          | Current Wi-Fi connection state          |
-| `rebootFailCount`             | int           | Reboot failure counter stored in EEPROM |
-| `checkInterval`               | unsigned long | OTA check interval                      |
-| `dnsUpdateInterval`           | unsigned long | DNS update interval                     |
-| `lastCheck` / `dnsLastUpdate` | unsigned long | Timers for OTA and DNS                  |
-| `reconnectAttempts`           | int           | Reconnection attempt counter            |
-
----
-
-## 🧰 **External Dependencies (secrets.h)**
-
-The file `secrets.h` should contain the following definitions:
-
-```cpp
-const char* ssid = "MyWiFiNetwork";
-const char* password = "NetworkPassword";
-
-const char* firmware_version = "v1.0.0";
-const char* github_api = "https://api.github.com/repos/user/repository/releases/latest";
-
-#define CF_ZONE "ZONE_ID"
-#define CF_RECORD "RECORD_ID"
-#define CF_TOKEN "API_TOKEN"
-#define CF_HOST "exampledomain.com"
-```
-
----
-
-## 📈 **Sequence Diagram — DNS + OTA Update**
-
-```text
-ESP8266         Cloudflare         GitHub
-   |                 |                 |
-   |--- GET ipify -->|                 |  (get public IP)
-   |<-- response ----|                 |
-   |--- GET DNS ---->|                 |  (resolve DNS IP)
-   |<-- response ----|                 |
-   |--- PATCH DNS --->|                 |  (update if changed)
-   |<-- OK ----------|                 |
-   |---------------------------------->|  (query GitHub API)
-   |<----------------------------------|  (receive release JSON)
-   |---------------------------------->|  (download encrypted .bin)
-   |<----------------------------------|  (OTA stream)
-   |   Decrypt + Update.write()        |
-   |--- Restart ---------------------->|
-```
-
----
-
-## 🧱 **Implemented Best Practices**
-
-✅ Uses `yield()` during OTA to prevent watchdog resets
-✅ Efficient non-blocking EEPROM writes
-✅ Robust Wi-Fi reconnection logic with backoff
-✅ All HTTP operations are **non-blocking**
-✅ Fully compatible with **remote, headless IoT environments**
-
----
-
-## 🧩 **Possible Extensions**
-
-* Add a **local JSON API** endpoint (e.g., `/status`) showing IP, uptime, version, Wi-Fi status.
-* Implement real **AES encryption** in `crypto.h` (e.g., AES-CTR).
-* Add **NTP time synchronization** for accurate timestamps.
-* Integrate **status LED indicators** (blinking = reconnecting, solid = connected).
-* Add **Wi-Fi configuration portal** (using WiFiManager).
-
----
-
-## 🏁 **Final Summary**
-
-| Function                  | Description                                     |
-| ------------------------- | ----------------------------------------------- |
-| **Automatic DDNS**        | Keeps Cloudflare DNS up to date with current IP |
-| **Secure OTA via GitHub** | Enables remote firmware updates                 |
-| **Resilient Wi-Fi**       | Automatic reconnection with safe fallback       |
-| **Local Web Server**      | Basic health and connectivity check             |
-| **Fault Tolerance**       | EEPROM counters prevent boot loops              |
-
-
-## Python
-- python -m venv venv
-- pip install -r requirements.txt
-
-## Arduino
-- arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=no_ota
-- arduino-cli upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32:PartitionScheme=no_ota
-- arduino-cli monitor --port /dev/ttyUSB0 --config 115200
+Local builds report version `dev` and update to the latest release on the first OTA check.

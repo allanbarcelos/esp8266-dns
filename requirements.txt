@@ -1,1 +1,2 @@
 platformio==6.1.19
+gcovr==8.5
