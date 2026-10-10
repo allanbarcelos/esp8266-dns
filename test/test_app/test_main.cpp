@@ -18,6 +18,7 @@ void test_begin_inicializa_servicos() {
     TEST_ASSERT_TRUE(ESP8266WebServer::instance()->started);
     TEST_ASSERT_TRUE(logHas(app.logger, "Sistema inicializado dev"));
     TEST_ASSERT_TRUE(logHas(app.logger, "Reset: Power On"));
+    TEST_ASSERT_TRUE(logHas(app.logger, "OTA: reserva 400 KB"));
     TEST_ASSERT_TRUE(app.ota.automatic());
 }
 

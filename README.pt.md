@@ -78,7 +78,8 @@ GitHub Releases ──(vN)──► ESP8266
 - O build com `public.key` faz o `Updater` **verificar a assinatura** em `Update.end()` e gravar só o gzip. A instalação manual baixa o mesmo arquivo da automática: `firmware.signed.bin` se a chave está no build, `firmware.bin` se não está. O eboot lê o tamanho descomprimido nos 4 últimos bytes; no arquivo assinado esses bytes são o tamanho da assinatura, e gravá-lo sem remover o trailer corrompe o sketch.
 - O PlatformIO embute `public.key` antes de compilar (`pre:tools/embed_pubkey.py`), como o arduino-cli no CI. O link falha se o ELF não tiver o verificador e essa chave. O teste nativo não define `ARDUINO_SIGNING` e por isso exige `firmware.bin`.
 - A imagem é **comprimida com gzip** (o bootloader descomprime). Sem isso, firmware atual + novo não cabem juntos na área de sketch de 1 MB.
-- O download é abortado se o Wi-Fi cair, em erro de escrita ou após 60 s sem dados. A sessão TLS com o GitHub usa 16 KB (o GitHub não negocia MFLN; 4 KB travam o handshake). DNS e ntfy param durante o download. Falha transitória retenta com backoff; se a heap não bastar, grava `/ota.pending` e reinicia em modo recuperação (sem IoT) para concluir o OTA.
+- O linker `ld/eagle.flash.1m64.ota.ld` encolhe o IROM em **400 KB**. Esse buraco fica contra o sistema de arquivos e o sketch nunca o ocupa; firmware maior que o teto falha no link. O `package_ota.py` também recusa gzip/assinatura maior que a reserva.
+- O download é abortado se o Wi-Fi cair, em erro de escrita ou após 60 s sem dados. A sessão TLS com o GitHub usa 16 KB (o GitHub não negocia MFLN; 4 KB travam o handshake). O GET do asset segue os 302 num buffer fixo de headers (o `String` por linha do HTTPClient com 16 KB de TLS gerava Exception 29). No CDN o aparelho tenta MFLN e cai para 4 KB se o host aceitar. DNS e ntfy param durante o download. Falha transitória retenta com backoff; se a heap não bastar, grava `/ota.pending` e reinicia em modo recuperação (sem IoT) para concluir o OTA.
 
 ### Assets do release
 
@@ -168,7 +169,11 @@ Ainda não está no firmware. O anel local (`Logger.h`, 10 linhas de 128 caracte
 ```bash
 arduino-cli core install esp8266:esp8266@3.1.2
 arduino-cli lib install "ArduinoJson@6.21.4"
-arduino-cli compile --fqbn esp8266:esp8266:generic:eesz=1M64 --output-dir build
+python3 tools/ota_flash_ld.py
+arduino-cli compile --fqbn esp8266:esp8266:generic:eesz=1M64 \
+  --build-property build.flash_ld=eagle.flash.1m64.ota.ld \
+  --build-property "build.extra_flags=-DARDUINO_SIGNING=1" \
+  --output-dir build
 arduino-cli upload  --fqbn esp8266:esp8266:generic:eesz=1M64 -p /dev/ttyUSB0 --input-dir build
 arduino-cli monitor -p /dev/ttyUSB0 --config 115200
 ```

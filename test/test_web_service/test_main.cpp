@@ -307,6 +307,8 @@ void test_status_conectado() {
     TEST_ASSERT_TRUE(contains(f.out(), "Flash"));
     TEST_ASSERT_TRUE(contains(f.out(), ">1 MB<"));
     TEST_ASSERT_TRUE(contains(f.out(), ">293 KB<"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Reserva OTA"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">400 KB<"));
     TEST_ASSERT_TRUE(contains(f.out(), "LittleFS"));
     TEST_ASSERT_TRUE(contains(f.out(), ">64 KB<"));
     TEST_ASSERT_TRUE(contains(f.out(), ">8 KB<"));

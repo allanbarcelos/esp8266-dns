@@ -46,7 +46,7 @@ jobs:
               if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
                 release=true
               elif git diff --name-only "$BEFORE" "$GITHUB_SHA" \
-                   | grep -qE '^([^/]+\.(ino|h)|public\.key)$'; then
+                   | grep -qE '^([^/]+\.(ino|h)|public\.key|ld/)'; then
                 release=true
               fi
             fi
@@ -95,13 +95,15 @@ jobs:
 
       - uses: ./.github/actions/setup-arduino
 
-      - name: Compila (ESP-01 1MB, FS 64KB)
+      - name: Compila (ESP-01 1MB, FS 64KB, reserva OTA 400KB)
         env:
           VERSION: ${{ needs.plan.outputs.version }}
         run: |
+          python3 tools/ota_flash_ld.py
           arduino-cli compile \
             --fqbn esp8266:esp8266:generic:eesz=1M64 \
-            --build-property "build.extra_flags=-Dfirmware_version=\"$VERSION\"" \
+            --build-property "build.flash_ld=eagle.flash.1m64.ota.ld" \
+            --build-property "build.extra_flags=-Dfirmware_version=\"$VERSION\" -DARDUINO_SIGNING=1" \
             --output-dir build
           cp build/esp8266-dns.ino.bin build/firmware.raw.bin
 
@@ -109,7 +111,7 @@ jobs:
         run: grep -q "updaterSigningVerifier" build/esp8266-dns.ino.map
 
       - name: Empacota e valida OTA (sem assinatura)
-        run: python3 .github/scripts/package_ota.py build/firmware.raw.bin dist
+        run: python3 .github/scripts/package_ota.py build/firmware.raw.bin dist --map build/esp8266-dns.ino.map
 
       - uses: actions/upload-artifact@v7
         with:

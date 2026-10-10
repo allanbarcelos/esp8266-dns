@@ -1,55 +1,9 @@
 #pragma once
 #include "Arduino.h"
 #include "ESP8266WiFi.h"
-#include <string>
-#include <vector>
-#include <utility>
 
 #define HTTP_CODE_OK 200
 #define HTTPC_FORCE_FOLLOW_REDIRECTS 1
-
-// ── Estado compartilhado do mock ─────────────────────────────────────────────
-namespace MockHTTP {
-    // Fila de respostas: cada GET/POST/PATCH consome a próxima.
-    // size < 0 → getSize() devolve body.size(); senão devolve size.
-    struct Response { int code = 200; std::string body; int size = -1; };
-
-    struct Request {
-        std::string method, url, payload;
-        std::vector<std::pair<std::string, std::string>> headers;
-    };
-
-    inline std::vector<std::string> calledURLs;
-    inline std::vector<Request>     requests;
-    inline std::vector<Response>    queue;
-    inline size_t                   qIdx = 0;
-    inline std::vector<bool>        beginResults; // consumido a cada begin(); vazio = true
-    inline size_t                   bIdx = 0;
-    inline bool                     lastHTTP10 = false;
-    inline std::string              lastUA;
-    inline bool                     keepOpen = false;
-
-    inline void reset() {
-        calledURLs.clear(); requests.clear(); queue.clear(); qIdx = 0;
-        beginResults.clear(); bIdx = 0;
-        lastHTTP10 = false; lastUA.clear(); keepOpen = false;
-    }
-
-    inline void push(int code, const std::string& body = "", int size = -1) {
-        queue.push_back({code, body, size});
-    }
-
-    inline void failNextBegin() { beginResults.push_back(false); }
-
-    inline bool nextBegin() {
-        return bIdx < beginResults.size() ? beginResults[bIdx++] : true;
-    }
-
-    inline Response next() {
-        if (qIdx < queue.size()) return queue[qIdx++];
-        return {200, ""};
-    }
-}
 
 // ── Stream que serve o body da resposta para ArduinoJson ─────────────────────
 class MockStream {

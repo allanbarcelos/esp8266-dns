@@ -16,17 +16,26 @@ Sem --key, gera apenas firmware.bin (builds de PR).
 import argparse
 import gzip
 import os
+import re
 import struct
 import subprocess
 import sys
 import tempfile
 
 SECTOR = 4096
-# Layout eesz=1M64: o sistema de arquivos começa em 0xEB000, logo
-# sketch atual + imagem OTA precisam caber em 0xEB000 bytes (Updater::begin).
+# Layout eesz=1M64 + ld/eagle.flash.1m64.ota.ld (iguais a FlashLayout.h).
+# O linker recusa IROM além de IROM_LEN; os 400 KB até o FS nunca entram
+# no sketch. Updater ainda grava até UPDATE_END.
 UPDATE_END = 0xEB000
-# Maior sketch legado conhecido (v82) — precisa conseguir instalar o novo.
-LEGACY_SKETCH = 500_000
+IROM_LEN = 0x85FF0
+OTA_RESERVE = 0x64000
+MAX_SKETCH = 0x87000  # 0x1010 + IROM_LEN
+STOCK_IROM_LEN = 0xE9FF0
+# Maior sketch 1M64 sem a reserva (~530 KB atuais). O primeiro OTA a partir
+# desses aparelhos ainda precisa caber em UPDATE_END.
+LEGACY_SKETCH = 540_000
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+LD_PATH = os.path.join(REPO, "ld", "eagle.flash.1m64.ota.ld")
 
 
 def rounded(n: int) -> int:
@@ -84,13 +93,57 @@ def check_fits(image: int, running: int, raw: int, label: str) -> None:
         fail(f"{label}: imagem descomprimida ({raw} B) sobrescreveria a origem em {start:#x}")
 
 
+def check_ld() -> None:
+    if not os.path.isfile(LD_PATH):
+        fail(f"linker script ausente: {LD_PATH}")
+    text = open(LD_PATH, encoding="utf-8").read()
+    m = re.search(
+        r"irom0_0_seg\s*:\s*org\s*=\s*(0x[0-9a-fA-F]+),\s*len\s*=\s*(0x[0-9a-fA-F]+)",
+        text)
+    if not m:
+        fail("ld: irom0_0_seg não encontrado")
+    org, length = int(m.group(1), 16), int(m.group(2), 16)
+    if org != 0x40201010:
+        fail(f"ld: irom org {org:#x} != 0x40201010")
+    if length != IROM_LEN:
+        fail(f"ld: irom len {length:#x} != {IROM_LEN:#x} (FlashLayout.h)")
+    if STOCK_IROM_LEN - length != OTA_RESERVE:
+        fail("ld: OTA_RESERVE não é stock IROM - irom len")
+    if not re.search(r"_FS_start\s*=\s*0x402EB000", text):
+        fail("ld: _FS_start deve permanecer 0x402EB000")
+
+
+def check_map(path: str) -> None:
+    text = open(path, encoding="utf-8", errors="replace").read()
+    m = re.search(r"irom0_0_seg\s+0x[0-9a-fA-F]+\s+0x([0-9a-fA-F]+)", text)
+    if not m:
+        fail(f"{path}: irom0_0_seg ausente no map")
+    length = int(m.group(1), 16)
+    if length != IROM_LEN:
+        fail(
+            f"{path}: irom len {length:#x} != {IROM_LEN:#x} — "
+            "compile com build.flash_ld=eagle.flash.1m64.ota.ld")
+
+
+def check_reserve(image: int, raw: int, label: str) -> None:
+    if raw > MAX_SKETCH:
+        fail(f"{label}: sketch {raw} B > máximo {MAX_SKETCH} B (reserva OTA)")
+    if image > OTA_RESERVE:
+        fail(f"{label}: imagem {image} B > reserva OTA {OTA_RESERVE} B")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("raw")
     ap.add_argument("out_dir")
     ap.add_argument("--key")
     ap.add_argument("--pubkey", default="public.key")
+    ap.add_argument("--map", help="map do link; confirma IROM encolhido")
     args = ap.parse_args()
+
+    check_ld()
+    if args.map:
+        check_map(args.map)
 
     raw = open(args.raw, "rb").read()
     if raw[0] != 0xE9:
@@ -100,6 +153,7 @@ def main() -> None:
     check_gzip(gz, raw, "firmware.bin")
     if eboot_isize(gz, "firmware.bin") != len(raw):
         fail("firmware.bin: o eboot leria um tamanho diferente do firmware")
+    check_reserve(len(gz), len(raw), "firmware.bin")
     check_fits(len(gz), LEGACY_SKETCH, len(raw), "legado → novo")
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -119,11 +173,15 @@ def main() -> None:
         payload = signed[: -4 - sig_len]
         if eboot_isize(payload, "gzip após remover a assinatura") != len(raw):
             fail("Update.end() deixaria o eboot ler o tamanho errado")
+        check_reserve(len(signed), len(raw), "firmware.signed.bin")
         check_fits(len(signed), len(raw), len(raw), "novo → próximo")
+        check_fits(len(signed), MAX_SKETCH, len(raw), "máximo → próximo")
         with open(os.path.join(args.out_dir, "firmware.signed.bin"), "wb") as f:
             f.write(signed)
         lines.append(f"| gzip assinado | {len(signed)} B |")
 
+    lines.append(f"| reserva OTA | {OTA_RESERVE} B |")
+    lines.append(f"| sketch máximo | {MAX_SKETCH} B |")
     lines.append(f"| limite (atual + OTA) | {UPDATE_END} B |")
     summary = "| Imagem | Tamanho |\n|---|---|\n" + "\n".join(lines) + "\n"
     print(summary)

@@ -78,7 +78,8 @@ GitHub Releases ──(vN)──► ESP8266
 - A build that embeds `public.key` makes the core `Updater` **verify the signature** in `Update.end()` and store only the gzip. Manual install downloads the same file as the hourly check: `firmware.signed.bin` when the key is in the build, `firmware.bin` when it is not. The bootloader reads the uncompressed size from the last 4 bytes; on the signed file those bytes are the signature length, and storing that trailer corrupts the sketch.
 - PlatformIO embeds `public.key` before compilation (`pre:tools/embed_pubkey.py`), the same way arduino-cli does in CI. The link fails if the ELF lacks the verifier and that key. The native test leaves `ARDUINO_SIGNING` unset and therefore requires `firmware.bin`.
 - The image is **gzip-compressed** (the bootloader decompresses it). Without compression, the current and new firmware would not fit together in the 1 MB sketch area.
-- The download is aborted if Wi-Fi drops, a flash write fails, or no data arrives for 60 s. GitHub TLS uses a 16 KB buffer (GitHub does not negotiate MFLN; 4 KB stalls the handshake). DNS and ntfy pause during the download. Transient failures retry with backoff; if the heap cannot fit the session, the device writes `/ota.pending` and reboots into recovery (IoT off) to finish OTA.
+- The linker script `ld/eagle.flash.1m64.ota.ld` shortens IROM by **400 KB**. That hole sits against the filesystem and the sketch can never occupy it; a firmware that grows past the cap fails at link time. `package_ota.py` also rejects a gzip/signature larger than the reserve.
+- The download is aborted if Wi-Fi drops, a flash write fails, or no data arrives for 60 s. GitHub TLS uses a 16 KB buffer (GitHub does not negotiate MFLN; 4 KB stalls the handshake). The asset GET follows 302 hops with a fixed header buffer (HTTPClient's per-line `String` plus 16 KB TLS caused Exception 29). The CDN hop probes MFLN and drops to 4 KB when the host allows it. DNS and ntfy pause during the download. Transient failures retry with backoff; if the heap cannot fit the session, the device writes `/ota.pending` and reboots into recovery (IoT off) to finish OTA.
 
 ### Release assets
 
@@ -168,7 +169,11 @@ Not in the firmware yet. The local ring (`Logger.h`, 10 lines of 128 characters,
 ```bash
 arduino-cli core install esp8266:esp8266@3.1.2
 arduino-cli lib install "ArduinoJson@6.21.4"
-arduino-cli compile --fqbn esp8266:esp8266:generic:eesz=1M64 --output-dir build
+python3 tools/ota_flash_ld.py
+arduino-cli compile --fqbn esp8266:esp8266:generic:eesz=1M64 \
+  --build-property build.flash_ld=eagle.flash.1m64.ota.ld \
+  --build-property "build.extra_flags=-DARDUINO_SIGNING=1" \
+  --output-dir build
 arduino-cli upload  --fqbn esp8266:esp8266:generic:eesz=1M64 -p /dev/ttyUSB0 --input-dir build
 arduino-cli monitor -p /dev/ttyUSB0 --config 115200
 ```

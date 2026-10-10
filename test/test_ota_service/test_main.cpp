@@ -203,7 +203,7 @@ void test_arquivo_bate_com_o_eboot() {
 void test_falha_ao_conectar_no_download() {
     Fixture f;
     MockHTTP::push(200, R"({"tag_name":"v999"})");
-    MockHTTP::beginResults = {true, false};
+    MockTLS::failConnect = true;
     f.ota.tick(T);
     TEST_ASSERT_TRUE(logHas(logger, "Falha ao iniciar OTA"));
     TEST_ASSERT_FALSE(f.ota.inProgress());
@@ -569,6 +569,28 @@ void test_carrega_pedido_consulta() {
     TEST_ASSERT_TRUE(logHas(logger, "OTA: retomando consulta"));
 }
 
+void test_recuperacao_consulta_instala() {
+    MockFS::put("/ota.pending", "check 1");
+    Fixture f;
+    f.ota.begin();
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::push(200, std::string(128, 'X'));
+    f.ota.tick(0);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    TEST_ASSERT_EQUAL_STRING("v999", f.ota.availableVersion());
+}
+
+void test_recuperacao_atualizado_restaura_painel() {
+    MockFS::put("/ota.pending", "check 1");
+    Fixture f;
+    f.ota.begin();
+    MockHTTP::push(200, R"({"tag_name":"dev"})");
+    f.ota.tick(0);
+    TEST_ASSERT_FALSE(f.ota.slim());
+    TEST_ASSERT_TRUE(f.wifi.restartPending());
+    TEST_ASSERT_TRUE(logHas(logger, "restaurando painel"));
+}
+
 void test_carrega_pedido_pendente() {
     MockFS::put("/ota.pending", "v129 1");
     Fixture f;
@@ -682,6 +704,110 @@ void test_tamanho_desconhecido_sem_espaco() {
     TEST_ASSERT_TRUE(logHas(logger, "Sem espaco para OTA"));
 }
 
+void test_segue_redirect_absoluto() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::push(302, "", -1, "https://cdn.example:443/fw.bin");
+    MockHTTP::push(200, std::string(128, 'X'));
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA redirect 302"));
+    TEST_ASSERT_TRUE(contains(MockHTTP::calledURLs.back(), "cdn.example"));
+    TEST_ASSERT_TRUE(contains(MockHTTP::calledURLs.back(), "/fw.bin"));
+}
+
+void test_segue_redirect_relativo() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::push(301, "", -1, "/rel/fw.bin");
+    MockHTTP::push(200, std::string(64, 'Y'));
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    TEST_ASSERT_TRUE(contains(MockHTTP::calledURLs.back(), "/rel/fw.bin"));
+}
+
+void test_redirect_invalido() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::push(307, "", -1, "http://cdn.example/fw.bin");
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: redirect invalido"));
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+}
+
+void test_redirect_sem_location() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::push(308);
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: redirect sem Location"));
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+}
+
+void test_redirects_esgotados() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    for (int i = 0; i < 5; i++)
+        MockHTTP::push(302, "", -1, "https://cdn.example/fw.bin");
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: redirecionamentos esgotados"));
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+}
+
+void test_headers_incompletos() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::rawHttp = "HTTP/1.0 200 OK\r\nContent-Length: 4";
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: headers incompletos"));
+}
+
+void test_status_http_invalido() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::rawHttp = "NOTHTTP 200\r\n\r\n";
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: headers incompletos"));
+}
+
+void test_status_sem_codigo() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::rawHttp = "HTTP/1.0\r\n\r\n";
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: headers incompletos"));
+}
+
+void test_cdn_usa_mfln() {
+    Fixture f;
+    MockTLS::mfln = true;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::push(302, "", -1, "https://cdn.example/fw.bin");
+    MockHTTP::push(200, std::string(32, 'Z'));
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    TEST_ASSERT_EQUAL(4096, MockTLS::bufIn);
+}
+
+void test_redirect_sem_path() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::push(303, "", -1, "https://cdn.example");
+    MockHTTP::push(200, std::string(32, 'Q'));
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    TEST_ASSERT_TRUE(contains(MockHTTP::calledURLs.back(), "cdn.example/"));
+}
+
+void test_redirect_host_longo() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    std::string loc = "https://" + std::string(80, 'a') + "/fw.bin";
+    MockHTTP::push(302, "", -1, loc);
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: redirect invalido"));
+}
+
 void test_consulta_esgota_sem_gravar_pedido() {
     Fixture f;
     f.ota.setAutomatic(false);
@@ -743,6 +869,8 @@ int main() {
     RUN_TEST(test_tamanho_desconhecido_espera_conexao);
     RUN_TEST(test_tamanho_desconhecido_vazio_aborta);
     RUN_TEST(test_carrega_pedido_consulta);
+    RUN_TEST(test_recuperacao_consulta_instala);
+    RUN_TEST(test_recuperacao_atualizado_restaura_painel);
     RUN_TEST(test_carrega_pedido_pendente);
     RUN_TEST(test_pedido_pendente_invalido);
     RUN_TEST(test_pedido_pendente_sem_contador);
@@ -754,5 +882,16 @@ int main() {
     RUN_TEST(test_nao_grava_recuperacao_se_fs_falha);
     RUN_TEST(test_tamanho_desconhecido_sem_espaco);
     RUN_TEST(test_consulta_esgota_sem_gravar_pedido);
+    RUN_TEST(test_segue_redirect_absoluto);
+    RUN_TEST(test_segue_redirect_relativo);
+    RUN_TEST(test_redirect_invalido);
+    RUN_TEST(test_redirect_sem_location);
+    RUN_TEST(test_redirects_esgotados);
+    RUN_TEST(test_headers_incompletos);
+    RUN_TEST(test_status_http_invalido);
+    RUN_TEST(test_status_sem_codigo);
+    RUN_TEST(test_cdn_usa_mfln);
+    RUN_TEST(test_redirect_sem_path);
+    RUN_TEST(test_redirect_host_longo);
     return UNITY_END();
 }

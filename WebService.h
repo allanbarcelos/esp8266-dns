@@ -440,9 +440,10 @@ private:
         _boxEnd();
 
         _box("Flash");
-        _row("Total",  formatBytes(ESP.getFlashChipSize()));
-        _row("Sketch", formatBytes(ESP.getSketchSize()));
-        _row("Livre",  formatBytes(ESP.getFreeSketchSpace()));
+        _row("Total",      formatBytes(ESP.getFlashChipSize()));
+        _row("Sketch",     formatBytes(ESP.getSketchSize()));
+        _row("Reserva OTA", formatBytes(FlashLayout::OTA_RESERVE));
+        _row("Livre",      formatBytes(ESP.getFreeSketchSpace()));
         _boxEnd();
 
         _box("LittleFS");

@@ -1,6 +1,56 @@
 #pragma once
 #include "Arduino.h"
 #include <functional>
+#include <utility>
+
+// ── Fila HTTP compartilhada (API via HTTPClient, download via TLS cru) ───────
+namespace MockHTTP {
+    struct Response {
+        int code = 200;
+        std::string body;
+        int size = -1;
+        std::string location;
+    };
+
+    struct Request {
+        std::string method, url, payload;
+        std::vector<std::pair<std::string, std::string>> headers;
+    };
+
+    inline std::vector<std::string> calledURLs;
+    inline std::vector<Request>     requests;
+    inline std::vector<Response>    queue;
+    inline size_t                   qIdx = 0;
+    inline std::vector<bool>        beginResults;
+    inline size_t                   bIdx = 0;
+    inline bool                     lastHTTP10 = false;
+    inline std::string              lastUA;
+    inline bool                     keepOpen = false;
+    inline std::string              rawHttp;
+
+    inline void reset() {
+        calledURLs.clear(); requests.clear(); queue.clear(); qIdx = 0;
+        beginResults.clear(); bIdx = 0;
+        lastHTTP10 = false; lastUA.clear(); keepOpen = false;
+        rawHttp.clear();
+    }
+
+    inline void push(int code, const std::string& body = "", int size = -1,
+                     const std::string& location = "") {
+        queue.push_back({code, body, size, location});
+    }
+
+    inline void failNextBegin() { beginResults.push_back(false); }
+
+    inline bool nextBegin() {
+        return bIdx < beginResults.size() ? beginResults[bIdx++] : true;
+    }
+
+    inline Response next() {
+        if (qIdx < queue.size()) return queue[qIdx++];
+        return {};
+    }
+}
 
 // Tipos globais — espelham o escopo do core ESP8266 3.1.2
 struct WiFiEventStationModeGotIP        {};
@@ -103,10 +153,16 @@ class WiFiClient {
 public:
     virtual ~WiFiClient() {}
     virtual int    available()                 { return 0; }
+    virtual int    read()                      { return -1; }
     virtual size_t readBytes(uint8_t*, size_t) { return 0; }
+    virtual size_t write(const uint8_t*, size_t n) { return n; }
+    virtual size_t print(const char* s) {
+        return write(reinterpret_cast<const uint8_t*>(s), std::strlen(s));
+    }
     virtual bool   connected()                 { return false; }
+    virtual int    connect(const char*, uint16_t) { return 0; }
     void setTimeout(unsigned long ms);
-    void stop(unsigned int = 0) {}
+    virtual void stop(unsigned int = 0) {}
 protected:
     WiFiClient* _owned = nullptr;
 };
@@ -128,10 +184,13 @@ namespace MockTLS {
     inline int                       bufIn         = 0;
     inline int                       bufOut        = 0;
     inline bool                      nullOwned     = false;
+    inline bool                      failConnect   = false;
+    inline bool                      mfln          = false;
     inline void reset() {
         insecureCalls = 0; lastTrustPem = nullptr; lastTime = 0;
         timeoutCalls = 0; lastTimeoutMs = 0;
         bufIn = 0; bufOut = 0; nullOwned = false;
+        failConnect = false; mfln = false;
     }
 }
 
@@ -149,4 +208,108 @@ public:
     void setInsecure()                                 { MockTLS::insecureCalls++; }
     void setTrustAnchors(const BearSSL::X509List* ta)  { MockTLS::lastTrustPem = ta->pem; }
     void setX509Time(time_t t)                         { MockTLS::lastTime = t; }
+    bool probeMaxFragmentLength(const char*, uint16_t, uint16_t) { return MockTLS::mfln; }
+
+    int connect(const char* host, uint16_t) override {
+        if (MockTLS::failConnect) return 0;
+        _host = host ? host : "";
+        _connected = true;
+        _tx.clear();
+        _rx.clear();
+        _rxPos = 0;
+        return 1;
+    }
+
+    size_t write(const uint8_t* buf, size_t n) override {
+        _tx.append(reinterpret_cast<const char*>(buf), n);
+        if (_tx.find("\r\n\r\n") != std::string::npos) {
+            _serveResponse();
+            _tx.clear();
+        }
+        return n;
+    }
+
+    size_t print(const char* s) override {
+        return write(reinterpret_cast<const uint8_t*>(s), std::strlen(s));
+    }
+
+    int available() override {
+        return (int)(_rx.size() - _rxPos);
+    }
+
+    int read() override {
+        if (_rxPos >= _rx.size()) return -1;
+        return (uint8_t)_rx[_rxPos++];
+    }
+
+    size_t readBytes(uint8_t* buf, size_t n) override {
+        size_t k = std::min(n, _rx.size() - _rxPos);
+        std::memcpy(buf, _rx.data() + _rxPos, k);
+        _rxPos += k;
+        return k;
+    }
+
+    bool connected() override {
+        if (!_connected) return false;
+        if (MockHTTP::keepOpen) return true;
+        return _rxPos < _rx.size();
+    }
+
+    void stop(unsigned int = 0) override {
+        _connected = false;
+        _rx.clear();
+        _rxPos = 0;
+        _tx.clear();
+    }
+
+private:
+    void _serveResponse() {
+        std::string path = "/";
+        auto getPos = _tx.find("GET ");
+        if (getPos != std::string::npos) {
+            auto end = _tx.find(' ', getPos + 4);
+            if (end != std::string::npos)
+                path = _tx.substr(getPos + 4, end - (getPos + 4));
+        }
+        std::string host = _host;
+        auto hostPos = _tx.find("Host: ");
+        if (hostPos != std::string::npos) {
+            auto end = _tx.find("\r\n", hostPos);
+            if (end != std::string::npos)
+                host = _tx.substr(hostPos + 6, end - (hostPos + 6));
+        }
+        MockHTTP::calledURLs.push_back("https://" + host + path);
+        MockHTTP::lastHTTP10 = _tx.find("HTTP/1.0") != std::string::npos;
+        if (_tx.find("User-Agent: ESP8266-dns") != std::string::npos)
+            MockHTTP::lastUA = "ESP8266-dns";
+
+        if (!MockHTTP::rawHttp.empty()) {
+            _rx = std::move(MockHTTP::rawHttp);
+            MockHTTP::rawHttp.clear();
+            _rxPos = 0;
+            return;
+        }
+
+        auto r = MockHTTP::next();
+        int size = r.size;
+        if (size == -2) size = -1;
+        else if (size < 0) size = (int)r.body.size();
+
+        std::string resp = "HTTP/1.0 " + std::to_string(r.code) + " x\r\n";
+        resp += "Set-Cookie: x\r\n";
+        if (!r.location.empty())
+            resp += "Location: " + r.location + "\r\n";
+        if (size >= 0)
+            resp += "Content-Length: " + std::to_string(size) + "\r\n";
+        resp += "\r\n";
+        resp += r.body;
+        _rx = std::move(resp);
+        _rxPos = 0;
+    }
+
+    std::string _host;
+    std::string _tx;
+    std::string _rx;
+    size_t      _rxPos = 0;
+    bool        _connected = false;
 };

@@ -50,6 +50,9 @@ public:
 
         ota.setAutomatic(config.ota_auto);
         ota.begin();
+        logger.log("OTA: reserva %u KB, livre %u KB",
+                   FlashLayout::OTA_RESERVE / 1024u,
+                   ESP.getFreeSketchSpace() / 1024u);
         if (ota.slim()) {
             logger.log("OTA: modo recuperacao");
         } else {
@@ -69,9 +72,9 @@ public:
         wifi.tick(now);
         wifi.tickRestart(now);
 
-        if (!ota.busy()) dns.tick(now);
+        if (!ota.slim() && !ota.busy()) dns.tick(now);
         ota.tick(now);
-        if (!ota.inProgress()) {
+        if (!ota.slim() && !ota.inProgress()) {
             iot.tick(now);
             ntfy.tick(now);
         }
