@@ -914,10 +914,17 @@ private:
         if (!_guard()) return;
         if (!_checkCSRF()) return;
 
+        // O gcc, com -fno-exceptions, ainda conta um ramo de limpeza do
+        // temporário quando && ou || recebe uma String. Esse ramo não executa.
         int8_t sensor = -1;
         int8_t module = -1;
-        if (!IoTService::parsePin(_server.arg("sensor"), sensor) ||
-            !IoTService::parsePin(_server.arg("module"), module)) {
+        String sensorArg = _server.arg("sensor");
+        String moduleArg = _server.arg("module");
+        if (!IoTService::parsePin(sensorArg, sensor)) {
+            _errorPage("Pino invalido", "/iot");
+            return;
+        }
+        if (!IoTService::parsePin(moduleArg, module)) {
             _errorPage("Pino invalido", "/iot");
             return;
         }
@@ -927,22 +934,25 @@ private:
         }
 
         uint8_t sensorType = IoTService::SENSOR_DIGITAL;
-        if (_server.arg("sensor_type").length() > 0 &&
-            !IoTService::parseU8(_server.arg("sensor_type"), 0,
+        String sensorTypeArg = _server.arg("sensor_type");
+        if (sensorTypeArg.length() > 0 &&
+            !IoTService::parseU8(sensorTypeArg, 0,
                                  IoTService::SENSOR_COUNT - 1, sensorType)) {
             _errorPage("Valor invalido", "/iot");
             return;
         }
         uint8_t moduleType = IoTService::MODULE_LEVEL;
-        if (_server.arg("module_type").length() > 0 &&
-            !IoTService::parseU8(_server.arg("module_type"), 0,
+        String moduleTypeArg = _server.arg("module_type");
+        if (moduleTypeArg.length() > 0 &&
+            !IoTService::parseU8(moduleTypeArg, 0,
                                  IoTService::MODULE_COUNT - 1, moduleType)) {
             _errorPage("Valor invalido", "/iot");
             return;
         }
         uint8_t metric = 0;
-        if (_server.arg("metric").length() > 0 &&
-            !IoTService::parseU8(_server.arg("metric"), 0, 1, metric)) {
+        String metricArg = _server.arg("metric");
+        if (metricArg.length() > 0 &&
+            !IoTService::parseU8(metricArg, 0, 1, metric)) {
             _errorPage("Valor invalido", "/iot");
             return;
         }
@@ -950,12 +960,14 @@ private:
         int16_t threshold = 0;
         uint8_t margin = 0;
         if (IoTService::sensorKind(sensorType) != IoTService::KIND_DIGITAL) {
-            if (!IoTService::parseI16(_server.arg("threshold"), -55, 100000, threshold)) {
+            String thresholdArg = _server.arg("threshold");
+            if (!IoTService::parseI16(thresholdArg, -55, 100000, threshold)) {
                 _errorPage("Valor invalido", "/iot");
                 return;
             }
-            if (_server.arg("margin").length() > 0 &&
-                !IoTService::parseU8(_server.arg("margin"), 0, 50, margin)) {
+            String marginArg = _server.arg("margin");
+            if (marginArg.length() > 0 &&
+                !IoTService::parseU8(marginArg, 0, 50, margin)) {
                 _errorPage("Valor invalido", "/iot");
                 return;
             }
@@ -964,8 +976,13 @@ private:
         uint8_t angleOn = 90;
         uint8_t angleOff = 0;
         if (IoTService::moduleKind(moduleType) == IoTService::MKIND_SERVO) {
-            if (!IoTService::parseU8(_server.arg("angle_on"), 0, 180, angleOn) ||
-                !IoTService::parseU8(_server.arg("angle_off"), 0, 180, angleOff)) {
+            String angleOnArg = _server.arg("angle_on");
+            String angleOffArg = _server.arg("angle_off");
+            if (!IoTService::parseU8(angleOnArg, 0, 180, angleOn)) {
+                _errorPage("Valor invalido", "/iot");
+                return;
+            }
+            if (!IoTService::parseU8(angleOffArg, 0, 180, angleOff)) {
                 _errorPage("Valor invalido", "/iot");
                 return;
             }
@@ -973,8 +990,13 @@ private:
         uint8_t dutyOn = 100;
         uint8_t dutyOff = 0;
         if (IoTService::moduleKind(moduleType) == IoTService::MKIND_PWM) {
-            if (!IoTService::parseU8(_server.arg("duty_on"), 0, 100, dutyOn) ||
-                !IoTService::parseU8(_server.arg("duty_off"), 0, 100, dutyOff)) {
+            String dutyOnArg = _server.arg("duty_on");
+            String dutyOffArg = _server.arg("duty_off");
+            if (!IoTService::parseU8(dutyOnArg, 0, 100, dutyOn)) {
+                _errorPage("Valor invalido", "/iot");
+                return;
+            }
+            if (!IoTService::parseU8(dutyOffArg, 0, 100, dutyOff)) {
                 _errorPage("Valor invalido", "/iot");
                 return;
             }
