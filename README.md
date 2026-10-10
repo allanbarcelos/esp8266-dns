@@ -144,9 +144,9 @@ Changes limited to tests, docs or the workflow do not create a release. To force
 
 ## 🔌 IoT
 
-The **IoT** page configures one sensor and one module on the ESP-01 without editing the firmware. The available pins are GPIO0, GPIO2, TX and RX. The drawing is `docs/esp01-pinout.png`, and the panel loads that image from the repository.
+The **IoT** page configures one sensor and one module on the ESP-01 without editing the firmware. The available pins are GPIO0, GPIO2, TX and RX. The drawing is `docs/esp01-pinout.png`, and the panel loads that image from the repository. The home page shows the module photo in `docs/esp-01.jpg` (SparkFun Electronics, CC BY 2.0).
 
-The sensor type can be digital, DHT11, DHT22, DS18B20 or pulses counted every 10 s. A digital level drives the module. The other types drive it when the number is above or below a limit, with a margin so it does not chatter. The module type can be a fixed level or a servo, with one angle for on and another for off. DHT and DS18B20 need a pull-up resistor. The servo uses a separate 5 V supply and a common ground.
+The sensor can be digital, PIR, door, rain, flame, gas, soil, light, sound, float or button (all by level), DHT11, DHT22, DS18B20, pulses counted every 10 s, or an HC-SR04 ultrasonic sensor on one pin (trig and echo tied together, in cm). A number drives the module above or below a limit, with a margin so it does not chatter. The module can be a relay, LED, buzzer, pump or valve (fixed level), a servo (one angle for on and another for off), or a fan and a motor using PWM from 0 to 100. DHT and DS18B20 need a pull-up resistor. The servo uses a separate 5 V supply and a common ground.
 
 With the new keys missing from `/config.json`, the sensor and the module stay digital and the feature stays off until the user picks the pins. A reading is posted to the ntfy topic already configured, prefixed with `[sensor]`. The IP notice on that same topic uses `[ip]`.
 

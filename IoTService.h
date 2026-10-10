@@ -23,8 +23,45 @@ public:
     static constexpr uint8_t SENSOR_DHT22   = 2;
     static constexpr uint8_t SENSOR_DS18B20 = 3;
     static constexpr uint8_t SENSOR_PULSE   = 4;
-    static constexpr uint8_t MODULE_LEVEL   = 0;
-    static constexpr uint8_t MODULE_SERVO   = 1;
+    static constexpr uint8_t SENSOR_PIR     = 5;
+    static constexpr uint8_t SENSOR_DOOR    = 6;
+    static constexpr uint8_t SENSOR_RAIN    = 7;
+    static constexpr uint8_t SENSOR_FLAME   = 8;
+    static constexpr uint8_t SENSOR_GAS     = 9;
+    static constexpr uint8_t SENSOR_SOIL    = 10;
+    static constexpr uint8_t SENSOR_LIGHT   = 11;
+    static constexpr uint8_t SENSOR_SOUND   = 12;
+    static constexpr uint8_t SENSOR_FLOAT   = 13;
+    static constexpr uint8_t SENSOR_BUTTON  = 14;
+    static constexpr uint8_t SENSOR_RANGE   = 15;
+    static constexpr uint8_t SENSOR_COUNT   = 16;
+
+    static constexpr uint8_t MODULE_LEVEL  = 0;
+    static constexpr uint8_t MODULE_SERVO  = 1;
+    static constexpr uint8_t MODULE_LED    = 2;
+    static constexpr uint8_t MODULE_BUZZER = 3;
+    static constexpr uint8_t MODULE_PUMP   = 4;
+    static constexpr uint8_t MODULE_VALVE  = 5;
+    static constexpr uint8_t MODULE_FAN    = 6;
+    static constexpr uint8_t MODULE_MOTOR  = 7;
+    static constexpr uint8_t MODULE_COUNT  = 8;
+
+    // O script da página usa estes números. 0 no sensor é o nível digital.
+    static constexpr uint8_t KIND_DIGITAL = 0;
+    static constexpr uint8_t KIND_DHT11   = 1;
+    static constexpr uint8_t KIND_DHT22   = 2;
+    static constexpr uint8_t KIND_DS18    = 3;
+    static constexpr uint8_t KIND_PULSE   = 4;
+    static constexpr uint8_t KIND_RANGE   = 5;
+
+    static constexpr uint8_t MKIND_LEVEL = 0;
+    static constexpr uint8_t MKIND_SERVO = 1;
+    static constexpr uint8_t MKIND_PWM   = 2;
+
+    static uint8_t sensorKind(uint8_t type) { return _sensorAt(type).kind; }
+    static const char* sensorLabel(uint8_t type) { return _sensorAt(type).label; }
+    static uint8_t moduleKind(uint8_t type) { return _moduleAt(type).kind; }
+    static const char* moduleLabel(uint8_t type) { return _moduleAt(type).label; }
 
     IoTService(Config& cfg, Logger& log) : _cfg(cfg), _log(log) {
         _runSensor = -1;
@@ -40,6 +77,8 @@ public:
         _runMargin = 0;
         _runAngleOn = 90;
         _runAngleOff = 0;
+        _runDutyOn = 100;
+        _runDutyOff = 0;
         _clear();
     }
 
@@ -105,16 +144,18 @@ public:
         _runMargin     = _cfg.iot_margin;
         _runAngleOn    = _cfg.iot_angle_on;
         _runAngleOff   = _cfg.iot_angle_off;
-        if (_runSensorType > SENSOR_PULSE) _runSensorType = SENSOR_DIGITAL;
-        if (_runModuleType > MODULE_SERVO) _runModuleType = MODULE_LEVEL;
+        _runDutyOn     = _clampDuty(_cfg.iot_duty_on);
+        _runDutyOff    = _clampDuty(_cfg.iot_duty_off);
+        if (_runSensorType >= SENSOR_COUNT) _runSensorType = SENSOR_DIGITAL;
+        if (_runModuleType >= MODULE_COUNT) _runModuleType = MODULE_LEVEL;
         if (!allowedPin(_runSensor)) return;
         pinMode((uint8_t)_runSensor, INPUT_PULLUP);
-        if (_runSensorType == SENSOR_PULSE) {
+        if (sensorKind(_runSensorType) == KIND_PULSE) {
             _pulses = 0;
             attachInterrupt((uint8_t)_runSensor, onPulse, FALLING);
         }
         if (_moduleIsOutput()) {
-            if (_runModuleType == MODULE_SERVO) {
+            if (moduleKind(_runModuleType) == MKIND_SERVO) {
                 _servoOk = _servo.attach((int)_runModule) != 0;
                 if (_servoOk) _writeModule(false);
                 else _log.log("IoT: servo indisponivel");
@@ -131,16 +172,21 @@ public:
 
     void tick(unsigned long now) {
         if (!allowedPin(_runSensor)) return;
-        if (_runSensorType == SENSOR_DHT11 || _runSensorType == SENSOR_DHT22) {
+        uint8_t kind = sensorKind(_runSensorType);
+        if (kind == KIND_DHT11 || kind == KIND_DHT22) {
             _tickDht(now);
             return;
         }
-        if (_runSensorType == SENSOR_DS18B20) {
+        if (kind == KIND_DS18) {
             _tickDs(now);
             return;
         }
-        if (_runSensorType == SENSOR_PULSE) {
+        if (kind == KIND_PULSE) {
             _tickPulse(now);
+            return;
+        }
+        if (kind == KIND_RANGE) {
+            _tickRange(now);
             return;
         }
         int level = digitalRead((uint8_t)_runSensor);
@@ -165,7 +211,7 @@ public:
 
     const char* sensorText() const {
         if (!allowedPin(_runSensor)) return "nenhum";
-        if (_runSensorType == SENSOR_DIGITAL) {
+        if (sensorKind(_runSensorType) == KIND_DIGITAL) {
             if (!_haveLevel) return "aguardando";
             return _stable == HIGH ? "alto" : "baixo";
         }
@@ -175,10 +221,12 @@ public:
 
     const char* moduleText() const {
         if (!_moduleIsOutput()) return "nenhum";
-        if (_runModuleType == MODULE_SERVO) {
+        uint8_t mk = moduleKind(_runModuleType);
+        if (mk == MKIND_SERVO) {
             if (!_servoOk) return "falha";
             return _moduleLine;
         }
+        if (mk == MKIND_PWM) return _moduleLine;
         return _moduleOn ? "ligado" : "desligado";
     }
 
@@ -222,7 +270,63 @@ private:
     uint8_t _runMargin;
     uint8_t _runAngleOn;
     uint8_t _runAngleOff;
+    uint8_t _runDutyOn;
+    uint8_t _runDutyOff;
+    uint8_t _shownDuty;
     Servo   _servo;
+
+    struct _Cat {
+        const char* label;
+        uint8_t kind;
+    };
+
+    static const _Cat& _sensorAt(uint8_t type) {
+        static const _Cat items[] = {
+            {"Digital", KIND_DIGITAL},
+            {"DHT11", KIND_DHT11},
+            {"DHT22", KIND_DHT22},
+            {"DS18B20", KIND_DS18},
+            {"Pulsos (10 s)", KIND_PULSE},
+            {"PIR", KIND_DIGITAL},
+            {"Porta", KIND_DIGITAL},
+            {"Chuva", KIND_DIGITAL},
+            {"Chama", KIND_DIGITAL},
+            {"Gas", KIND_DIGITAL},
+            {"Solo", KIND_DIGITAL},
+            {"Luz", KIND_DIGITAL},
+            {"Som", KIND_DIGITAL},
+            {"Boia", KIND_DIGITAL},
+            {"Botao", KIND_DIGITAL},
+            {"Ultrassom", KIND_RANGE},
+        };
+        static_assert(sizeof(items) / sizeof(items[0]) == SENSOR_COUNT, "sensores");
+        if (type >= SENSOR_COUNT) return items[0];
+        return items[type];
+    }
+
+    static const _Cat& _moduleAt(uint8_t type) {
+        static const _Cat items[] = {
+            {"Rele", MKIND_LEVEL},
+            {"Servo", MKIND_SERVO},
+            {"LED", MKIND_LEVEL},
+            {"Buzzer", MKIND_LEVEL},
+            {"Bomba", MKIND_LEVEL},
+            {"Valvula", MKIND_LEVEL},
+            {"Ventilador", MKIND_PWM},
+            {"Motor", MKIND_PWM},
+        };
+        static_assert(sizeof(items) / sizeof(items[0]) == MODULE_COUNT, "modulos");
+        if (type >= MODULE_COUNT) return items[0];
+        return items[type];
+    }
+
+    static uint8_t _clampDuty(uint8_t duty) {
+        return duty > 100 ? 100 : duty;
+    }
+
+    static int _dutyPwm(uint8_t duty) {
+        return (int)duty * 1023 / 100;
+    }
 
     static inline volatile uint32_t _pulses = 0;
     static constexpr uint8_t OW_IDLE = 0;
@@ -242,6 +346,7 @@ private:
         _hum = 0;
         _temp = 0;
         _shownAngle = 0;
+        _shownDuty = 0;
         _since = 0;
         _lastRead = 0;
         _owSince = 0;
@@ -260,20 +365,32 @@ private:
     }
 
     void _detachSensor() {
-        if (_runSensorType == SENSOR_PULSE && allowedPin(_runSensor))
+        if (sensorKind(_runSensorType) == KIND_PULSE && allowedPin(_runSensor))
             detachInterrupt((uint8_t)_runSensor);
     }
 
+    // GPIO0 e GPIO2 têm de ficar altos no próximo boot.
+    void _idleStrappingPin() {
+        if (_runModule == 0 || _runModule == 2)
+            pinMode((uint8_t)_runModule, INPUT_PULLUP);
+    }
+
     // Segura a saída no nível desligado. Entrada com pull-up ligaria
-    // um módulo que arma em alto. No servo, GPIO0 e GPIO2 voltam ao
-    // pull-up para continuarem altos no próximo boot.
+    // um módulo que arma em alto. No servo e no PWM, GPIO0 e GPIO2
+    // voltam ao pull-up para continuarem altos no próximo boot.
     void _releaseOutput() {
         if (!_moduleIsOutput()) return;
-        if (_runModuleType == MODULE_SERVO) {
+        uint8_t mk = moduleKind(_runModuleType);
+        if (mk == MKIND_SERVO) {
             if (_servoOk) _servo.detach();
             _servoOk = false;
-            if (_runModule == 0 || _runModule == 2)
-                pinMode((uint8_t)_runModule, INPUT_PULLUP);
+            _idleStrappingPin();
+            _moduleOn = false;
+            return;
+        }
+        if (mk == MKIND_PWM) {
+            analogWrite((uint8_t)_runModule, 0);
+            _idleStrappingPin();
             _moduleOn = false;
             return;
         }
@@ -286,7 +403,8 @@ private:
             _moduleOn = false;
             return;
         }
-        if (_runModuleType == MODULE_SERVO) {
+        uint8_t mk = moduleKind(_runModuleType);
+        if (mk == MKIND_SERVO) {
             if (!_servoOk) {
                 _moduleOn = false;
                 return;
@@ -297,6 +415,14 @@ private:
             snprintf(_moduleLine, sizeof(_moduleLine), "servo %d", _shownAngle);
             return;
         }
+        if (mk == MKIND_PWM) {
+            _moduleOn = on;
+            uint8_t duty = on ? _runDutyOn : _runDutyOff;
+            _shownDuty = duty;
+            analogWrite((uint8_t)_runModule, _dutyPwm(duty));
+            snprintf(_moduleLine, sizeof(_moduleLine), "pwm %u%%", duty);
+            return;
+        }
         _moduleOn = on;
         bool high = on ? _runModuleHigh : !_runModuleHigh;
         digitalWrite((uint8_t)_runModule, high ? HIGH : LOW);
@@ -305,9 +431,14 @@ private:
     void _moduleSuffix(char* buf, size_t n) const {
         buf[0] = '\0';
         if (!_moduleIsOutput()) return;
-        if (_runModuleType == MODULE_SERVO) {
+        uint8_t mk = moduleKind(_runModuleType);
+        if (mk == MKIND_SERVO) {
             if (!_servoOk) snprintf(buf, n, " servo falha");
             else snprintf(buf, n, " servo %d", _shownAngle);
+            return;
+        }
+        if (mk == MKIND_PWM) {
+            snprintf(buf, n, " pwm %u%%", _shownDuty);
             return;
         }
         snprintf(buf, n, " modulo %s", _moduleOn ? "ligado" : "desligado");
@@ -359,12 +490,15 @@ private:
 
     void _accept(int value, bool tenths) {
         _failing = false;
-        if (_runSensorType == SENSOR_PULSE) {
+        uint8_t kind = sensorKind(_runSensorType);
+        if (kind == KIND_PULSE) {
             snprintf(_sensorLine, sizeof(_sensorLine), "pulsos %d", value);
-        } else if (_runSensorType == SENSOR_DS18B20) {
+        } else if (kind == KIND_DS18) {
             char temp[16];
             _fmtTenths(temp, sizeof(temp), value);
             snprintf(_sensorLine, sizeof(_sensorLine), "temp %sC", temp);
+        } else if (kind == KIND_RANGE) {
+            snprintf(_sensorLine, sizeof(_sensorLine), "dist %d cm", value);
         } else {
             char hum[16];
             char temp[16];
@@ -418,7 +552,7 @@ private:
         uint8_t pin = (uint8_t)_runSensor;
         pinMode(pin, OUTPUT);
         digitalWrite(pin, LOW);
-        if (_runSensorType == SENSOR_DHT11) delay(18);
+        if (sensorKind(_runSensorType) == KIND_DHT11) delay(18);
         else delayMicroseconds(1100);
         digitalWrite(pin, HIGH);
         delayMicroseconds(40);
@@ -434,7 +568,7 @@ private:
     }
 
     void _decodeDht(const uint8_t d[5]) {
-        if (_runSensorType == SENSOR_DHT11) {
+        if (sensorKind(_runSensorType) == KIND_DHT11) {
             _hum = d[0] * 10 + d[1];
             _temp = d[2] * 10 + d[3];
             return;
@@ -553,6 +687,37 @@ private:
         }
         _owState = OW_WAIT;
         _owSince = now;
+    }
+
+    // HC-SR04 com trig e echo no mesmo pino. A distância sai em cm.
+    bool _readRange(int* cm) {
+        uint8_t pin = (uint8_t)_runSensor;
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, LOW);
+        delayMicroseconds(2);
+        digitalWrite(pin, HIGH);
+        delayMicroseconds(10);
+        digitalWrite(pin, LOW);
+        pinMode(pin, INPUT);
+        if (!_waitLevel(HIGH, 30000)) return false;
+        unsigned long start = micros();
+        if (!_waitLevel(LOW, 30000)) return false;
+        int v = (int)((unsigned long)(micros() - start) / 58);
+        if (v < 1 || v > 400) return false;
+        *cm = v;
+        return true;
+    }
+
+    void _tickRange(unsigned long now) {
+        if (_haveRead && now - _lastRead < READ_GAP_MS) return;
+        _lastRead = now;
+        _haveRead = true;
+        int cm = 0;
+        if (!_readRange(&cm)) {
+            _fail();
+            return;
+        }
+        _accept(cm, false);
     }
 
     void _tickPulse(unsigned long now) {

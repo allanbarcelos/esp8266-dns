@@ -340,6 +340,7 @@ private:
     void _handleRoot() {
         if (!_guard()) return;
         _pageBegin();
+        _deviceMark();
 
         if (_wifi.inConfigMode()) {
             _alert("warning", "Modo de configuracao - conecte ao Wi-Fi");
@@ -681,6 +682,41 @@ private:
 
     static constexpr const char* _PINOUT_URL =
         "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/docs/esp01-pinout.png";
+    static constexpr const char* _DEVICE_URL =
+        "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/docs/esp-01.jpg";
+
+    void _deviceMark() {
+        _server.sendContent("<div class='text-center mb-3'><img src='");
+        _server.sendContent(_DEVICE_URL);
+        _server.sendContent(
+            "' alt='ESP-01' class='img-fluid rounded' style='max-width:220px'>"
+            "<div class='small mt-1' style='color:#d7dbe0'>"
+            "Firmware para o modulo ESP-01</div>"
+            "<div class='small' style='color:#d7dbe0'>"
+            "Foto: SparkFun, CC BY 2.0</div></div>");
+    }
+
+    void _sendKindList(bool sensors) {
+        uint8_t n = sensors ? IoTService::SENSOR_COUNT : IoTService::MODULE_COUNT;
+        for (uint8_t i = 0; i < n; i++) {
+            if (i) _server.sendContent(",");
+            char buf[4];
+            snprintf(buf, sizeof(buf), "%u",
+                     sensors ? IoTService::sensorKind(i) : IoTService::moduleKind(i));
+            _server.sendContent(buf);
+        }
+    }
+
+    void _typeOptions(bool sensors, uint8_t current) {
+        uint8_t n = sensors ? IoTService::SENSOR_COUNT : IoTService::MODULE_COUNT;
+        for (uint8_t i = 0; i < n; i++) {
+            char value[4];
+            snprintf(value, sizeof(value), "%u", i);
+            _choice(value,
+                    sensors ? IoTService::sensorLabel(i) : IoTService::moduleLabel(i),
+                    current == i);
+        }
+    }
 
     void _pinOptions(int8_t current) {
         static const int8_t pins[] = {-1, 2, 0, 1, 3};
@@ -748,10 +784,13 @@ private:
         _server.sendContent(
             "<p class='small mb-3' style='color:#d7dbe0'>"
             "GPIO0 e GPIO2 ficam em alto no boot. O sensor e o modulo usam pinos "
-            "diferentes. Digital liga por nivel. DHT, DS18B20 e pulsos (a cada 10 s) "
-            "comparam um valor com o limite. O servo vai para um angulo. "
-            "DHT e DS18B20 pedem pull-up. A leitura segue no topico ntfy ja "
-            "cadastrado, com o prefixo [sensor]. O IP sai como [ip].</p>");
+            "diferentes. Digital, PIR, porta, chuva, chama, gas, solo, luz, som, "
+            "boia e botao ligam por nivel. DHT, DS18B20, pulsos (a cada 10 s) e "
+            "ultrassom (trig e echo no mesmo pino, em cm) comparam um valor com o "
+            "limite. Rele, LED, buzzer, bomba e valvula usam um nivel. O servo vai "
+            "para um angulo. Ventilador e motor usam PWM de 0 a 100. DHT e DS18B20 "
+            "pedem pull-up. A leitura segue no topico ntfy ja cadastrado, com o "
+            "prefixo [sensor]. O IP sai como [ip].</p>");
 
         _box("Agora");
         _row("Sensor", _iot.sensorText());
@@ -761,10 +800,14 @@ private:
         if (_cfg.iot_notify && _cfg.ntfy_topic[0] == '\0')
             _alert("warning", "Cadastre o topico ntfy para enviar a leitura");
 
-        bool numeric = _cfg.iot_sensor_type != IoTService::SENSOR_DIGITAL;
-        bool dht = _cfg.iot_sensor_type == IoTService::SENSOR_DHT11 ||
-                   _cfg.iot_sensor_type == IoTService::SENSOR_DHT22;
-        bool servo = _cfg.iot_module_type == IoTService::MODULE_SERVO;
+        uint8_t sensorKind = IoTService::sensorKind(_cfg.iot_sensor_type);
+        uint8_t moduleKind = IoTService::moduleKind(_cfg.iot_module_type);
+        bool numeric = sensorKind != IoTService::KIND_DIGITAL;
+        bool dht = sensorKind == IoTService::KIND_DHT11 ||
+                   sensorKind == IoTService::KIND_DHT22;
+        bool level = moduleKind == IoTService::MKIND_LEVEL;
+        bool servo = moduleKind == IoTService::MKIND_SERVO;
+        bool pwm = moduleKind == IoTService::MKIND_PWM;
 
         _server.sendContent("<form action='/iot/save' method='POST'>");
         _csrfField();
@@ -779,11 +822,7 @@ private:
 
         _server.sendContent("<label class='form-label small mt-2'>Tipo do sensor</label>");
         _selectOpen("sensor_type");
-        _choice("0", "Digital", _cfg.iot_sensor_type == IoTService::SENSOR_DIGITAL);
-        _choice("1", "DHT11", _cfg.iot_sensor_type == IoTService::SENSOR_DHT11);
-        _choice("2", "DHT22", _cfg.iot_sensor_type == IoTService::SENSOR_DHT22);
-        _choice("3", "DS18B20", _cfg.iot_sensor_type == IoTService::SENSOR_DS18B20);
-        _choice("4", "Pulsos (10 s)", _cfg.iot_sensor_type == IoTService::SENSOR_PULSE);
+        _typeOptions(true, _cfg.iot_sensor_type);
         _server.sendContent("</select>");
 
         _divOpen("iot_digital", !numeric);
@@ -813,11 +852,10 @@ private:
 
         _server.sendContent("<label class='form-label small mt-2'>Tipo do modulo</label>");
         _selectOpen("module_type");
-        _choice("0", "Nivel", _cfg.iot_module_type == IoTService::MODULE_LEVEL);
-        _choice("1", "Servo", _cfg.iot_module_type == IoTService::MODULE_SERVO);
+        _typeOptions(false, _cfg.iot_module_type);
         _server.sendContent("</select>");
 
-        _divOpen("iot_level", !servo);
+        _divOpen("iot_level", level);
         _server.sendContent(
             "<label class='form-label small mt-2'>Nivel do pino que liga o modulo</label>");
         _selectOpen("module_high");
@@ -831,6 +869,13 @@ private:
         _number("angle_off", _cfg.iot_angle_off, 0, 180);
         _server.sendContent("</div>");
 
+        _divOpen("iot_pwm", pwm);
+        _server.sendContent("<label class='form-label small mt-2'>Potencia ao ligar (%)</label>");
+        _number("duty_on", _cfg.iot_duty_on, 0, 100);
+        _server.sendContent("<label class='form-label small mt-2'>Potencia ao soltar (%)</label>");
+        _number("duty_off", _cfg.iot_duty_off, 0, 100);
+        _server.sendContent("</div>");
+
         _server.sendContent(
             "<div class='form-check form-switch my-3'>"
             "<input class='form-check-input' type='checkbox' role='switch' "
@@ -840,16 +885,28 @@ private:
             "><label class='form-check-label' for='iot_notify'>"
             "Enviar leitura ao ntfy</label></div>"
             "<button class='btn btn-info w-100'>Salvar</button></form>"
-            "<script>function iotSync(){"
-            "var s=document.getElementById('sensor_type').value;"
-            "var m=document.getElementById('module_type').value;"
-            "var num=s!='0';"
+            "<script>function iotSync(){var sk=[");
+        _sendKindList(true);
+        _server.sendContent("];var mk=[");
+        _sendKindList(false);
+        char js[700];
+        snprintf(js, sizeof(js),
+            "];var s=+document.getElementById('sensor_type').value;"
+            "var m=+document.getElementById('module_type').value;"
+            "if(!(s>=0&&s<sk.length))s=0;"
+            "if(!(m>=0&&m<mk.length))m=0;"
+            "var num=sk[s]!=%u;"
             "document.getElementById('iot_digital').style.display=num?'none':'';"
             "document.getElementById('iot_value').style.display=num?'':'none';"
-            "document.getElementById('iot_metric').style.display=(s=='1'||s=='2')?'':'none';"
-            "document.getElementById('iot_level').style.display=m=='1'?'none':'';"
-            "document.getElementById('iot_servo').style.display=m=='1'?'':'none';"
-            "}iotSync();</script>");
+            "document.getElementById('iot_metric').style.display=(sk[s]==%u||sk[s]==%u)?'':'none';"
+            "document.getElementById('iot_level').style.display=mk[m]==%u?'':'none';"
+            "document.getElementById('iot_servo').style.display=mk[m]==%u?'':'none';"
+            "document.getElementById('iot_pwm').style.display=mk[m]==%u?'':'none';"
+            "}iotSync();</script>",
+            IoTService::KIND_DIGITAL,
+            IoTService::KIND_DHT11, IoTService::KIND_DHT22,
+            IoTService::MKIND_LEVEL, IoTService::MKIND_SERVO, IoTService::MKIND_PWM);
+        _server.sendContent(js);
         _pageEnd();
     }
 
@@ -871,13 +928,15 @@ private:
 
         uint8_t sensorType = IoTService::SENSOR_DIGITAL;
         if (_server.arg("sensor_type").length() > 0 &&
-            !IoTService::parseU8(_server.arg("sensor_type"), 0, 4, sensorType)) {
+            !IoTService::parseU8(_server.arg("sensor_type"), 0,
+                                 IoTService::SENSOR_COUNT - 1, sensorType)) {
             _errorPage("Valor invalido", "/iot");
             return;
         }
         uint8_t moduleType = IoTService::MODULE_LEVEL;
         if (_server.arg("module_type").length() > 0 &&
-            !IoTService::parseU8(_server.arg("module_type"), 0, 1, moduleType)) {
+            !IoTService::parseU8(_server.arg("module_type"), 0,
+                                 IoTService::MODULE_COUNT - 1, moduleType)) {
             _errorPage("Valor invalido", "/iot");
             return;
         }
@@ -890,7 +949,7 @@ private:
 
         int16_t threshold = 0;
         uint8_t margin = 0;
-        if (sensorType != IoTService::SENSOR_DIGITAL) {
+        if (IoTService::sensorKind(sensorType) != IoTService::KIND_DIGITAL) {
             if (!IoTService::parseI16(_server.arg("threshold"), -55, 100000, threshold)) {
                 _errorPage("Valor invalido", "/iot");
                 return;
@@ -904,9 +963,18 @@ private:
 
         uint8_t angleOn = 90;
         uint8_t angleOff = 0;
-        if (moduleType == IoTService::MODULE_SERVO) {
+        if (IoTService::moduleKind(moduleType) == IoTService::MKIND_SERVO) {
             if (!IoTService::parseU8(_server.arg("angle_on"), 0, 180, angleOn) ||
                 !IoTService::parseU8(_server.arg("angle_off"), 0, 180, angleOff)) {
+                _errorPage("Valor invalido", "/iot");
+                return;
+            }
+        }
+        uint8_t dutyOn = 100;
+        uint8_t dutyOff = 0;
+        if (IoTService::moduleKind(moduleType) == IoTService::MKIND_PWM) {
+            if (!IoTService::parseU8(_server.arg("duty_on"), 0, 100, dutyOn) ||
+                !IoTService::parseU8(_server.arg("duty_off"), 0, 100, dutyOff)) {
                 _errorPage("Valor invalido", "/iot");
                 return;
             }
@@ -925,6 +993,8 @@ private:
         _cfg.iot_margin       = margin;
         _cfg.iot_angle_on     = angleOn;
         _cfg.iot_angle_off    = angleOff;
+        _cfg.iot_duty_on      = dutyOn;
+        _cfg.iot_duty_off     = dutyOff;
         if (!_store.save()) {
             _errorPage("Falha ao salvar configuracao", "/iot");
             return;

@@ -79,6 +79,7 @@ namespace mock {
     inline uint8_t pinModeV[16];
     inline uint8_t pinIn[16];
     inline uint8_t pinOut[16];
+    inline int     analogValue[16];
 
     inline bool          bus = false;
     inline uint8_t       busPin = 0;
@@ -113,6 +114,7 @@ namespace mock {
             pinModeV[i] = 255;
             pinIn[i]    = HIGH;
             pinOut[i]   = LOW;
+            analogValue[i] = -1;
         }
     }
 
@@ -130,7 +132,12 @@ namespace mock {
         isr = nullptr;
         isrPin = 255;
         isrMode = -1;
+        for (int i = 0; i < 16; i++) analogValue[i] = -1;
     }
+}
+
+inline void analogWrite(uint8_t pin, int val) {
+    if (pin < 16) mock::analogValue[pin] = val;
 }
 
 inline void pinMode(uint8_t pin, uint8_t mode) {

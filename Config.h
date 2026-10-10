@@ -35,9 +35,8 @@ struct Config {
     bool    iot_sensor_high           = true;  // nível do sensor que liga o módulo
     bool    iot_module_high           = false; // nível do pino que liga o módulo
     bool    iot_notify                = false;
-    // 0 digital, 1 DHT11, 2 DHT22, 3 DS18B20, 4 pulsos. Ausência = digital.
+    // Catálogo em IoTService. Ausência = digital e relé.
     uint8_t iot_sensor_type           = 0;
-    // 0 nível fixo, 1 servo. Ausência = nível.
     uint8_t iot_module_type           = 0;
     uint8_t iot_metric                = 0;     // DHT: 0 umidade, 1 temperatura
     bool    iot_above                 = false; // true: liga acima do limite
@@ -45,6 +44,8 @@ struct Config {
     uint8_t iot_margin                = 0;
     uint8_t iot_angle_on              = 90;
     uint8_t iot_angle_off             = 0;
+    uint8_t iot_duty_on               = 100;   // PWM 0–100. Ausência = 100 / 0
+    uint8_t iot_duty_off              = 0;
 
     // Estado em runtime — escrito pelos serviços, lido pelo WebService
     char          publicIP[16]  = {};

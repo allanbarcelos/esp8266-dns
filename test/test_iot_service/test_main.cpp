@@ -224,8 +224,8 @@ void test_parse_faixa() {
 
 void test_tipo_desconhecido_vira_digital() {
     arm(2, 0);
-    cfg.iot_sensor_type = 9;
-    cfg.iot_module_type = 9;
+    cfg.iot_sensor_type = 99;
+    cfg.iot_module_type = 99;
     IoTService iot{cfg, logger};
     mock::pinIn[2] = HIGH;
     iot.begin();
@@ -564,6 +564,169 @@ void test_histerese_abaixo_sem_ntfy() {
     TEST_ASSERT_EQUAL(logged, logger.count());
 }
 
+void test_catalogo_e_apelidos_digitais() {
+    TEST_ASSERT_EQUAL(16, IoTService::SENSOR_COUNT);
+    TEST_ASSERT_EQUAL(8, IoTService::MODULE_COUNT);
+    TEST_ASSERT_EQUAL(IoTService::KIND_RANGE, IoTService::sensorKind(IoTService::SENSOR_RANGE));
+    TEST_ASSERT_EQUAL(IoTService::KIND_DIGITAL, IoTService::sensorKind(IoTService::SENSOR_PIR));
+    TEST_ASSERT_EQUAL(IoTService::KIND_DIGITAL, IoTService::sensorKind(99));
+    TEST_ASSERT_EQUAL_STRING("Ultrassom", IoTService::sensorLabel(IoTService::SENSOR_RANGE));
+    TEST_ASSERT_EQUAL_STRING("Gas", IoTService::sensorLabel(IoTService::SENSOR_GAS));
+    TEST_ASSERT_EQUAL_STRING("Digital", IoTService::sensorLabel(99));
+    TEST_ASSERT_EQUAL(IoTService::MKIND_PWM, IoTService::moduleKind(IoTService::MODULE_MOTOR));
+    TEST_ASSERT_EQUAL(IoTService::MKIND_LEVEL, IoTService::moduleKind(IoTService::MODULE_PUMP));
+    TEST_ASSERT_EQUAL(IoTService::MKIND_LEVEL, IoTService::moduleKind(99));
+    TEST_ASSERT_EQUAL_STRING("Motor", IoTService::moduleLabel(IoTService::MODULE_MOTOR));
+    TEST_ASSERT_EQUAL_STRING("Rele", IoTService::moduleLabel(99));
+
+    const uint8_t sensors[] = {
+        IoTService::SENSOR_PIR, IoTService::SENSOR_DOOR, IoTService::SENSOR_RAIN,
+        IoTService::SENSOR_FLAME, IoTService::SENSOR_GAS, IoTService::SENSOR_SOIL,
+        IoTService::SENSOR_LIGHT, IoTService::SENSOR_SOUND, IoTService::SENSOR_FLOAT,
+        IoTService::SENSOR_BUTTON
+    };
+    const uint8_t modules[] = {
+        IoTService::MODULE_LED, IoTService::MODULE_BUZZER,
+        IoTService::MODULE_PUMP, IoTService::MODULE_VALVE
+    };
+    for (uint8_t i = 0; i < 10; i++) {
+        resetMocks();
+        logger = Logger();
+        cfg = Config{};
+        arm(2, 0);
+        cfg.iot_sensor_type = sensors[i];
+        cfg.iot_module_type = modules[i % 4];
+        cfg.iot_sensor_high = true;
+        IoTService iot{cfg, logger};
+        mock::pinIn[2] = HIGH;
+        iot.begin();
+        iot.tick(0);
+        iot.tick(IoTService::DEBOUNCE_MS);
+        TEST_ASSERT_EQUAL_STRING("alto", iot.sensorText());
+        TEST_ASSERT_TRUE(iot.moduleOn());
+        TEST_ASSERT_EQUAL(LOW, mock::pinOut[0]);
+    }
+}
+
+static void echo(uint8_t pin, unsigned long highUs) {
+    mock::bus = true;
+    mock::busPin = pin;
+    mock::busAt = 0;
+    mock::busSegs.clear();
+    seg(HIGH, highUs);
+    seg(LOW, 2000);
+}
+
+void test_ultrassom_distancia_falhas_e_folga() {
+    arm(2, 0);
+    cfg.iot_sensor_type = IoTService::SENSOR_RANGE;
+    cfg.iot_threshold = 10;
+    cfg.iot_above = false;
+    cfg.iot_notify = true;
+    IoTService iot{cfg, logger};
+    iot.begin();
+    TEST_ASSERT_EQUAL_STRING("aguardando", iot.sensorText());
+
+    echo(2, 580);
+    iot.tick(0);
+    TEST_ASSERT_EQUAL_STRING("dist 10 cm", iot.sensorText());
+    TEST_ASSERT_TRUE(iot.moduleOn());
+    TEST_ASSERT_EQUAL_STRING("[sensor] GPIO2 dist 10 cm modulo ligado", iot.message());
+
+    echo(2, 0);
+    iot.tick(IoTService::READ_GAP_MS - 1);
+    TEST_ASSERT_EQUAL_STRING("dist 10 cm", iot.sensorText());
+
+    echo(2, 15 * 58);
+    iot.tick(IoTService::READ_GAP_MS);
+    TEST_ASSERT_EQUAL_STRING("dist 15 cm", iot.sensorText());
+    TEST_ASSERT_FALSE(iot.moduleOn());
+
+    echo(2, 2);
+    iot.tick(IoTService::READ_GAP_MS * 2);
+    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+    TEST_ASSERT_TRUE(logHas(logger, "IoT: leitura falhou"));
+    TEST_ASSERT_FALSE(iot.moduleOn());
+    uint8_t logged = logger.count();
+
+    mock::bus = true;
+    mock::busPin = 2;
+    mock::busAt = 0;
+    mock::busSegs.clear();
+    seg(LOW, 80000);
+    iot.tick(IoTService::READ_GAP_MS * 3);
+    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+    TEST_ASSERT_EQUAL(logged, logger.count());
+
+    mock::busAt = 0;
+    mock::busSegs.clear();
+    seg(HIGH, 80000);
+    iot.tick(IoTService::READ_GAP_MS * 4);
+    TEST_ASSERT_EQUAL(logged, logger.count());
+
+    echo(2, 401 * 58);
+    iot.tick(IoTService::READ_GAP_MS * 5);
+    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+
+    echo(2, 400 * 58);
+    iot.tick(IoTService::READ_GAP_MS * 6);
+    TEST_ASSERT_EQUAL_STRING("dist 400 cm", iot.sensorText());
+}
+
+void test_pwm_duty_e_pinos_de_boot() {
+    arm(2, 0);
+    cfg.iot_module_type = IoTService::MODULE_FAN;
+    cfg.iot_duty_on = 80;
+    cfg.iot_duty_off = 20;
+    cfg.iot_sensor_high = true;
+    cfg.iot_notify = true;
+    IoTService iot{cfg, logger};
+    mock::pinIn[2] = LOW;
+    iot.begin();
+    TEST_ASSERT_EQUAL(20 * 1023 / 100, mock::analogValue[0]);
+    TEST_ASSERT_EQUAL_STRING("pwm 20%", iot.moduleText());
+
+    mock::pinIn[2] = HIGH;
+    iot.tick(0);
+    iot.tick(IoTService::DEBOUNCE_MS);
+    TEST_ASSERT_EQUAL(80 * 1023 / 100, mock::analogValue[0]);
+    TEST_ASSERT_EQUAL_STRING("pwm 80%", iot.moduleText());
+    TEST_ASSERT_EQUAL_STRING("[sensor] GPIO2 alto pwm 80%", iot.message());
+
+    cfg.iot_sensor_pin = -1;
+    iot.begin();
+    TEST_ASSERT_EQUAL(0, mock::analogValue[0]);
+    TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[0]);
+
+    arm(0, 2);
+    cfg.iot_sensor_pin = 0;
+    cfg.iot_module_type = IoTService::MODULE_MOTOR;
+    cfg.iot_duty_off = 0;
+    IoTService gpio2{cfg, logger};
+    gpio2.begin();
+    cfg.iot_sensor_pin = -1;
+    gpio2.begin();
+    TEST_ASSERT_EQUAL(0, mock::analogValue[2]);
+    TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[2]);
+
+    arm(2, 1);
+    cfg.iot_sensor_pin = 2;
+    cfg.iot_module_type = IoTService::MODULE_FAN;
+    cfg.iot_duty_on = 40;
+    cfg.iot_duty_off = 150;
+    IoTService fora{cfg, logger};
+    mock::pinIn[2] = HIGH;
+    fora.begin();
+    TEST_ASSERT_EQUAL(1023, mock::analogValue[1]);
+    fora.tick(0);
+    fora.tick(IoTService::DEBOUNCE_MS);
+    TEST_ASSERT_EQUAL(40 * 1023 / 100, mock::analogValue[1]);
+    cfg.iot_sensor_pin = -1;
+    fora.begin();
+    TEST_ASSERT_EQUAL(OUTPUT, mock::pinModeV[1]);
+    TEST_ASSERT_EQUAL(0, mock::analogValue[1]);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_pinos_e_parse);
@@ -581,5 +744,8 @@ int main() {
     RUN_TEST(test_ds18b20_conversao_e_erros);
     RUN_TEST(test_pulsos_na_janela);
     RUN_TEST(test_histerese_abaixo_sem_ntfy);
+    RUN_TEST(test_catalogo_e_apelidos_digitais);
+    RUN_TEST(test_ultrassom_distancia_falhas_e_folga);
+    RUN_TEST(test_pwm_duty_e_pinos_de_boot);
     return UNITY_END();
 }

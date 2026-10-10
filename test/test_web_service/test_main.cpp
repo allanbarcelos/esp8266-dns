@@ -152,6 +152,9 @@ void test_root_modo_estacao() {
     TEST_ASSERT_TRUE(contains(f.out(), "nunca"));
     TEST_ASSERT_TRUE(contains(f.out(), "Firmware: dev"));
     TEST_ASSERT_FALSE(contains(f.out(), "OTA em progresso"));
+    TEST_ASSERT_TRUE(contains(f.out(), "docs/esp-01.jpg"));
+    TEST_ASSERT_TRUE(contains(f.out(), "alt='ESP-01'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Firmware para o modulo ESP-01"));
 }
 
 void test_root_com_ip_e_ultima_atualizacao() {
@@ -182,6 +185,8 @@ void test_root_modo_configuracao_primeiro_acesso() {
     f.enterConfigMode();
     f.get("/");
     TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "docs/esp-01.jpg"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Firmware para o modulo ESP-01"));
     TEST_ASSERT_TRUE(contains(f.out(), "Modo de configuracao"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='pass1'"));      // define senha do painel
     TEST_ASSERT_TRUE(contains(f.out(), "value='admin'"));
@@ -633,7 +638,16 @@ void test_iot_pagina_tipos() {
     Fixture f;
     f.get("/iot");
     TEST_ASSERT_TRUE(contains(f.out(), "value='0' selected>Digital"));
-    TEST_ASSERT_TRUE(contains(f.out(), "value='0' selected>Nivel"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='0' selected>Rele"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">PIR</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">Ultrassom</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">Bomba</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">Ventilador</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">Motor</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "sk=[0,1,2,3,4,0,0,0,0,0,0,0,0,0,0,5]"));
+    TEST_ASSERT_TRUE(contains(f.out(), "mk=[0,1,0,0,0,0,2,2]"));
+    TEST_ASSERT_TRUE(contains(f.out(), "}iotSync();"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_pwm' style='display:none'"));
     TEST_ASSERT_TRUE(contains(f.out(), "value='0' selected>Abaixo de"));
     TEST_ASSERT_TRUE(contains(f.out(), "id='iot_value' style='display:none'"));
     TEST_ASSERT_TRUE(contains(f.out(), "iotSync"));
@@ -665,6 +679,19 @@ void test_iot_pagina_tipos() {
     cfg.iot_sensor_type = IoTService::SENSOR_PULSE;
     f.get("/iot");
     TEST_ASSERT_TRUE(contains(f.out(), "value='4' selected>Pulsos (10 s)"));
+
+    cfg.iot_sensor_type = IoTService::SENSOR_RANGE;
+    cfg.iot_module_type = IoTService::MODULE_FAN;
+    cfg.iot_duty_on = 70;
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(), "value='15' selected>Ultrassom"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='6' selected>Ventilador"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_value'>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_metric' style='display:none'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_pwm'>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_level' style='display:none'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_servo' style='display:none'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='duty_on' value='70'"));
 }
 
 void test_iot_save_dht_servo_e_pulsos() {
@@ -702,13 +729,13 @@ void test_iot_save_dht_servo_e_pulsos() {
 
 void test_iot_save_rejeita_valores() {
     Fixture f;
-    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"}, {"sensor_type", "9"}});
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"}, {"sensor_type", "99"}});
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
     TEST_ASSERT_EQUAL(-1, cfg.iot_sensor_pin);
 
     f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
-                         {"sensor_type", "2"}, {"module_type", "2"}});
+                         {"sensor_type", "2"}, {"module_type", "99"}});
     TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
 
     f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
@@ -734,6 +761,47 @@ void test_iot_save_rejeita_valores() {
                          {"module_type", "1"}, {"angle_on", "10"},
                          {"angle_off", "200"}});
     TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "15"}, {"module_type", "6"},
+                         {"threshold", "30"}, {"duty_on", "101"},
+                         {"duty_off", "0"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "15"}, {"module_type", "6"},
+                         {"threshold", "30"}, {"duty_on", "10"},
+                         {"duty_off", "101"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+}
+
+void test_iot_save_ultrassom_pwm_e_apelido() {
+    Fixture f;
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "15"}, {"module_type", "6"},
+                         {"threshold", "30"}, {"margin", "2"}, {"above", "1"},
+                         {"duty_on", "70"}, {"duty_off", "5"},
+                         {"sensor_high", "1"}, {"module_high", "0"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL(IoTService::SENSOR_RANGE, cfg.iot_sensor_type);
+    TEST_ASSERT_EQUAL(IoTService::MODULE_FAN, cfg.iot_module_type);
+    TEST_ASSERT_EQUAL(30, cfg.iot_threshold);
+    TEST_ASSERT_EQUAL(2, cfg.iot_margin);
+    TEST_ASSERT_TRUE(cfg.iot_above);
+    TEST_ASSERT_EQUAL(70, cfg.iot_duty_on);
+    TEST_ASSERT_EQUAL(5, cfg.iot_duty_off);
+    TEST_ASSERT_EQUAL(5 * 1023 / 100, mock::analogValue[0]);
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"iot_duty_on\":70"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "5"}, {"module_type", "4"},
+                         {"sensor_high", "1"}, {"module_high", "1"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL(IoTService::SENSOR_PIR, cfg.iot_sensor_type);
+    TEST_ASSERT_EQUAL(IoTService::MODULE_PUMP, cfg.iot_module_type);
+    TEST_ASSERT_EQUAL(100, cfg.iot_duty_on);
+    TEST_ASSERT_EQUAL(0, cfg.iot_duty_off);
+    TEST_ASSERT_EQUAL(OUTPUT, mock::pinModeV[0]);
 }
 
 void test_iot_save_rejeita_pino_e_falha_ao_gravar() {
@@ -805,6 +873,7 @@ int main() {
     RUN_TEST(test_iot_pagina_tipos);
     RUN_TEST(test_iot_save_dht_servo_e_pulsos);
     RUN_TEST(test_iot_save_rejeita_valores);
+    RUN_TEST(test_iot_save_ultrassom_pwm_e_apelido);
     RUN_TEST(test_iot_save_rejeita_pino_e_falha_ao_gravar);
     return UNITY_END();
 }
