@@ -4,13 +4,17 @@
 #include "Config.h"
 #include "Logger.h"
 #include "PublicIPResolver.h"
+#include "IoTService.h"
 
 // Notifica o IP público via ntfy.sh no boot e sempre que ele mudar.
 // Descobre o IP sozinho: não depende do Cloudflare estar configurado.
+// O mesmo tópico leva o sensor, com o prefixo [sensor] ou [ip].
 class NtfyNotifier {
 public:
-    NtfyNotifier(Config& cfg, Logger& log, PublicIPResolver& resolver)
-        : _cfg(cfg), _log(log), _resolver(resolver), _lastAttempt(0), _attempted(false) {
+    NtfyNotifier(Config& cfg, Logger& log, PublicIPResolver& resolver,
+                 IoTService* iot = nullptr)
+        : _cfg(cfg), _log(log), _resolver(resolver), _iot(iot),
+          _lastAttempt(0), _attempted(false) {
         _lastSent[0] = '\0';
     }
 
@@ -21,12 +25,20 @@ public:
         _attempted   = true;
         _lastAttempt = now;
 
+        if (_iot && _iot->pending()) {
+            if (_post(_iot->message())) _iot->ack();
+            return;
+        }
+
         char ip[16];
         if (!_resolver.resolve(ip, sizeof(ip), now)) return;
 
         strlcpy(_cfg.publicIP, ip, sizeof(_cfg.publicIP));
         if (strcmp(ip, _lastSent) == 0) return;
-        if (_send(ip))
+
+        char body[24];
+        snprintf(body, sizeof(body), "[ip] %s", ip);
+        if (_post(body))
             strlcpy(_lastSent, ip, sizeof(_lastSent));
     }
 
@@ -46,12 +58,13 @@ private:
     Config&           _cfg;
     Logger&           _log;
     PublicIPResolver& _resolver;
+    IoTService*       _iot;
 
     char          _lastSent[16];
     unsigned long _lastAttempt;
     bool          _attempted;
 
-    bool _send(const char* ip) {
+    bool _post(const char* body) {
         if (!PublicIPResolver::memoryOk()) {
             _log.log("ntfy: memoria insuficiente");
             return false;
@@ -74,9 +87,6 @@ private:
         }
 
         http.addHeader("Content-Type", "text/plain");
-        String body = "IP publico atual: ";
-        body += ip;
-
         int code = http.POST(body);
         http.end();
 

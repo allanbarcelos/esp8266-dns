@@ -50,6 +50,57 @@ void test_load_defaults() {
     TEST_ASSERT_EQUAL_STRING("", config.pass.c_str());
     TEST_ASSERT_EQUAL(0, config.cf_record_count);
     TEST_ASSERT_TRUE(config.ota_auto);
+    TEST_ASSERT_EQUAL(0, config.iot_sensor_type);
+    TEST_ASSERT_EQUAL(0, config.iot_module_type);
+    TEST_ASSERT_FALSE(config.iot_above);
+    TEST_ASSERT_EQUAL(0, config.iot_threshold);
+    TEST_ASSERT_EQUAL(90, config.iot_angle_on);
+    TEST_ASSERT_EQUAL(0, config.iot_angle_off);
+}
+
+void test_iot_persiste_e_ausencia_desliga() {
+    TEST_ASSERT_EQUAL(-1, config.iot_sensor_pin);
+    TEST_ASSERT_EQUAL(-1, config.iot_module_pin);
+    TEST_ASSERT_TRUE(config.iot_sensor_high);
+    TEST_ASSERT_FALSE(config.iot_module_high);
+    TEST_ASSERT_FALSE(config.iot_notify);
+
+    config.iot_sensor_pin = 2;
+    config.iot_module_pin = 0;
+    config.iot_sensor_high = false;
+    config.iot_module_high = true;
+    config.iot_notify = true;
+    TEST_ASSERT_TRUE(store.save());
+    config = Config{};
+    TEST_ASSERT_EQUAL(-1, config.iot_sensor_pin);
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL(2, config.iot_sensor_pin);
+    TEST_ASSERT_EQUAL(0, config.iot_module_pin);
+    TEST_ASSERT_FALSE(config.iot_sensor_high);
+    TEST_ASSERT_TRUE(config.iot_module_high);
+    TEST_ASSERT_TRUE(config.iot_notify);
+    TEST_ASSERT_EQUAL(0, config.iot_sensor_type);
+    TEST_ASSERT_EQUAL(90, config.iot_angle_on);
+
+    config.iot_sensor_type = 2;
+    config.iot_module_type = 1;
+    config.iot_metric = 1;
+    config.iot_above = true;
+    config.iot_threshold = -10;
+    config.iot_margin = 2;
+    config.iot_angle_on = 180;
+    config.iot_angle_off = 15;
+    TEST_ASSERT_TRUE(store.save());
+    config = Config{};
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL(2, config.iot_sensor_type);
+    TEST_ASSERT_EQUAL(1, config.iot_module_type);
+    TEST_ASSERT_EQUAL(1, config.iot_metric);
+    TEST_ASSERT_TRUE(config.iot_above);
+    TEST_ASSERT_EQUAL(-10, config.iot_threshold);
+    TEST_ASSERT_EQUAL(2, config.iot_margin);
+    TEST_ASSERT_EQUAL(180, config.iot_angle_on);
+    TEST_ASSERT_EQUAL(15, config.iot_angle_off);
 }
 
 void test_ota_auto_persiste() {
@@ -166,6 +217,7 @@ int main() {
     RUN_TEST(test_load_falha_ao_abrir);
     RUN_TEST(test_load_retorna_false_json_invalido);
     RUN_TEST(test_load_defaults);
+    RUN_TEST(test_iot_persiste_e_ausencia_desliga);
     RUN_TEST(test_ota_auto_persiste);
     RUN_TEST(test_load_limita_quantidade_de_records);
     RUN_TEST(test_load_record_nao_texto_vira_vazio);

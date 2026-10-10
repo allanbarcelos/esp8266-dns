@@ -15,7 +15,8 @@ struct Fixture {
     ConfigStore store{cfg, logger};
     WiFiService wifi{cfg, logger};
     OTAService  ota{logger, wifi};
-    WebService  web{cfg, logger, store, wifi, ota};
+    IoTService  iot{cfg, logger};
+    WebService  web{cfg, logger, store, wifi, ota, iot};
     ESP8266WebServer& srv = *ESP8266WebServer::instance();
 
     Fixture() { web.begin(); }
@@ -66,12 +67,24 @@ void test_format_duration() {
     TEST_ASSERT_EQUAL_STRING("1h 01m 01s", WebService::formatDuration(3661000UL).c_str());
 }
 
+void test_format_bytes() {
+    TEST_ASSERT_EQUAL_STRING("0 B", WebService::formatBytes(0).c_str());
+    TEST_ASSERT_EQUAL_STRING("8 B", WebService::formatBytes(8).c_str());
+    TEST_ASSERT_EQUAL_STRING("1000 B", WebService::formatBytes(1000).c_str());
+    TEST_ASSERT_EQUAL_STRING("1 KB", WebService::formatBytes(1024).c_str());
+    TEST_ASSERT_EQUAL_STRING("1.5 KB", WebService::formatBytes(1500).c_str());
+    TEST_ASSERT_EQUAL_STRING("1 MB", WebService::formatBytes(1024UL * 1024UL).c_str());
+    TEST_ASSERT_EQUAL_STRING("1.5 MB", WebService::formatBytes(1572864).c_str());
+    TEST_ASSERT_EQUAL_STRING("1 GB", WebService::formatBytes(1024UL * 1024UL * 1024UL).c_str());
+    TEST_ASSERT_EQUAL_STRING("1.5 GB", WebService::formatBytes(1610612736UL).c_str());
+}
+
 // ── inicialização e segurança ───────────────────────────────────────────────
 
 void test_begin_registra_rotas_e_gera_csrf_aleatorio() {
     Fixture f;
     TEST_ASSERT_TRUE(f.srv.started);
-    TEST_ASSERT_EQUAL(14, (int)f.srv.routes.size());
+    TEST_ASSERT_EQUAL(16, (int)f.srv.routes.size());
     TEST_ASSERT_EQUAL(16, (int)std::strlen(f.web.csrfToken()));
 
     std::string first = f.web.csrfToken();
@@ -88,7 +101,7 @@ void test_tick_atende_clientes() {
 void test_sem_senha_redireciona_para_definir_senha() {
     cfg.webpss = "";
     Fixture f;
-    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/update"};
+    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/update", "/iot"};
     for (const char* p : paths) {
         f.get(p);
         TEST_ASSERT_EQUAL(302, f.srv.code);
@@ -101,14 +114,14 @@ void test_sem_senha_redireciona_para_definir_senha() {
 void test_autenticacao_obrigatoria() {
     Fixture f;
     f.srv.authOk = false;
-    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/password", "/update"};
+    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/password", "/update", "/iot"};
     for (const char* p : paths) {
         f.get(p);
         TEST_ASSERT_TRUE(f.srv.authRequested);
         TEST_ASSERT_EQUAL(401, f.srv.code);
     }
     const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/password/save",
-                           "/update/auto", "/update/check", "/update/install"};
+                           "/update/auto", "/update/check", "/update/install", "/iot/save"};
     for (const char* p : posts) {
         f.post(p);
         TEST_ASSERT_EQUAL(401, f.srv.code);
@@ -120,7 +133,7 @@ void test_autenticacao_obrigatoria() {
 void test_csrf_invalido_rejeitado_em_todos_os_posts() {
     Fixture f;
     const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/password/save",
-                           "/update/auto", "/update/check", "/update/install"};
+                           "/update/auto", "/update/check", "/update/install", "/iot/save"};
     for (const char* p : posts) {
         f.srv.request(HTTP_POST, p, {{"_csrf", "00000000deadbeef"}});
         TEST_ASSERT_EQUAL(403, f.srv.code);
@@ -159,7 +172,7 @@ void test_root_mostra_progresso_ota() {
     f.get("/");
     TEST_ASSERT_TRUE(contains(f.out(), "OTA em progresso"));
     TEST_ASSERT_TRUE(contains(f.out(), "51%"));
-    TEST_ASSERT_TRUE(contains(f.out(), "512 / 1000 bytes"));
+    TEST_ASSERT_TRUE(contains(f.out(), "512 B / 1000 B"));
 }
 
 void test_root_modo_configuracao_primeiro_acesso() {
@@ -284,7 +297,14 @@ void test_status_conectado() {
     f.get("/status");
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "http-equiv='refresh' content='30'"));
-    TEST_ASSERT_TRUE(contains(f.out(), "Heap livre"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Heap livre</span><span class='kv-value text-end ms-3'>48.8 KB"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Maior bloco</span><span class='kv-value text-end ms-3'>39.1 KB"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Flash"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">1 MB<"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">293 KB<"));
+    TEST_ASSERT_TRUE(contains(f.out(), "LittleFS"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">64 KB<"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">8 KB<"));
     TEST_ASSERT_TRUE(contains(f.out(), "dead"));               // chip id em hex
     TEST_ASSERT_TRUE(contains(f.out(), "192.168.1.1"));
     TEST_ASSERT_TRUE(contains(f.out(), "AA:BB:CC:DD:EE:FF"));
@@ -547,11 +567,198 @@ void test_password_save_falha_ao_gravar() {
     TEST_ASSERT_TRUE(old == f.web.csrfToken());
 }
 
+void test_iot_pagina_inicial() {
+    Fixture f;
+    f.get("/iot");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "docs/esp01-pinout.png"));
+    TEST_ASSERT_TRUE(contains(f.out(), "[sensor]"));
+    TEST_ASSERT_TRUE(contains(f.out(), "[ip]"));
+    TEST_ASSERT_TRUE(contains(f.out(), "nenhum"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='-1' selected>Nenhum"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='1' selected>Alto"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='0' selected>Baixo"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='1'><label"));
+    TEST_ASSERT_FALSE(contains(f.out(), "http-equiv='refresh'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "Cadastre o topico"));
+}
+
+void test_iot_pagina_leitura_e_aviso_de_topico() {
+    cfg.iot_sensor_pin = 2;
+    cfg.iot_module_pin = 0;
+    cfg.iot_notify = true;
+    Fixture f;
+    mock::pinIn[2] = LOW;
+    f.iot.begin();
+    f.iot.tick(0);
+    f.iot.tick(IoTService::DEBOUNCE_MS);
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(), "http-equiv='refresh' content='5'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "baixo"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='2' selected>GPIO2"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='1' checked>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Cadastre o topico"));
+
+    strlcpy(cfg.ntfy_topic, "topico", sizeof(cfg.ntfy_topic));
+    f.get("/iot");
+    TEST_ASSERT_FALSE(contains(f.out(), "Cadastre o topico"));
+}
+
+void test_iot_save() {
+    Fixture f;
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_high", "0"}, {"module_high", "1"},
+                         {"iot_notify", "1"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "IoT configurado"));
+    TEST_ASSERT_EQUAL(2, cfg.iot_sensor_pin);
+    TEST_ASSERT_EQUAL(0, cfg.iot_module_pin);
+    TEST_ASSERT_FALSE(cfg.iot_sensor_high);
+    TEST_ASSERT_TRUE(cfg.iot_module_high);
+    TEST_ASSERT_TRUE(cfg.iot_notify);
+    TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[2]);
+    TEST_ASSERT_EQUAL(OUTPUT, mock::pinModeV[0]);
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"iot_sensor\":2"));
+
+    f.post("/iot/save", {{"sensor", "-1"}, {"module", "-1"},
+                         {"sensor_high", "1"}, {"module_high", "0"}});
+    TEST_ASSERT_EQUAL(-1, cfg.iot_sensor_pin);
+    TEST_ASSERT_FALSE(cfg.iot_notify);
+    TEST_ASSERT_EQUAL(OUTPUT, mock::pinModeV[0]);
+    TEST_ASSERT_EQUAL(LOW, mock::pinOut[0]);
+    TEST_ASSERT_FALSE(f.iot.moduleOn());
+}
+
+void test_iot_pagina_tipos() {
+    Fixture f;
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(), "value='0' selected>Digital"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='0' selected>Nivel"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='0' selected>Abaixo de"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_value' style='display:none'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "iotSync"));
+
+    cfg.iot_sensor_type = IoTService::SENSOR_DHT11;
+    cfg.iot_module_type = IoTService::MODULE_SERVO;
+    cfg.iot_metric = 1;
+    cfg.iot_above = true;
+    cfg.iot_angle_on = 180;
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(), "value='1' selected>DHT11"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='1' selected>Servo"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='1' selected>Temperatura"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='1' selected>Acima de"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_digital' style='display:none'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_servo'>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='angle_on' value='180'"));
+
+    cfg.iot_sensor_type = IoTService::SENSOR_DHT22;
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(), "value='2' selected>DHT22"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_metric'>"));
+
+    cfg.iot_sensor_type = IoTService::SENSOR_DS18B20;
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(), "value='3' selected>DS18B20"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_metric' style='display:none'"));
+
+    cfg.iot_sensor_type = IoTService::SENSOR_PULSE;
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(), "value='4' selected>Pulsos (10 s)"));
+}
+
+void test_iot_save_dht_servo_e_pulsos() {
+    Fixture f;
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "2"}, {"module_type", "1"},
+                         {"metric", "1"}, {"above", "1"},
+                         {"threshold", "26"}, {"margin", "2"},
+                         {"angle_on", "170"}, {"angle_off", "15"},
+                         {"sensor_high", "1"}, {"module_high", "0"},
+                         {"iot_notify", "1"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL(2, cfg.iot_sensor_type);
+    TEST_ASSERT_EQUAL(1, cfg.iot_module_type);
+    TEST_ASSERT_EQUAL(1, cfg.iot_metric);
+    TEST_ASSERT_TRUE(cfg.iot_above);
+    TEST_ASSERT_EQUAL(26, cfg.iot_threshold);
+    TEST_ASSERT_EQUAL(2, cfg.iot_margin);
+    TEST_ASSERT_EQUAL(170, cfg.iot_angle_on);
+    TEST_ASSERT_EQUAL(15, cfg.iot_angle_off);
+    TEST_ASSERT_TRUE(mock::servoAttached);
+    TEST_ASSERT_EQUAL(15, mock::servoAngle);
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"iot_sensor_type\":2"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "-1"},
+                         {"sensor_type", "4"}, {"threshold", "12"},
+                         {"sensor_high", "1"}, {"module_high", "0"}});
+    TEST_ASSERT_EQUAL(4, cfg.iot_sensor_type);
+    TEST_ASSERT_EQUAL(0, cfg.iot_module_type);
+    TEST_ASSERT_EQUAL(12, cfg.iot_threshold);
+    TEST_ASSERT_EQUAL(0, cfg.iot_margin);
+    TEST_ASSERT_FALSE(cfg.iot_above);
+    TEST_ASSERT_EQUAL(2, mock::isrPin);
+}
+
+void test_iot_save_rejeita_valores() {
+    Fixture f;
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"}, {"sensor_type", "9"}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+    TEST_ASSERT_EQUAL(-1, cfg.iot_sensor_pin);
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "2"}, {"module_type", "2"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "2"}, {"metric", "3"},
+                         {"threshold", "10"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "2"}, {"threshold", "x"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "2"}, {"threshold", "40"},
+                         {"margin", "99"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"module_type", "1"}, {"angle_on", "200"},
+                         {"angle_off", "10"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"module_type", "1"}, {"angle_on", "10"},
+                         {"angle_off", "200"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+}
+
+void test_iot_save_rejeita_pino_e_falha_ao_gravar() {
+    Fixture f;
+    f.post("/iot/save", {{"sensor", "9"}, {"module", "0"}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Pino invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "x"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Pino invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "2"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "pinos diferentes"));
+
+    MockFS::failWriteOpen = true;
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Falha ao salvar"));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_escape);
     RUN_TEST(test_mask_secret);
     RUN_TEST(test_format_duration);
+    RUN_TEST(test_format_bytes);
     RUN_TEST(test_begin_registra_rotas_e_gera_csrf_aleatorio);
     RUN_TEST(test_tick_atende_clientes);
     RUN_TEST(test_sem_senha_redireciona_para_definir_senha);
@@ -592,5 +799,12 @@ int main() {
     RUN_TEST(test_update_verificar_redireciona_e_mostra_resultado);
     RUN_TEST(test_update_instalar_sem_versao);
     RUN_TEST(test_update_instalar_mostra_progresso);
+    RUN_TEST(test_iot_pagina_inicial);
+    RUN_TEST(test_iot_pagina_leitura_e_aviso_de_topico);
+    RUN_TEST(test_iot_save);
+    RUN_TEST(test_iot_pagina_tipos);
+    RUN_TEST(test_iot_save_dht_servo_e_pulsos);
+    RUN_TEST(test_iot_save_rejeita_valores);
+    RUN_TEST(test_iot_save_rejeita_pino_e_falha_ao_gravar);
     return UNITY_END();
 }

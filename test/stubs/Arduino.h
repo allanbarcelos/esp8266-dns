@@ -18,6 +18,7 @@
 // ── Relógio controlável nos testes ──────────────────────────────────────────
 namespace mock {
     inline unsigned long _millis = 0;
+    inline unsigned long _micros = 0;
 }
 inline unsigned long millis()                        { return mock::_millis; }
 inline void          setMillis(unsigned long ms)     { mock::_millis = ms; }
@@ -25,6 +26,10 @@ inline void          advanceMillis(unsigned long ms) { mock::_millis += ms; }
 
 inline void delay(unsigned long ms) { mock::_millis += ms; }
 inline void yield() {}
+inline unsigned long micros() { return mock::_micros; }
+inline void delayMicroseconds(unsigned int us) { mock::_micros += us; }
+inline void noInterrupts() {}
+inline void interrupts() {}
 
 // ── SNTP ─────────────────────────────────────────────────────────────────────
 namespace mock {
@@ -55,6 +60,101 @@ inline size_t mock_strlcpy(char* dst, const char* src, size_t size) {
 
 #define HEX 16
 #define DEC 10
+
+#define LOW  0
+#define HIGH 1
+#define INPUT        0
+#define OUTPUT       1
+#define INPUT_PULLUP 2
+
+#define CHANGE  1
+#define FALLING 2
+#define RISING  3
+
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#endif
+
+namespace mock {
+    inline uint8_t pinModeV[16];
+    inline uint8_t pinIn[16];
+    inline uint8_t pinOut[16];
+
+    inline bool          bus = false;
+    inline uint8_t       busPin = 0;
+    inline unsigned long busAt = 0;
+    inline unsigned long busStep = 2;
+    struct BusSeg { int level; unsigned long dur; };
+    inline std::vector<BusSeg> busSegs;
+
+    inline int  servoPin = -1;
+    inline int  servoAngle = -1;
+    inline int  servoWrites = 0;
+    inline int  servoAttachResult = 1;
+    inline bool servoAttached = false;
+
+    inline void (*isr)() = nullptr;
+    inline uint8_t isrPin = 255;
+    inline int isrMode = -1;
+
+    inline int busRead() {
+        _micros += busStep;
+        busAt += busStep;
+        unsigned long end = 0;
+        for (const auto& s : busSegs) {
+            end += s.dur;
+            if (busAt <= end) return s.level;
+        }
+        return HIGH;
+    }
+
+    inline void resetPins() {
+        for (int i = 0; i < 16; i++) {
+            pinModeV[i] = 255;
+            pinIn[i]    = HIGH;
+            pinOut[i]   = LOW;
+        }
+    }
+
+    inline void resetBus() {
+        _micros = 0;
+        bus = false;
+        busPin = 0;
+        busAt = 0;
+        busSegs.clear();
+        servoPin = -1;
+        servoAngle = -1;
+        servoWrites = 0;
+        servoAttachResult = 1;
+        servoAttached = false;
+        isr = nullptr;
+        isrPin = 255;
+        isrMode = -1;
+    }
+}
+
+inline void pinMode(uint8_t pin, uint8_t mode) {
+    if (pin < 16) mock::pinModeV[pin] = mode;
+}
+inline void digitalWrite(uint8_t pin, uint8_t val) {
+    if (pin < 16) mock::pinOut[pin] = val;
+}
+inline int digitalRead(uint8_t pin) {
+    if (mock::bus && pin == mock::busPin) return mock::busRead();
+    return pin < 16 ? mock::pinIn[pin] : HIGH;
+}
+
+inline void attachInterrupt(uint8_t pin, void (*fn)(), int mode) {
+    mock::isrPin = pin;
+    mock::isr = fn;
+    mock::isrMode = mode;
+}
+inline void detachInterrupt(uint8_t pin) {
+    if (mock::isrPin == pin) {
+        mock::isr = nullptr;
+        mock::isrPin = 255;
+    }
+}
 
 // ── String ───────────────────────────────────────────────────────────────────
 class String {

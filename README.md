@@ -75,7 +75,8 @@ GitHub Releases ──(vN)──► ESP8266
 ```
 
 - Hourly (up to ~23 h of uptime) it queries `releases/latest`. It only installs `vN` tags **greater** than the current one, which prevents downgrades.
-- The build embeds `public.key`. The core `Updater` **verifies the signature** in `Update.end()` and rejects tampered images. This is why the transport may use unvalidated TLS.
+- A build that embeds `public.key` makes the core `Updater` **verify the signature** in `Update.end()` and store only the gzip. Manual install downloads the same file as the hourly check: `firmware.signed.bin` when the key is in the build, `firmware.bin` when it is not. The bootloader reads the uncompressed size from the last 4 bytes; on the signed file those bytes are the signature length, and storing that trailer corrupts the sketch.
+- PlatformIO embeds `public.key` before compilation (`pre:tools/embed_pubkey.py`), the same way arduino-cli does in CI. The link fails if the ELF lacks the verifier and that key. The native test leaves `ARDUINO_SIGNING` unset and therefore requires `firmware.bin`.
 - The image is **gzip-compressed** (the bootloader decompresses it). Without compression, the current and new firmware would not fit together in the 1 MB sketch area.
 - The download is aborted if Wi-Fi drops, a flash write fails, or no data arrives for 30 s.
 
@@ -83,8 +84,8 @@ GitHub Releases ──(vN)──► ESP8266
 
 | File                  | Purpose                                                                        |
 | --------------------- | ------------------------------------------------------------------------------ |
-| `firmware.signed.bin` | gzip + signature: used by the current firmware                                 |
-| `firmware.bin`        | unsigned gzip: only for migrating devices running old (non-verifying) firmware |
+| `firmware.signed.bin` | gzip + signature: builds that embed `public.key`                               |
+| `firmware.bin`        | plain gzip: builds without the key, so the bootloader reads the real size     |
 
 ### Signing key
 
@@ -141,9 +142,19 @@ Changes limited to tests, docs or the workflow do not create a release. To force
 
 ---
 
+## 🔌 IoT
+
+The **IoT** page configures one sensor and one module on the ESP-01 without editing the firmware. The available pins are GPIO0, GPIO2, TX and RX. The drawing is `docs/esp01-pinout.png`, and the panel loads that image from the repository.
+
+The sensor type can be digital, DHT11, DHT22, DS18B20 or pulses counted every 10 s. A digital level drives the module. The other types drive it when the number is above or below a limit, with a margin so it does not chatter. The module type can be a fixed level or a servo, with one angle for on and another for off. DHT and DS18B20 need a pull-up resistor. The servo uses a separate 5 V supply and a common ground.
+
+With the new keys missing from `/config.json`, the sensor and the module stay digital and the feature stays off until the user picks the pins. A reading is posted to the ntfy topic already configured, prefixed with `[sensor]`. The IP notice on that same topic uses `[ip]`.
+
+---
+
 ## 📋 Remote log (future work)
 
-Not in the firmware yet. The local ring (`Logger.h`, 10 lines of 128 characters, Serial and the panel) stays the RAM limit. The full copy goes through [ntfy.sh](https://ntfy.sh), on the topic already configured plus a `-log` suffix.
+Not in the firmware yet. The local ring (`Logger.h`, 10 lines of 128 characters, Serial and the panel) stays the RAM limit. The copy goes through [ntfy.sh](https://ntfy.sh) on the topic already configured, with the prefix `[log]`. The IP already goes out as `[ip]` and the sensor as `[sensor]`.
 
 - One POST carries several lines, on the same 60 s interval as the IP notice, and only when heap and a contiguous block are free for TLS. The ESP keeps talking to that single host.
 - With the new `/config.json` key absent, sending stays off. Devices already in the field keep the local log only.

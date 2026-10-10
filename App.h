@@ -9,6 +9,7 @@
 #include "PublicIPResolver.h"
 #include "CloudflareDNS.h"
 #include "OTAService.h"
+#include "IoTService.h"
 #include "NtfyNotifier.h"
 #include "WebService.h"
 
@@ -29,10 +30,11 @@ public:
     PublicIPResolver resolver{logger, clock};
     CloudflareDNS    dns{config, logger, wifi, resolver, clock};
     OTAService       ota{logger, wifi};
-    NtfyNotifier     ntfy{config, logger, resolver};
+    IoTService       iot{config, logger};
+    NtfyNotifier     ntfy{config, logger, resolver, &iot};
 
     // Camada 3 — painel web
-    WebService web{config, logger, configStore, wifi, ota};
+    WebService web{config, logger, configStore, wifi, ota, iot};
 
     void begin() {
         Serial.begin(115200);
@@ -48,6 +50,7 @@ public:
 
         web.begin();
         ota.setAutomatic(config.ota_auto);
+        iot.begin();
 
         // getResetReason sobrevive ao reboot e diz por que o boot anterior morreu.
         logger.log("Reset: %s", ESP.getResetReason().c_str());
@@ -63,6 +66,7 @@ public:
 
         dns.tick(now);
         ota.tick(now);
+        iot.tick(now);
         ntfy.tick(now);
     }
 };

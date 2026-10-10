@@ -53,7 +53,7 @@ void test_envia_no_boot_sem_cloudflare() {
     TEST_ASSERT_EQUAL_STRING("GET", MockHTTP::requests[0].method.c_str());
     TEST_ASSERT_EQUAL_STRING("https://ntfy.sh/meu-topico", MockHTTP::requests[1].url.c_str());
     TEST_ASSERT_EQUAL_STRING("POST", MockHTTP::requests[1].method.c_str());
-    TEST_ASSERT_TRUE(contains(MockHTTP::requests[1].payload, "1.2.3.4"));
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[1].payload, "[ip] 1.2.3.4"));
     TEST_ASSERT_FALSE(contains(MockHTTP::requests[1].payload, "9.9.9.9"));
     TEST_ASSERT_EQUAL_STRING("1.2.3.4", cfg.publicIP);
     TEST_ASSERT_TRUE(logHas(logger, "ntfy enviado (200)"));
@@ -141,6 +141,49 @@ void test_tls_indisponivel_nao_envia() {
     TEST_ASSERT_EQUAL(0, MockTLS::bufIn);
 }
 
+void test_iot_sem_leitura_ainda_envia_ip() {
+    Fix f;
+    IoTService iot{cfg, logger};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, &iot};
+    MockHTTP::push(200, "1.2.3.4");
+    MockHTTP::push(200, "ok");
+    ntfy.tick(0);
+    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[1].payload, "[ip] 1.2.3.4"));
+}
+
+void test_sensor_no_mesmo_topico() {
+    Fix f;
+    IoTService iot{cfg, logger};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, &iot};
+    cfg.iot_sensor_pin = 2;
+    cfg.iot_notify = true;
+    mock::pinIn[2] = HIGH;
+    iot.begin();
+    iot.tick(0);
+    iot.tick(IoTService::DEBOUNCE_MS);
+    TEST_ASSERT_TRUE(iot.pending());
+
+    MockHTTP::push(200, "ok");
+    ntfy.tick(0);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+    TEST_ASSERT_EQUAL_STRING("POST", MockHTTP::requests[0].method.c_str());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[0].payload, "[sensor] GPIO2 alto"));
+    TEST_ASSERT_FALSE(iot.pending());
+
+    mock::pinIn[2] = LOW;
+    iot.tick(IoTService::DEBOUNCE_MS + 1);
+    iot.tick(IoTService::DEBOUNCE_MS + 1 + IoTService::DEBOUNCE_MS);
+    TEST_ASSERT_TRUE(iot.pending());
+    ntfy.tick(IoTService::DEBOUNCE_MS + 1 + IoTService::DEBOUNCE_MS);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+
+    MockHTTP::push(500, "x");
+    ntfy.tick(NtfyNotifier::RETRY_INTERVAL);
+    TEST_ASSERT_TRUE(iot.pending());
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy erro: 500"));
+}
+
 void test_valida_topico() {
     TEST_ASSERT_TRUE(NtfyNotifier::isValidTopic("abc_DEF-123"));
     TEST_ASSERT_FALSE(NtfyNotifier::isValidTopic(""));
@@ -160,6 +203,8 @@ int main() {
     RUN_TEST(test_falha_aguarda_intervalo_para_retentar);
     RUN_TEST(test_erro_de_conexao);
     RUN_TEST(test_codigo_negativo);
+    RUN_TEST(test_iot_sem_leitura_ainda_envia_ip);
+    RUN_TEST(test_sensor_no_mesmo_topico);
     RUN_TEST(test_memoria_insuficiente_nao_envia);
     RUN_TEST(test_tls_indisponivel_nao_envia);
     RUN_TEST(test_valida_topico);

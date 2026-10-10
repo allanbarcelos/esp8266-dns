@@ -11,11 +11,15 @@
 
 // Atualização OTA a partir dos GitHub Releases.
 //
-// O transporte usa TLS sem validação de certificado, mas o firmware publicado
-// pelo CI é assinado (RSA-2048/SHA-256) e o Updater do core verifica a
-// assinatura com public.key embutida no build — um binário adulterado é
-// rejeitado em Update.end(). Versões mais antigas que a atual são ignoradas,
-// impedindo downgrade forçado via MITM na consulta de versão.
+// O transporte usa TLS sem validação de certificado. O arquivo baixado
+// depende de o build embutir public.key:
+//   - com a chave, firmware.signed.bin; Update.end() confere a assinatura
+//     RSA-2048/SHA-256 e grava só o gzip;
+//   - sem a chave, firmware.bin (gzip puro).
+// O eboot lê o tamanho descomprimido nos 4 últimos bytes. No arquivo
+// assinado esses bytes são o tamanho da assinatura. Gravá-lo sem remover
+// o trailer faz o bootloader copiar a imagem errada. Versões mais antigas
+// que a atual são ignoradas, impedindo downgrade.
 //
 // A imagem é comprimida com gzip (o eboot descomprime no boot): sem isso,
 // atual + nova não cabem juntas nos ~940 KB de área de sketch de 1 MB.
@@ -90,6 +94,22 @@ public:
         if (l < 0) return false;
         long c = parseTag(current);
         return c < 0 || l > c;
+    }
+
+    // Com public.key o Updater remove a assinatura. Sem ela, o gzip puro
+    // é o único arquivo cujo final o eboot interpreta como tamanho.
+    // ARDUINO_SIGNING vem do build. Não incluir Updater_Signing.h: o do
+    // core redefine a macro como 0 e apagaria a escolha do asset.
+    static const char* assetName(bool signing) {
+        return signing ? "firmware.signed.bin" : "firmware.bin";
+    }
+
+    static bool signingEnabled() {
+#if ARDUINO_SIGNING
+        return true;
+#else
+        return false;
+#endif
     }
 
     // "v42" → 42; qualquer outro formato → -1
@@ -228,7 +248,8 @@ private:
 
         String url = "https://github.com/allanbarcelos/esp8266-dns/releases/download/";
         url += version;
-        url += "/firmware.signed.bin"; // gzip + assinatura RSA
+        url += "/";
+        url += assetName(signingEnabled());
 
         _log.log("URL firmware: %s", url.c_str());
 

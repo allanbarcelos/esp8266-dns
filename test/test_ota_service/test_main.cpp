@@ -116,7 +116,7 @@ void test_tag_vazia() {
 
 // ── download ─────────────────────────────────────────────────────────────────
 
-void test_inicia_ota_com_binario_assinado() {
+void test_inicia_ota_com_o_arquivo_do_build() {
     Fixture f;
     queueUpdate(std::string(1024, 'X'));
     f.ota.tick(T);
@@ -124,10 +124,80 @@ void test_inicia_ota_com_binario_assinado() {
     TEST_ASSERT_TRUE(f.ota.inProgress());
     TEST_ASSERT_EQUAL(1024, f.ota.contentLength());
     TEST_ASSERT_EQUAL(0, (int)f.ota.bytesWritten());
-    TEST_ASSERT_EQUAL_STRING(
-        "https://github.com/allanbarcelos/esp8266-dns/releases/download/v999/firmware.signed.bin",
-        MockHTTP::calledURLs[1].c_str());
+    std::string url = "https://github.com/allanbarcelos/esp8266-dns/releases/download/v999/";
+    url += OTAService::assetName(OTAService::signingEnabled());
+    TEST_ASSERT_EQUAL_STRING(url.c_str(), MockHTTP::calledURLs[1].c_str());
     TEST_ASSERT_EQUAL(1024, (int)Update._size);
+}
+
+// Gzip de 32 bytes 0xE9 0x00…, mtime 0. Os 4 últimos bytes são o tamanho
+// descomprimido que o eboot vai copiar.
+static const uint8_t kGzip[] = {
+    0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x7b, 0xc9,
+    0x80, 0x1f, 0x00, 0x00, 0x6d, 0x75, 0xd8, 0xae, 0x20, 0x00, 0x00, 0x00
+};
+
+static uint32_t ebootSize(const uint8_t* image, size_t n) {
+    TEST_ASSERT_TRUE(n >= 6);
+    TEST_ASSERT_EQUAL_HEX8(0x1f, image[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x8b, image[1]);
+    return (uint32_t)image[n - 4]
+         | ((uint32_t)image[n - 3] << 8)
+         | ((uint32_t)image[n - 2] << 16)
+         | ((uint32_t)image[n - 1] << 24);
+}
+
+// O mesmo corte de Update.end() quando a verificação está ligada:
+// u32 no final = tamanho da assinatura, que não entra na imagem de boot.
+static bool stripSignature(const uint8_t* image, size_t n, size_t& payload) {
+    if (n < 4) return false;
+    uint32_t sigLen = (uint32_t)image[n - 4]
+                    | ((uint32_t)image[n - 3] << 8)
+                    | ((uint32_t)image[n - 2] << 16)
+                    | ((uint32_t)image[n - 1] << 24);
+    if (sigLen == 0 || sigLen > n - 4) return false;
+    payload = n - 4 - sigLen;
+    return payload >= 6;
+}
+
+void test_arquivo_bate_com_o_eboot() {
+    TEST_ASSERT_EQUAL_STRING("firmware.signed.bin", OTAService::assetName(true));
+    TEST_ASSERT_EQUAL_STRING("firmware.bin", OTAService::assetName(false));
+    TEST_ASSERT_EQUAL(32, (int)ebootSize(kGzip, sizeof(kGzip)));
+
+    const uint8_t sig[] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+    uint8_t signedImg[sizeof(kGzip) + sizeof(sig) + 4];
+    std::memcpy(signedImg, kGzip, sizeof(kGzip));
+    std::memcpy(signedImg + sizeof(kGzip), sig, sizeof(sig));
+    signedImg[sizeof(kGzip) + sizeof(sig) + 0] = (uint8_t)sizeof(sig);
+    signedImg[sizeof(kGzip) + sizeof(sig) + 1] = 0;
+    signedImg[sizeof(kGzip) + sizeof(sig) + 2] = 0;
+    signedImg[sizeof(kGzip) + sizeof(sig) + 3] = 0;
+
+    // Sem remover o trailer, o eboot copiaria 8 bytes, não o firmware.
+    TEST_ASSERT_EQUAL((int)sizeof(sig), (int)ebootSize(signedImg, sizeof(signedImg)));
+
+    size_t payload = 0;
+    TEST_ASSERT_TRUE(stripSignature(signedImg, sizeof(signedImg), payload));
+    TEST_ASSERT_EQUAL(sizeof(kGzip), payload);
+    TEST_ASSERT_EQUAL(32, (int)ebootSize(signedImg, payload));
+
+    size_t ignored = 0;
+    uint8_t curto[] = {1, 2, 3};
+    TEST_ASSERT_FALSE(stripSignature(curto, sizeof(curto), ignored));
+    uint8_t semAssinatura[] = {0, 0, 0, 0};
+    TEST_ASSERT_FALSE(stripSignature(semAssinatura, sizeof(semAssinatura), ignored));
+    uint8_t grande[] = {0x1f, 0x8b, 0, 0, 5, 0, 0, 0};
+    TEST_ASSERT_FALSE(stripSignature(grande, sizeof(grande), ignored));
+
+    const char* asset = OTAService::assetName(OTAService::signingEnabled());
+    if (OTAService::signingEnabled()) {
+        TEST_ASSERT_EQUAL_STRING("firmware.signed.bin", asset);
+        TEST_ASSERT_EQUAL(32, (int)ebootSize(signedImg, payload));
+    } else {
+        TEST_ASSERT_EQUAL_STRING("firmware.bin", asset);
+        TEST_ASSERT_EQUAL(32, (int)ebootSize(kGzip, sizeof(kGzip)));
+    }
 }
 
 void test_falha_ao_conectar_no_download() {
@@ -287,6 +357,9 @@ void test_instalacao_manual() {
     f.ota.tick(1);
     TEST_ASSERT_TRUE(f.ota.inProgress());
     TEST_ASSERT_EQUAL(128, f.ota.contentLength());
+    TEST_ASSERT_TRUE(contains(
+        MockHTTP::calledURLs.back(),
+        OTAService::assetName(OTAService::signingEnabled())));
 }
 
 void test_instalacao_sem_versao_e_ignorada() {
@@ -414,7 +487,8 @@ int main() {
     RUN_TEST(test_erro_http_na_api);
     RUN_TEST(test_json_invalido_na_api);
     RUN_TEST(test_tag_vazia);
-    RUN_TEST(test_inicia_ota_com_binario_assinado);
+    RUN_TEST(test_inicia_ota_com_o_arquivo_do_build);
+    RUN_TEST(test_arquivo_bate_com_o_eboot);
     RUN_TEST(test_falha_ao_conectar_no_download);
     RUN_TEST(test_erro_http_no_download);
     RUN_TEST(test_tamanho_invalido);

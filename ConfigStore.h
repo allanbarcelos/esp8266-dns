@@ -9,7 +9,7 @@ public:
     ConfigStore(Config& cfg, Logger& log) : _cfg(cfg), _log(log) {}
 
     // Capacidade folgada para o pior caso (todos os campos no tamanho máximo)
-    static constexpr size_t JSON_CAPACITY = 1536;
+    static constexpr size_t JSON_CAPACITY = 2048;
 
     bool begin() {
         if (!LittleFS.begin()) {
@@ -48,6 +48,19 @@ public:
 
         strlcpy(_cfg.ntfy_topic, doc["ntfy_topic"] | "", sizeof(_cfg.ntfy_topic));
         _cfg.ota_auto = doc["ota_auto"] | true;
+        _cfg.iot_sensor_pin  = doc["iot_sensor"]      | -1;
+        _cfg.iot_module_pin  = doc["iot_module"]      | -1;
+        _cfg.iot_sensor_high = doc["iot_sensor_high"] | true;
+        _cfg.iot_module_high = doc["iot_module_high"] | false;
+        _cfg.iot_notify       = doc["iot_notify"]       | false;
+        _cfg.iot_sensor_type  = doc["iot_sensor_type"]  | 0;
+        _cfg.iot_module_type  = doc["iot_module_type"]  | 0;
+        _cfg.iot_metric       = doc["iot_metric"]       | 0;
+        _cfg.iot_above        = doc["iot_above"]        | false;
+        _cfg.iot_threshold    = doc["iot_threshold"]    | 0;
+        _cfg.iot_margin       = doc["iot_margin"]       | 0;
+        _cfg.iot_angle_on     = doc["iot_angle_on"]     | 90;
+        _cfg.iot_angle_off    = doc["iot_angle_off"]    | 0;
         strlcpy(_cfg.cf_token,   doc["cf_token"]   | "", sizeof(_cfg.cf_token));
         strlcpy(_cfg.cf_zone,    doc["cf_zone"]    | "", sizeof(_cfg.cf_zone));
         strlcpy(_cfg.cf_host,    doc["cf_host"]    | "", sizeof(_cfg.cf_host));
@@ -75,6 +88,19 @@ public:
         doc["pass"]       = _cfg.pass;
         doc["ntfy_topic"] = _cfg.ntfy_topic;
         doc["ota_auto"]   = _cfg.ota_auto;
+        doc["iot_sensor"]      = _cfg.iot_sensor_pin;
+        doc["iot_module"]      = _cfg.iot_module_pin;
+        doc["iot_sensor_high"] = _cfg.iot_sensor_high;
+        doc["iot_module_high"] = _cfg.iot_module_high;
+        doc["iot_notify"]       = _cfg.iot_notify;
+        doc["iot_sensor_type"]  = _cfg.iot_sensor_type;
+        doc["iot_module_type"]  = _cfg.iot_module_type;
+        doc["iot_metric"]       = _cfg.iot_metric;
+        doc["iot_above"]        = _cfg.iot_above;
+        doc["iot_threshold"]    = _cfg.iot_threshold;
+        doc["iot_margin"]       = _cfg.iot_margin;
+        doc["iot_angle_on"]     = _cfg.iot_angle_on;
+        doc["iot_angle_off"]    = _cfg.iot_angle_off;
         doc["cf_token"]   = _cfg.cf_token;
         doc["cf_zone"]    = _cfg.cf_zone;
         doc["cf_host"]    = _cfg.cf_host;

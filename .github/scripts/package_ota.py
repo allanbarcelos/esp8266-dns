@@ -69,6 +69,13 @@ def check_gzip(gz: bytes, raw: bytes, label: str) -> None:
         fail(f"{label}: conteúdo descomprimido difere do original")
 
 
+def eboot_isize(image: bytes, label: str) -> int:
+    """O eboot trata os 4 últimos bytes de um gzip como o tamanho descomprimido."""
+    if len(image) < 6 or image[:2] != b"\x1f\x8b":
+        fail(f"{label}: o eboot exige gzip no início")
+    return struct.unpack("<L", image[-4:])[0]
+
+
 def check_fits(image: int, running: int, raw: int, label: str) -> None:
     start = UPDATE_END - rounded(image)
     if start < rounded(running):
@@ -91,6 +98,8 @@ def main() -> None:
 
     gz = gzip.compress(raw, compresslevel=9, mtime=0)
     check_gzip(gz, raw, "firmware.bin")
+    if eboot_isize(gz, "firmware.bin") != len(raw):
+        fail("firmware.bin: o eboot leria um tamanho diferente do firmware")
     check_fits(len(gz), LEGACY_SKETCH, len(raw), "legado → novo")
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -102,6 +111,14 @@ def main() -> None:
     if args.key:
         signed = sign(gz, args.key)
         check_gzip(verify(signed, args.pubkey), raw, "firmware.signed.bin")
+        sig_len = struct.unpack("<L", signed[-4:])[0]
+        if sig_len != 256:
+            fail(f"assinatura RSA-2048 tem {sig_len} bytes; o esperado é 256")
+        if eboot_isize(signed, "firmware.signed.bin") != sig_len:
+            fail("os 4 últimos bytes do arquivo assinado não são o tamanho da assinatura")
+        payload = signed[: -4 - sig_len]
+        if eboot_isize(payload, "gzip após remover a assinatura") != len(raw):
+            fail("Update.end() deixaria o eboot ler o tamanho errado")
         check_fits(len(signed), len(raw), len(raw), "novo → próximo")
         with open(os.path.join(args.out_dir, "firmware.signed.bin"), "wb") as f:
             f.write(signed)

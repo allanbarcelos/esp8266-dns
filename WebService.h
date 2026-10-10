@@ -7,6 +7,7 @@
 #include "ConfigStore.h"
 #include "WiFiService.h"
 #include "OTAService.h"
+#include "IoTService.h"
 #include "NtfyNotifier.h"
 
 // ── PROGMEM ───────────────────────────────────────────────────────────────────
@@ -41,6 +42,7 @@ static const char _HTML_NAV[] PROGMEM = R"(
     <a href="/log"       class="btn btn-sm btn-outline-warning">Logs</a>
     <a href="/cloudflare"class="btn btn-sm btn-outline-primary">Cloudflare</a>
     <a href="/ntfy"      class="btn btn-sm btn-outline-success">Ntfy</a>
+    <a href="/iot"       class="btn btn-sm btn-outline-light">IoT</a>
     <a href="/update"    class="btn btn-sm btn-outline-warning">Atualizar</a>
     <a href="/password"  class="btn btn-sm btn-outline-secondary">Senha</a>
   </div>
@@ -59,9 +61,9 @@ static const char _HTML_FOOT_B[] PROGMEM = R"(</p></div></body></html>)";
 class WebService {
 public:
     WebService(Config& cfg, Logger& log, ConfigStore& store,
-               WiFiService& wifi, OTAService& ota)
+               WiFiService& wifi, OTAService& ota, IoTService& iot)
         : _server(80), _cfg(cfg), _log(log), _store(store),
-          _wifi(wifi), _ota(ota) {
+          _wifi(wifi), _ota(ota), _iot(iot) {
         _csrfToken[0] = '\0';
     }
 
@@ -78,6 +80,8 @@ public:
         _server.on("/ntfy/save",       HTTP_POST, [this]() { _handleNtfySave(); });
         _server.on("/password",        HTTP_GET,  [this]() { _handlePassword(); });
         _server.on("/password/save",   HTTP_POST, [this]() { _handlePasswordSave(); });
+        _server.on("/iot",             HTTP_GET,  [this]() { _handleIot(); });
+        _server.on("/iot/save",        HTTP_POST, [this]() { _handleIotSave(); });
         _server.on("/update",          HTTP_GET,  [this]() { _handleUpdate(); });
         _server.on("/update/auto",     HTTP_POST, [this]() { _handleUpdateAuto(); });
         _server.on("/update/check",    HTTP_POST, [this]() { _handleUpdateCheck(); });
@@ -121,6 +125,35 @@ public:
         return String(buf);
     }
 
+    // Escala binária: 1024 B = 1 KB. Uma casa decimal, e o .0 some.
+    // 1500 → "1.5 KB"; 1024 → "1 KB"; 1048576 → "1 MB".
+    static String formatBytes(uint32_t n) {
+        const char* unit = "B";
+        uint32_t scale = 1;
+        if (n >= 1024UL * 1024UL * 1024UL) {
+            unit = "GB";
+            scale = 1024UL * 1024UL * 1024UL;
+        } else if (n >= 1024UL * 1024UL) {
+            unit = "MB";
+            scale = 1024UL * 1024UL;
+        } else if (n >= 1024UL) {
+            unit = "KB";
+            scale = 1024UL;
+        }
+        char buf[24];
+        if (scale == 1) {
+            snprintf(buf, sizeof(buf), "%lu B", (unsigned long)n);
+            return String(buf);
+        }
+        unsigned long tenths =
+            (unsigned long)(((unsigned long long)n * 10ULL + scale / 2) / scale);
+        if (tenths % 10 == 0)
+            snprintf(buf, sizeof(buf), "%lu %s", tenths / 10, unit);
+        else
+            snprintf(buf, sizeof(buf), "%lu.%lu %s", tenths / 10, tenths % 10, unit);
+        return String(buf);
+    }
+
 private:
     ESP8266WebServer _server;
     Config&          _cfg;
@@ -128,6 +161,7 @@ private:
     ConfigStore&     _store;
     WiFiService&     _wifi;
     OTAService&      _ota;
+    IoTService&      _iot;
 
     char _csrfToken[17]; // 16 hex + null
 
@@ -296,7 +330,8 @@ private:
             "<div class='progress-bar progress-bar-striped progress-bar-animated bg-success' "
             "style='width:" + String(pct) + "%'></div></div>"
             "<div class='kv-value mt-1'>" +
-            String((unsigned long)_ota.bytesWritten()) + " / " + String(_ota.contentLength()) + " bytes"
+            formatBytes((uint32_t)_ota.bytesWritten()) + " / " +
+            formatBytes((uint32_t)_ota.contentLength()) +
             "</div></div>");
     }
 
@@ -398,22 +433,22 @@ private:
         _boxEnd();
 
         _box("Memoria");
-        _row("Heap livre",   String(ESP.getFreeHeap()) + " B");
-        _row("Maior bloco",  String(ESP.getMaxFreeBlockSize()) + " B");
+        _row("Heap livre",   formatBytes(ESP.getFreeHeap()));
+        _row("Maior bloco",  formatBytes(ESP.getMaxFreeBlockSize()));
         _row("Fragmentacao", String(ESP.getHeapFragmentation()) + "%");
         _boxEnd();
 
         _box("Flash");
-        _row("Total",  String(ESP.getFlashChipSize()) + " B");
-        _row("Sketch", String(ESP.getSketchSize()) + " B");
-        _row("Livre",  String(ESP.getFreeSketchSpace()) + " B");
+        _row("Total",  formatBytes(ESP.getFlashChipSize()));
+        _row("Sketch", formatBytes(ESP.getSketchSize()));
+        _row("Livre",  formatBytes(ESP.getFreeSketchSpace()));
         _boxEnd();
 
         _box("LittleFS");
         FSInfo fs;
         LittleFS.info(fs);
-        _row("Total", String((unsigned long)fs.totalBytes) + " B");
-        _row("Usado", String((unsigned long)fs.usedBytes) + " B");
+        _row("Total", formatBytes((uint32_t)fs.totalBytes));
+        _row("Usado", formatBytes((uint32_t)fs.usedBytes));
         Dir dir = LittleFS.openDir("/");
         int fc = 0;
         while (dir.next()) fc++;
@@ -642,5 +677,259 @@ private:
         }
         _ota.requestInstall();
         _go("/update");
+    }
+
+    static constexpr const char* _PINOUT_URL =
+        "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/docs/esp01-pinout.png";
+
+    void _pinOptions(int8_t current) {
+        static const int8_t pins[] = {-1, 2, 0, 1, 3};
+        static const char* values[] = {"-1", "2", "0", "1", "3"};
+        static const char* labels[] = {
+            "Nenhum", "GPIO2", "GPIO0", "TX (GPIO1)", "RX (GPIO3)"
+        };
+        for (int i = 0; i < 5; i++) {
+            _server.sendContent("<option value='");
+            _server.sendContent(values[i]);
+            _server.sendContent(current == pins[i] ? "' selected>" : "'>");
+            _server.sendContent(labels[i]);
+            _server.sendContent("</option>");
+        }
+    }
+
+    void _levelOptions(bool high) {
+        _server.sendContent("<option value='1'");
+        _server.sendContent(high ? " selected>" : ">");
+        _server.sendContent("Alto</option><option value='0'");
+        _server.sendContent(high ? ">" : " selected>");
+        _server.sendContent("Baixo</option>");
+    }
+
+    void _choice(const char* value, const char* label, bool on) {
+        _server.sendContent("<option value='");
+        _server.sendContent(value);
+        _server.sendContent(on ? "' selected>" : "'>");
+        _server.sendContent(label);
+        _server.sendContent("</option>");
+    }
+
+    void _selectOpen(const char* id) {
+        _server.sendContent("<select class='" _INPUT_CLS "' id='");
+        _server.sendContent(id);
+        _server.sendContent("' name='");
+        _server.sendContent(id);
+        _server.sendContent("' onchange='iotSync()'>");
+    }
+
+    void _divOpen(const char* id, bool show) {
+        _server.sendContent("<div id='");
+        _server.sendContent(id);
+        _server.sendContent(show ? "'>" : "' style='display:none'>");
+    }
+
+    void _number(const char* name, int value, int min, int max) {
+        char buf[128];
+        snprintf(buf, sizeof(buf),
+                 "<input class='form-control bg-dark text-light border-secondary' "
+                 "type='number' name='%s' value='%d' min='%d' max='%d'>",
+                 name, value, min, max);
+        _server.sendContent(buf);
+    }
+
+    void _handleIot() {
+        if (!_guard()) return;
+        _pageBegin(IoTService::allowedPin(_cfg.iot_sensor_pin) ? 5 : 0);
+        _server.sendContent("<h5 class='text-info mb-3'>IoT</h5>");
+        _server.sendContent("<img src='");
+        _server.sendContent(_PINOUT_URL);
+        _server.sendContent(
+            "' alt='Pinos do ESP-01' class='img-fluid bg-white rounded mb-3' "
+            "style='max-width:100%'>");
+        _server.sendContent(
+            "<p class='small mb-3' style='color:#d7dbe0'>"
+            "GPIO0 e GPIO2 ficam em alto no boot. O sensor e o modulo usam pinos "
+            "diferentes. Digital liga por nivel. DHT, DS18B20 e pulsos (a cada 10 s) "
+            "comparam um valor com o limite. O servo vai para um angulo. "
+            "DHT e DS18B20 pedem pull-up. A leitura segue no topico ntfy ja "
+            "cadastrado, com o prefixo [sensor]. O IP sai como [ip].</p>");
+
+        _box("Agora");
+        _row("Sensor", _iot.sensorText());
+        _row("Modulo", _iot.moduleText());
+        _boxEnd();
+
+        if (_cfg.iot_notify && _cfg.ntfy_topic[0] == '\0')
+            _alert("warning", "Cadastre o topico ntfy para enviar a leitura");
+
+        bool numeric = _cfg.iot_sensor_type != IoTService::SENSOR_DIGITAL;
+        bool dht = _cfg.iot_sensor_type == IoTService::SENSOR_DHT11 ||
+                   _cfg.iot_sensor_type == IoTService::SENSOR_DHT22;
+        bool servo = _cfg.iot_module_type == IoTService::MODULE_SERVO;
+
+        _server.sendContent("<form action='/iot/save' method='POST'>");
+        _csrfField();
+        _server.sendContent("<label class='form-label small'>Pino do sensor</label>");
+        _selectOpen("sensor");
+        _pinOptions(_cfg.iot_sensor_pin);
+        _server.sendContent("</select>");
+        _server.sendContent("<label class='form-label small mt-2'>Pino do modulo</label>");
+        _selectOpen("module");
+        _pinOptions(_cfg.iot_module_pin);
+        _server.sendContent("</select>");
+
+        _server.sendContent("<label class='form-label small mt-2'>Tipo do sensor</label>");
+        _selectOpen("sensor_type");
+        _choice("0", "Digital", _cfg.iot_sensor_type == IoTService::SENSOR_DIGITAL);
+        _choice("1", "DHT11", _cfg.iot_sensor_type == IoTService::SENSOR_DHT11);
+        _choice("2", "DHT22", _cfg.iot_sensor_type == IoTService::SENSOR_DHT22);
+        _choice("3", "DS18B20", _cfg.iot_sensor_type == IoTService::SENSOR_DS18B20);
+        _choice("4", "Pulsos (10 s)", _cfg.iot_sensor_type == IoTService::SENSOR_PULSE);
+        _server.sendContent("</select>");
+
+        _divOpen("iot_digital", !numeric);
+        _server.sendContent(
+            "<label class='form-label small mt-2'>Ligar o modulo quando o sensor estiver</label>");
+        _selectOpen("sensor_high");
+        _levelOptions(_cfg.iot_sensor_high);
+        _server.sendContent("</select></div>");
+
+        _divOpen("iot_value", numeric);
+        _divOpen("iot_metric", dht);
+        _server.sendContent("<label class='form-label small mt-2'>Grandeza</label>");
+        _selectOpen("metric");
+        _choice("0", "Umidade", _cfg.iot_metric == 0);
+        _choice("1", "Temperatura", _cfg.iot_metric == 1);
+        _server.sendContent("</select></div>");
+        _server.sendContent("<label class='form-label small mt-2'>Ligar quando o valor estiver</label>");
+        _selectOpen("above");
+        _choice("0", "Abaixo de", !_cfg.iot_above);
+        _choice("1", "Acima de", _cfg.iot_above);
+        _server.sendContent("</select>");
+        _server.sendContent("<label class='form-label small mt-2'>Limite</label>");
+        _number("threshold", _cfg.iot_threshold, -55, 100000);
+        _server.sendContent("<label class='form-label small mt-2'>Margem</label>");
+        _number("margin", _cfg.iot_margin, 0, 50);
+        _server.sendContent("</div>");
+
+        _server.sendContent("<label class='form-label small mt-2'>Tipo do modulo</label>");
+        _selectOpen("module_type");
+        _choice("0", "Nivel", _cfg.iot_module_type == IoTService::MODULE_LEVEL);
+        _choice("1", "Servo", _cfg.iot_module_type == IoTService::MODULE_SERVO);
+        _server.sendContent("</select>");
+
+        _divOpen("iot_level", !servo);
+        _server.sendContent(
+            "<label class='form-label small mt-2'>Nivel do pino que liga o modulo</label>");
+        _selectOpen("module_high");
+        _levelOptions(_cfg.iot_module_high);
+        _server.sendContent("</select></div>");
+
+        _divOpen("iot_servo", servo);
+        _server.sendContent("<label class='form-label small mt-2'>Angulo ao ligar</label>");
+        _number("angle_on", _cfg.iot_angle_on, 0, 180);
+        _server.sendContent("<label class='form-label small mt-2'>Angulo ao soltar</label>");
+        _number("angle_off", _cfg.iot_angle_off, 0, 180);
+        _server.sendContent("</div>");
+
+        _server.sendContent(
+            "<div class='form-check form-switch my-3'>"
+            "<input class='form-check-input' type='checkbox' role='switch' "
+            "id='iot_notify' name='iot_notify' value='1'");
+        if (_cfg.iot_notify) _server.sendContent(" checked");
+        _server.sendContent(
+            "><label class='form-check-label' for='iot_notify'>"
+            "Enviar leitura ao ntfy</label></div>"
+            "<button class='btn btn-info w-100'>Salvar</button></form>"
+            "<script>function iotSync(){"
+            "var s=document.getElementById('sensor_type').value;"
+            "var m=document.getElementById('module_type').value;"
+            "var num=s!='0';"
+            "document.getElementById('iot_digital').style.display=num?'none':'';"
+            "document.getElementById('iot_value').style.display=num?'':'none';"
+            "document.getElementById('iot_metric').style.display=(s=='1'||s=='2')?'':'none';"
+            "document.getElementById('iot_level').style.display=m=='1'?'none':'';"
+            "document.getElementById('iot_servo').style.display=m=='1'?'':'none';"
+            "}iotSync();</script>");
+        _pageEnd();
+    }
+
+    void _handleIotSave() {
+        if (!_guard()) return;
+        if (!_checkCSRF()) return;
+
+        int8_t sensor = -1;
+        int8_t module = -1;
+        if (!IoTService::parsePin(_server.arg("sensor"), sensor) ||
+            !IoTService::parsePin(_server.arg("module"), module)) {
+            _errorPage("Pino invalido", "/iot");
+            return;
+        }
+        if (sensor != -1 && sensor == module) {
+            _errorPage("Sensor e modulo precisam de pinos diferentes", "/iot");
+            return;
+        }
+
+        uint8_t sensorType = IoTService::SENSOR_DIGITAL;
+        if (_server.arg("sensor_type").length() > 0 &&
+            !IoTService::parseU8(_server.arg("sensor_type"), 0, 4, sensorType)) {
+            _errorPage("Valor invalido", "/iot");
+            return;
+        }
+        uint8_t moduleType = IoTService::MODULE_LEVEL;
+        if (_server.arg("module_type").length() > 0 &&
+            !IoTService::parseU8(_server.arg("module_type"), 0, 1, moduleType)) {
+            _errorPage("Valor invalido", "/iot");
+            return;
+        }
+        uint8_t metric = 0;
+        if (_server.arg("metric").length() > 0 &&
+            !IoTService::parseU8(_server.arg("metric"), 0, 1, metric)) {
+            _errorPage("Valor invalido", "/iot");
+            return;
+        }
+
+        int16_t threshold = 0;
+        uint8_t margin = 0;
+        if (sensorType != IoTService::SENSOR_DIGITAL) {
+            if (!IoTService::parseI16(_server.arg("threshold"), -55, 100000, threshold)) {
+                _errorPage("Valor invalido", "/iot");
+                return;
+            }
+            if (_server.arg("margin").length() > 0 &&
+                !IoTService::parseU8(_server.arg("margin"), 0, 50, margin)) {
+                _errorPage("Valor invalido", "/iot");
+                return;
+            }
+        }
+
+        uint8_t angleOn = 90;
+        uint8_t angleOff = 0;
+        if (moduleType == IoTService::MODULE_SERVO) {
+            if (!IoTService::parseU8(_server.arg("angle_on"), 0, 180, angleOn) ||
+                !IoTService::parseU8(_server.arg("angle_off"), 0, 180, angleOff)) {
+                _errorPage("Valor invalido", "/iot");
+                return;
+            }
+        }
+
+        _cfg.iot_sensor_pin   = sensor;
+        _cfg.iot_module_pin   = module;
+        _cfg.iot_sensor_high  = _server.arg("sensor_high") == "1";
+        _cfg.iot_module_high  = _server.arg("module_high") == "1";
+        _cfg.iot_notify       = _server.arg("iot_notify") == "1";
+        _cfg.iot_sensor_type  = sensorType;
+        _cfg.iot_module_type  = moduleType;
+        _cfg.iot_metric       = metric;
+        _cfg.iot_above        = _server.arg("above") == "1";
+        _cfg.iot_threshold    = threshold;
+        _cfg.iot_margin       = margin;
+        _cfg.iot_angle_on     = angleOn;
+        _cfg.iot_angle_off    = angleOff;
+        if (!_store.save()) {
+            _errorPage("Falha ao salvar configuracao", "/iot");
+            return;
+        }
+        _iot.begin();
+        _savedPage("IoT configurado", "/iot");
     }
 };

@@ -75,7 +75,8 @@ GitHub Releases ──(vN)──► ESP8266
 ```
 
 - De hora em hora (até ~23 h de uptime), consulta `releases/latest`. Só instala tags `vN` **maiores** que a atual, o que impede downgrade.
-- O build embute `public.key`. O `Updater` do core **verifica a assinatura** em `Update.end()` e rejeita binários adulterados. Por isso o transporte pode usar TLS sem validação.
+- O build com `public.key` faz o `Updater` **verificar a assinatura** em `Update.end()` e gravar só o gzip. A instalação manual baixa o mesmo arquivo da automática: `firmware.signed.bin` se a chave está no build, `firmware.bin` se não está. O eboot lê o tamanho descomprimido nos 4 últimos bytes; no arquivo assinado esses bytes são o tamanho da assinatura, e gravá-lo sem remover o trailer corrompe o sketch.
+- O PlatformIO embute `public.key` antes de compilar (`pre:tools/embed_pubkey.py`), como o arduino-cli no CI. O link falha se o ELF não tiver o verificador e essa chave. O teste nativo não define `ARDUINO_SIGNING` e por isso exige `firmware.bin`.
 - A imagem é **comprimida com gzip** (o bootloader descomprime). Sem isso, firmware atual + novo não cabem juntos na área de sketch de 1 MB.
 - O download é abortado se o Wi-Fi cair, em erro de escrita ou após 30 s sem dados.
 
@@ -83,8 +84,8 @@ GitHub Releases ──(vN)──► ESP8266
 
 | Arquivo               | Uso                                                                              |
 | --------------------- | -------------------------------------------------------------------------------- |
-| `firmware.signed.bin` | gzip + assinatura: usado pelo firmware atual                                     |
-| `firmware.bin`        | gzip sem assinatura: só para migrar aparelhos com firmware antigo (sem verificação) |
+| `firmware.signed.bin` | gzip + assinatura: build que embute `public.key`                                |
+| `firmware.bin`        | gzip puro: build sem a chave, para o eboot ler o tamanho certo                  |
 
 ### Chave de assinatura
 
@@ -141,9 +142,19 @@ Mudanças só em testes, docs ou workflow não geram release. Para forçar, use 
 
 ---
 
+## 🔌 IoT
+
+A página **IoT** configura um sensor e um módulo na ESP-01, sem editar o firmware. Os pinos possíveis são GPIO0, GPIO2, TX e RX. O desenho fica em `docs/esp01-pinout.png` e o painel carrega essa imagem do repositório.
+
+O tipo do sensor pode ser digital, DHT11, DHT22, DS18B20 ou pulsos a cada 10 s. No digital, um nível liga o módulo. Nos outros, o número liga o módulo acima ou abaixo de um limite, com margem para não oscilar. O tipo do módulo pode ser nível fixo ou servo, com um ângulo para ligado e outro para desligado. DHT e DS18B20 pedem resistor de pull-up. O servo usa fonte de 5 V separada e o GND em comum.
+
+Sem as chaves novas no `/config.json`, sensor e módulo ficam digitais e a função continua desligada até o usuário escolher os pinos. A leitura segue no tópico ntfy já cadastrado como `[sensor]`. O aviso de IP no mesmo tópico usa `[ip]`.
+
+---
+
 ## 📋 Log remoto (implementação futura)
 
-Ainda não está no firmware. O anel local (`Logger.h`, 10 linhas de 128 caracteres, Serial e painel) permanece o limite da RAM. A cópia completa segue pelo [ntfy.sh](https://ntfy.sh), no tópico já configurado com o sufixo `-log`.
+Ainda não está no firmware. O anel local (`Logger.h`, 10 linhas de 128 caracteres, Serial e painel) permanece o limite da RAM. A cópia segue pelo [ntfy.sh](https://ntfy.sh), no tópico já cadastrado, com o prefixo `[log]`. O IP já sai como `[ip]` e o sensor como `[sensor]`.
 
 - Um POST reúne várias linhas, no mesmo intervalo de 60 s do aviso de IP, e só quando há heap e bloco livres para o TLS. O ESP continua falando com esse único host.
 - Sem a chave nova no `/config.json`, o envio fica desligado. Aparelhos já em campo seguem só com o log local.

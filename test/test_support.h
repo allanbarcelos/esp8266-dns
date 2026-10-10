@@ -19,6 +19,8 @@ inline void resetMocks() {
     Update.reset();
     mock::configTimeCalls = 0;
     mock::ntpServer1.clear();
+    mock::resetPins();
+    mock::resetBus();
 }
 
 // true se alguma linha do buffer circular contém o trecho
