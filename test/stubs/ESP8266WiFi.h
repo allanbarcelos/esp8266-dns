@@ -9,6 +9,8 @@ using  WiFiEventHandler = int; // stub: valor de retorno ignorado
 
 enum WiFiMode_t { WIFI_OFF = 0, WIFI_STA = 1, WIFI_AP = 2, WIFI_AP_STA = 3 };
 
+enum WiFiSleepType_t { WIFI_NONE_SLEEP = 0, WIFI_LIGHT_SLEEP = 1, WIFI_MODEM_SLEEP = 2 };
+
 enum wl_status_t {
     WL_IDLE_STATUS  = 0,
     WL_CONNECTED    = 3,
@@ -61,6 +63,7 @@ public:
     std::string apSSID, apPass;
     bool        persistentFlag    = true;
     bool        autoReconnectFlag = false;
+    WiFiSleepType_t sleepMode     = WIFI_MODEM_SLEEP;
 
     std::function<void(const WiFiEventStationModeGotIP&)>        gotIP;
     std::function<void(const WiFiEventStationModeDisconnected&)> disconnected;
@@ -75,6 +78,7 @@ public:
     void disconnect()               { disconnectCalls++; }
     void setAutoReconnect(bool v)   { autoReconnectFlag = v; }
     void persistent(bool v)         { persistentFlag = v; }
+    void setSleepMode(WiFiSleepType_t mode) { sleepMode = mode; }
     bool softAP(const char* s, const char* p) { apSSID = s; apPass = p; return true; }
     void mode(WiFiMode_t m)         { _mode = m; }
 
@@ -100,6 +104,9 @@ public:
     virtual ~WiFiClient() {}
     virtual int    available()                 { return 0; }
     virtual size_t readBytes(uint8_t*, size_t) { return 0; }
+    void setTimeout(unsigned long ms);
+protected:
+    WiFiClient* _owned = nullptr;
 };
 
 namespace BearSSL {
@@ -114,11 +121,24 @@ namespace MockTLS {
     inline int                       insecureCalls = 0;
     inline const char*               lastTrustPem  = nullptr; // o X509List em si é temporário
     inline time_t                    lastTime      = 0;
-    inline void reset() { insecureCalls = 0; lastTrustPem = nullptr; lastTime = 0; }
+    inline int                       timeoutCalls  = 0;
+    inline unsigned long             lastTimeoutMs = 0;
+    inline void reset() {
+        insecureCalls = 0; lastTrustPem = nullptr; lastTime = 0;
+        timeoutCalls = 0; lastTimeoutMs = 0;
+    }
+}
+
+inline void WiFiClient::setTimeout(unsigned long ms) {
+    MockTLS::timeoutCalls++;
+    MockTLS::lastTimeoutMs = ms;
 }
 
 class WiFiClientSecure : public WiFiClient {
 public:
+    WiFiClientSecure() { _owned = &_ctx; }
+    WiFiClient _ctx;
+
     void setInsecure()                                 { MockTLS::insecureCalls++; }
     void setTrustAnchors(const BearSSL::X509List* ta)  { MockTLS::lastTrustPem = ta->pem; }
     void setX509Time(time_t t)                         { MockTLS::lastTime = t; }

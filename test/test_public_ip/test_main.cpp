@@ -32,6 +32,9 @@ void test_primeiro_servico_ok() {
     TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockTLS::lastTrustPem);
     TEST_ASSERT_EQUAL((long)fakeNow, (long)MockTLS::lastTime);
     TEST_ASSERT_EQUAL(0, MockTLS::insecureCalls);
+    // wrapper e contexto BearSSL recebem o mesmo orçamento
+    TEST_ASSERT_EQUAL(2, MockTLS::timeoutCalls);
+    TEST_ASSERT_EQUAL(PublicIPResolver::CONNECT_TIMEOUT, MockTLS::lastTimeoutMs);
 }
 
 void test_aceita_espacos_e_quebra_de_linha() {
@@ -62,6 +65,17 @@ void test_http_erro_tenta_proximo() {
     TEST_ASSERT_TRUE(f.resolver.resolve(out, sizeof(out), 0));
     TEST_ASSERT_EQUAL_STRING("8.8.4.4", out);
     TEST_ASSERT_TRUE(logHas(logger, "HTTP 503"));
+}
+
+void test_sem_conexao_tenta_proximo() {
+    Fix f;
+    MockHTTP::push(-1);
+    MockHTTP::push(200, "7.7.7.7");
+    char out[16] = "";
+    TEST_ASSERT_TRUE(f.resolver.resolve(out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("7.7.7.7", out);
+    TEST_ASSERT_TRUE(logHas(logger, "sem conexao (-1)"));
+    TEST_ASSERT_FALSE(logHas(logger, "HTTP -1"));
 }
 
 void test_resposta_invalida_tenta_proximo() {
@@ -158,6 +172,7 @@ int main() {
     RUN_TEST(test_aceita_espacos_e_quebra_de_linha);
     RUN_TEST(test_falha_de_conexao_tenta_proximo);
     RUN_TEST(test_http_erro_tenta_proximo);
+    RUN_TEST(test_sem_conexao_tenta_proximo);
     RUN_TEST(test_resposta_invalida_tenta_proximo);
     RUN_TEST(test_todos_falham_nao_altera_saida);
     RUN_TEST(test_buffer_pequeno_rejeita);

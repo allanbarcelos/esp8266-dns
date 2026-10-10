@@ -14,6 +14,7 @@ public:
         }
 
         WiFi.mode(WIFI_STA);
+        _keepRadioAwake();
         WiFi.persistent(false); // credenciais ficam no LittleFS; evita desgaste da flash
         WiFi.setAutoReconnect(true);
         WiFi.begin(_cfg.ssid.c_str(), _cfg.pass.c_str());
@@ -44,6 +45,7 @@ public:
             notifySuccess();
             if (_configMode) {
                 WiFi.mode(WIFI_STA);
+                _keepRadioAwake();
                 _configMode = false;
                 _log.log("Modo AP desligado");
             }
@@ -145,8 +147,14 @@ private:
     WiFiEventHandler _evtGotIP;
     WiFiEventHandler _evtDisconnected;
 
+    // O padrão do STA é modem sleep. Em vários roteadores (inclusive CPE 4G)
+    // o rádio dorme entre os beacons e a resposta do handshake se perde:
+    // o connect estoura o timeout mesmo com a associação de pé.
+    void _keepRadioAwake() { WiFi.setSleepMode(WIFI_NONE_SLEEP); }
+
     void _startConfigMode(WiFiMode_t mode) {
         WiFi.mode(mode);
+        _keepRadioAwake();
         WiFi.softAP(AP_SSID, AP_PASSWORD);
         _configMode = true;
         _log.log("Modo AP iniciado: %s", AP_SSID);
@@ -181,6 +189,7 @@ private:
         if ((long)(now - _reconnectAt) < 0) return;
         _log.log("Tentando reconectar Wi-Fi");
         WiFi.mode(WIFI_STA);
+        _keepRadioAwake();
         WiFi.begin(_cfg.ssid.c_str(), _cfg.pass.c_str());
         _reconnecting = false;
     }

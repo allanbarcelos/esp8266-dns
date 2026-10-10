@@ -5,6 +5,17 @@
 #include "Clock.h"
 #include "CloudflareCA.h"
 
+// O connect do WiFiClientSecure usa o timeout do contexto BearSSL (_owned).
+// HTTPClient::setTimeout grava só no wrapper, e o contexto fica nos 15 s
+// do core: cada host inacessível trava o loop por esse tempo.
+class TlsClient : public WiFiClientSecure {
+public:
+    void armTimeout(unsigned long ms) {
+        setTimeout(ms);
+        _owned->setTimeout(ms);
+    }
+};
+
 // IP público por HTTPS. Os três provedores devolvem só o IPv4 e usam a
 // cadeia WE1 → GTS Root R4 — a mesma já validada em campo por
 // api.cloudflare.com, com as raízes de CloudflareCA.h. Serviço fora
@@ -62,7 +73,8 @@ public:
         return false;
     }
 
-    static constexpr unsigned long CACHE_TTL = 60000UL;
+    static constexpr unsigned long CACHE_TTL       = 60000UL;
+    static constexpr unsigned long CONNECT_TIMEOUT = 4000UL;
 
 private:
     Logger&       _log;
@@ -79,12 +91,13 @@ private:
     }
 
     bool _query(BearSSL::X509List& trust, const char* url, char* out, size_t len) {
-        WiFiClientSecure client;
+        TlsClient client;
         client.setTrustAnchors(&trust);
         client.setX509Time(_clock.now());
+        client.armTimeout(CONNECT_TIMEOUT);
 
         HTTPClient http;
-        http.setTimeout(4000);
+        http.setTimeout(CONNECT_TIMEOUT);
         if (!http.begin(client, url)) {
             _log.log("IP: falha ao conectar %s", url);
             return false;
@@ -96,7 +109,11 @@ private:
         http.end();
 
         if (code != HTTP_CODE_OK) {
-            _log.log("IP: %s HTTP %d", url, code);
+            // code <= 0: o TCP/TLS não completou (o core reporta -1).
+            if (code <= 0)
+                _log.log("IP: %s sem conexao (%d)", url, code);
+            else
+                _log.log("IP: %s HTTP %d", url, code);
             return false;
         }
 

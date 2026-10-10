@@ -24,6 +24,7 @@ void test_sem_ssid_inicia_ap_protegido() {
     W wifi(cfg, logger);
     wifi.begin();
     TEST_ASSERT_EQUAL(WIFI_AP, WiFi._mode);
+    TEST_ASSERT_EQUAL(WIFI_NONE_SLEEP, WiFi.sleepMode);
     TEST_ASSERT_EQUAL_STRING(AP_SSID, WiFi.apSSID.c_str());
     TEST_ASSERT_EQUAL_STRING(AP_PASSWORD, WiFi.apPass.c_str());
     TEST_ASSERT_TRUE(std::strlen(AP_PASSWORD) >= 8);
@@ -40,6 +41,7 @@ void test_conecta_em_modo_estacao() {
     TEST_ASSERT_EQUAL_STRING("Rede", WiFi.beginSSID.c_str());
     TEST_ASSERT_EQUAL_STRING("senha123", WiFi.beginPass.c_str());
     TEST_ASSERT_FALSE(wifi.inConfigMode());
+    TEST_ASSERT_EQUAL(WIFI_NONE_SLEEP, WiFi.sleepMode);
     TEST_ASSERT_TRUE(logHas(logger, "Conectado!"));
 }
 
@@ -48,6 +50,7 @@ void test_falha_inicia_ap_e_estacao() {
     W wifi(cfg, logger);
     wifi.begin();
     TEST_ASSERT_EQUAL(WIFI_AP_STA, WiFi._mode);
+    TEST_ASSERT_EQUAL(WIFI_NONE_SLEEP, WiFi.sleepMode);
     TEST_ASSERT_TRUE(wifi.inConfigMode());
     TEST_ASSERT_EQUAL_STRING(AP_SSID, WiFi.apSSID.c_str());
     TEST_ASSERT_TRUE(logHas(logger, "Falha na conexao"));
@@ -65,6 +68,7 @@ void test_got_ip_sai_do_modo_configuracao() {
     WiFi.gotIP(WiFiEventStationModeGotIP{});
     TEST_ASSERT_FALSE(wifi.inConfigMode());
     TEST_ASSERT_EQUAL(WIFI_STA, WiFi._mode);
+    TEST_ASSERT_EQUAL(WIFI_NONE_SLEEP, WiFi.sleepMode);
     TEST_ASSERT_TRUE(logHas(logger, "Modo AP desligado"));
 }
 
@@ -125,6 +129,7 @@ void test_reconecta_quando_desconectado() {
     wifi.tick(W::STATUS_INTERVAL + W::RECONNECT_DELAY);
     TEST_ASSERT_EQUAL(1, WiFi.beginCalls);
     TEST_ASSERT_EQUAL(WIFI_STA, WiFi._mode);
+    TEST_ASSERT_EQUAL(WIFI_NONE_SLEEP, WiFi.sleepMode);
     TEST_ASSERT_TRUE(logHas(logger, "Tentando reconectar"));
 }
 
