@@ -104,7 +104,9 @@ public:
     virtual ~WiFiClient() {}
     virtual int    available()                 { return 0; }
     virtual size_t readBytes(uint8_t*, size_t) { return 0; }
+    virtual bool   connected()                 { return false; }
     void setTimeout(unsigned long ms);
+    void stop(unsigned int = 0) {}
 protected:
     WiFiClient* _owned = nullptr;
 };

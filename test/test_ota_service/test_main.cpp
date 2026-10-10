@@ -296,6 +296,8 @@ void test_wifi_cai_durante_ota() {
     TEST_ASSERT_FALSE(f.ota.inProgress());
     TEST_ASSERT_EQUAL(1, Update._aborts);
     TEST_ASSERT_TRUE(logHas(logger, "Wi-Fi caiu durante OTA"));
+    TEST_ASSERT_TRUE(f.ota.pending());
+    TEST_ASSERT_FALSE(f.wifi.restartPending());
 }
 
 void test_stream_parado_aborta_por_timeout() {
@@ -394,35 +396,33 @@ void test_wifi_cai_com_pedido_pendente() {
     f.ota.requestCheck();
     WiFi._status = WL_DISCONNECTED;
     f.ota.tick(0);
-    TEST_ASSERT_TRUE(logHas(logger, "OTA adiado: Wi-Fi desconectado"));
-    TEST_ASSERT_EQUAL_STRING("Wi-Fi desconectado", f.ota.detail());
-    TEST_ASSERT_FALSE(f.ota.pending());
+    TEST_ASSERT_TRUE(f.ota.pending());
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
 
-    logger = Logger();
     WiFi._status = WL_CONNECTED;
     MockHTTP::push(200, R"({"tag_name":"v999"})");
-    f.ota.requestCheck();
     f.ota.tick(1);
+    TEST_ASSERT_EQUAL_STRING("v999", f.ota.availableVersion());
     f.ota.requestInstall();
     WiFi._status = WL_DISCONNECTED;
     f.ota.tick(2);
     TEST_ASSERT_FALSE(f.ota.inProgress());
-    TEST_ASSERT_TRUE(logHas(logger, "OTA adiado: Wi-Fi desconectado"));
+    TEST_ASSERT_TRUE(f.ota.pending());
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
 }
 
 void test_consulta_memoria_insuficiente() {
     Fixture f;
-    ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;
+    ESP._heap = OTAService::GITHUB_HEAP - 1;
     f.ota.tick(T);
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
     TEST_ASSERT_TRUE(logHas(logger, "OTA: memoria insuficiente"));
-    TEST_ASSERT_EQUAL_STRING("Memoria insuficiente", f.ota.detail());
+    TEST_ASSERT_EQUAL_STRING("Nova tentativa em 10 s", f.ota.detail());
+    TEST_ASSERT_TRUE(f.ota.pending());
 
     logger = Logger();
     ESP._heap = 50000;
-    ESP._maxBlock = PublicIPResolver::MIN_TLS_BLOCK - 1;
+    ESP._maxBlock = OTAService::GITHUB_BLOCK - 1;
     f.ota.tick(T + OTAService::CHECK_INTERVAL);
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
     TEST_ASSERT_TRUE(logHas(logger, "OTA: memoria insuficiente"));
@@ -433,7 +433,7 @@ void test_consulta_tls_indisponivel() {
     MockTLS::nullOwned = true;
     f.ota.tick(T);
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
-    TEST_ASSERT_EQUAL_STRING("Cliente TLS indisponivel", f.ota.detail());
+    TEST_ASSERT_EQUAL_STRING("Nova tentativa em 10 s", f.ota.detail());
     TEST_ASSERT_TRUE(logHas(logger, "OTA: TLS indisponivel"));
 }
 
@@ -442,13 +442,14 @@ void test_download_memoria_insuficiente() {
     MockHTTP::push(200, R"({"tag_name":"v999"})");
     f.ota.requestCheck();
     f.ota.tick(0);
-    ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;
+    ESP._heap = OTAService::GITHUB_HEAP - 1;
     f.ota.requestInstall();
     f.ota.tick(1);
     TEST_ASSERT_FALSE(f.ota.inProgress());
-    TEST_ASSERT_EQUAL_STRING("Memoria insuficiente", f.ota.detail());
+    TEST_ASSERT_EQUAL_STRING("Nova tentativa em 10 s", f.ota.detail());
     TEST_ASSERT_TRUE(logHas(logger, "OTA: memoria insuficiente"));
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_TRUE(f.ota.pending());
 }
 
 void test_download_tls_indisponivel() {
@@ -459,7 +460,7 @@ void test_download_tls_indisponivel() {
     f.ota.tick(T);
     TEST_ASSERT_FALSE(f.ota.inProgress());
     TEST_ASSERT_EQUAL_STRING("v999", f.ota.availableVersion());
-    TEST_ASSERT_EQUAL_STRING("Cliente TLS indisponivel", f.ota.detail());
+    TEST_ASSERT_EQUAL_STRING("Nova tentativa em 10 s", f.ota.detail());
     TEST_ASSERT_TRUE(logHas(logger, "Nova versao encontrada"));
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
 }
@@ -472,6 +473,216 @@ void test_sem_novo_check_durante_ota() {
     size_t before = MockHTTP::calledURLs.size();
     f.ota.tick(T + 2);
     TEST_ASSERT_EQUAL((int)before, (int)MockHTTP::calledURLs.size());
+}
+
+void test_sucesso_apaga_pedido() {
+    MockFS::put("/ota.pending", "v999 1");
+    Fixture f;
+    f.ota.begin();
+    MockHTTP::push(200, std::string(128, 'X'));
+    f.ota.tick(0);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    f.ota.tick(1);
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_FALSE(LittleFS.exists("/ota.pending"));
+    TEST_ASSERT_TRUE(logHas(logger, "OTA concluido"));
+}
+
+void test_github_usa_buffer_tls_grande() {
+    Fixture f;
+    queueUpdate(std::string(1024, 'X'));
+    f.ota.tick(T);
+    TEST_ASSERT_EQUAL(16384, MockTLS::bufIn);
+    TEST_ASSERT_EQUAL(512, MockTLS::bufOut);
+    TEST_ASSERT_TRUE(MockHTTP::lastHTTP10);
+    TEST_ASSERT_EQUAL_STRING("ESP8266-dns", MockHTTP::lastUA.c_str());
+}
+
+void test_retenta_depois_do_backoff() {
+    Fixture f;
+    MockHTTP::push(403);
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.pending());
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+    f.ota.tick(T + OTAService::RETRY_MS - 1);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    f.ota.tick(T + OTAService::RETRY_MS);
+    TEST_ASSERT_EQUAL_STRING("v999", f.ota.availableVersion());
+}
+
+void test_tamanho_desconhecido_completa_no_fim_do_fluxo() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::push(200, std::string(600, 'Y'), -2);
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    TEST_ASSERT_EQUAL(0, f.ota.progressPercent());
+    f.ota.tick(T + 1);
+    f.ota.tick(T + 2);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    f.ota.tick(T + 3);
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA concluido"));
+    TEST_ASSERT_TRUE(f.wifi.restartPending());
+}
+
+void test_tamanho_desconhecido_espera_conexao() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::push(200, std::string(512, 'Y'), -2);
+    MockHTTP::keepOpen = true;
+    f.ota.tick(T);
+    f.ota.tick(T + 1);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    TEST_ASSERT_EQUAL(512, (int)f.ota.bytesWritten());
+    f.ota.tick(T + 2);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    MockHTTP::keepOpen = false;
+    f.ota.tick(T + 3);
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA concluido"));
+}
+
+void test_tamanho_desconhecido_vazio_aborta() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::push(200, "", -2);
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    f.ota.tick(T + 1);
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA vazio"));
+    TEST_ASSERT_TRUE(f.ota.pending());
+}
+
+void test_carrega_pedido_pendente() {
+    MockFS::put("/ota.pending", "v129 1");
+    Fixture f;
+    f.ota.begin();
+    TEST_ASSERT_TRUE(f.ota.slim());
+    TEST_ASSERT_TRUE(f.ota.busy());
+    TEST_ASSERT_EQUAL_STRING("v129", f.ota.availableVersion());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: retomando v129"));
+}
+
+void test_pedido_pendente_invalido() {
+    MockFS::put("/ota.pending", "lixo 1");
+    Fixture f;
+    f.ota.begin();
+    TEST_ASSERT_FALSE(f.ota.slim());
+    TEST_ASSERT_FALSE(LittleFS.exists("/ota.pending"));
+    TEST_ASSERT_TRUE(logHas(logger, "pedido de recuperacao invalido"));
+}
+
+void test_pedido_pendente_sem_contador() {
+    MockFS::put("/ota.pending", "v42");
+    Fixture f;
+    f.ota.begin();
+    TEST_ASSERT_TRUE(f.ota.slim());
+    TEST_ASSERT_EQUAL_STRING("v42", f.ota.availableVersion());
+}
+
+void test_pedido_pendente_vazio() {
+    MockFS::put("/ota.pending", "");
+    Fixture f;
+    f.ota.begin();
+    TEST_ASSERT_FALSE(f.ota.slim());
+    TEST_ASSERT_FALSE(LittleFS.exists("/ota.pending"));
+}
+
+void test_pedido_pendente_esgotado() {
+    MockFS::put("/ota.pending", "v129 4");
+    Fixture f;
+    f.ota.begin();
+    TEST_ASSERT_FALSE(f.ota.slim());
+    TEST_ASSERT_FALSE(LittleFS.exists("/ota.pending"));
+    TEST_ASSERT_TRUE(logHas(logger, "recuperacao esgotada"));
+}
+
+void test_pedido_pendente_nao_abre() {
+    MockFS::put("/ota.pending", "v129 1");
+    MockFS::failReadOpen = true;
+    Fixture f;
+    f.ota.begin();
+    TEST_ASSERT_FALSE(f.ota.slim());
+    TEST_ASSERT_FALSE(LittleFS.exists("/ota.pending"));
+}
+
+void test_esgota_tentativas_e_grava_recuperacao() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    f.ota.requestCheck();
+    f.ota.tick(0);
+    unsigned long t = 1;
+    for (uint8_t i = 0; i < OTAService::MAX_TRIES; i++) {
+        MockHTTP::push(404);
+        if (i == 0) f.ota.requestInstall();
+        f.ota.tick(t);
+        t += OTAService::RETRY_MAX_MS;
+    }
+    TEST_ASSERT_TRUE(LittleFS.exists("/ota.pending"));
+    TEST_ASSERT_TRUE(f.wifi.restartPending());
+    TEST_ASSERT_TRUE(logHas(logger, "recuperacao no proximo boot"));
+}
+
+void test_recuperacao_esgota_e_reinicia_painel() {
+    MockFS::put("/ota.pending", "v129 3");
+    Fixture f;
+    f.ota.begin();
+    unsigned long t = 1;
+    for (uint8_t i = 0; i < OTAService::MAX_TRIES; i++) {
+        MockHTTP::push(404);
+        f.ota.tick(t);
+        t += OTAService::RETRY_MAX_MS;
+    }
+    TEST_ASSERT_FALSE(LittleFS.exists("/ota.pending"));
+    TEST_ASSERT_TRUE(logHas(logger, "desistiu apos recuperacao"));
+    TEST_ASSERT_TRUE(f.wifi.restartPending());
+    TEST_ASSERT_FALSE(f.ota.slim());
+}
+
+void test_nao_grava_recuperacao_se_fs_falha() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    f.ota.requestCheck();
+    f.ota.tick(0);
+    MockFS::failWriteOpen = true;
+    unsigned long t = 1;
+    for (uint8_t i = 0; i < OTAService::MAX_TRIES; i++) {
+        MockHTTP::push(404);
+        if (i == 0) f.ota.requestInstall();
+        f.ota.tick(t);
+        t += OTAService::RETRY_MAX_MS;
+    }
+    TEST_ASSERT_TRUE(logHas(logger, "nao gravou pedido de recuperacao"));
+    TEST_ASSERT_TRUE(f.wifi.restartPending());
+}
+
+void test_tamanho_desconhecido_sem_espaco() {
+    Fixture f;
+    ESP._freeSketch = 0;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::push(200, std::string(64, 'Z'), -2);
+    f.ota.tick(T);
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_TRUE(logHas(logger, "Sem espaco para OTA"));
+}
+
+void test_consulta_esgota_sem_gravar_pedido() {
+    Fixture f;
+    f.ota.setAutomatic(false);
+    unsigned long t = 0;
+    f.ota.requestCheck();
+    for (uint8_t i = 0; i < OTAService::MAX_TRIES; i++) {
+        MockHTTP::failNextBegin();
+        f.ota.tick(t);
+        t += OTAService::RETRY_MAX_MS;
+        if (i + 1 < OTAService::MAX_TRIES && !f.ota.pending())
+            f.ota.requestCheck();
+    }
+    TEST_ASSERT_FALSE(LittleFS.exists("/ota.pending"));
+    TEST_ASSERT_TRUE(logHas(logger, "tentativas esgotadas"));
 }
 
 int main() {
@@ -511,5 +722,22 @@ int main() {
     RUN_TEST(test_consulta_tls_indisponivel);
     RUN_TEST(test_download_memoria_insuficiente);
     RUN_TEST(test_download_tls_indisponivel);
+    RUN_TEST(test_sucesso_apaga_pedido);
+    RUN_TEST(test_github_usa_buffer_tls_grande);
+    RUN_TEST(test_retenta_depois_do_backoff);
+    RUN_TEST(test_tamanho_desconhecido_completa_no_fim_do_fluxo);
+    RUN_TEST(test_tamanho_desconhecido_espera_conexao);
+    RUN_TEST(test_tamanho_desconhecido_vazio_aborta);
+    RUN_TEST(test_carrega_pedido_pendente);
+    RUN_TEST(test_pedido_pendente_invalido);
+    RUN_TEST(test_pedido_pendente_sem_contador);
+    RUN_TEST(test_pedido_pendente_vazio);
+    RUN_TEST(test_pedido_pendente_esgotado);
+    RUN_TEST(test_pedido_pendente_nao_abre);
+    RUN_TEST(test_esgota_tentativas_e_grava_recuperacao);
+    RUN_TEST(test_recuperacao_esgota_e_reinicia_painel);
+    RUN_TEST(test_nao_grava_recuperacao_se_fs_falha);
+    RUN_TEST(test_tamanho_desconhecido_sem_espaco);
+    RUN_TEST(test_consulta_esgota_sem_gravar_pedido);
     return UNITY_END();
 }

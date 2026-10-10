@@ -4,6 +4,7 @@
 class UpdaterClass {
 public:
     bool begin(size_t size) {
+        if (size == 0) return false;
         _size = size; _written = 0;
         return _beginOk;
     }
@@ -15,6 +16,7 @@ public:
     // Mesma semântica do core: incompleto e !evenIfRemaining → aborta
     bool end(bool evenIfRemaining = false) {
         if (_written < _size && !evenIfRemaining) { _aborts++; return false; }
+        if (evenIfRemaining) _size = _written;
         _ends++;
         return _endOk;
     }

@@ -45,11 +45,41 @@ void test_tick_executa_todos_os_servicos() {
     TEST_ASSERT_TRUE(app.wifi.restartPending());
 }
 
+void test_begin_recuperacao_ota() {
+    MockFS::put("/config.json", R"({"ssid":"Rede","pass":"12345678","webpss":"senha-forte"})");
+    MockFS::put("/ota.pending", "v129 1");
+    App app;
+    app.begin();
+    TEST_ASSERT_TRUE(app.ota.slim());
+    TEST_ASSERT_TRUE(app.ota.busy());
+    TEST_ASSERT_TRUE(logHas(app.logger, "OTA: modo recuperacao"));
+    TEST_ASSERT_EQUAL_STRING("nenhum", app.iot.sensorText());
+}
+
+void test_tick_pausa_dns_durante_ota() {
+    MockFS::put("/config.json", R"({"ssid":"Rede","pass":"12345678","webpss":"senha-forte"})");
+    App app;
+    app.begin();
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::push(200, std::string(512, 'X'), 4096);
+    app.ota.requestCheck();
+    app.tick();
+    app.ota.requestInstall();
+    app.tick();
+    TEST_ASSERT_TRUE(app.ota.inProgress());
+    size_t before = MockHTTP::calledURLs.size();
+    setMillis(120000);
+    app.tick();
+    TEST_ASSERT_EQUAL((int)before, (int)MockHTTP::calledURLs.size());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_begin_inicializa_servicos);
     RUN_TEST(test_begin_desliga_ota_automatico);
     RUN_TEST(test_begin_sem_config_entra_em_modo_ap);
     RUN_TEST(test_tick_executa_todos_os_servicos);
+    RUN_TEST(test_begin_recuperacao_ota);
+    RUN_TEST(test_tick_pausa_dns_durante_ota);
     return UNITY_END();
 }

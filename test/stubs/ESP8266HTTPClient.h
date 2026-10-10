@@ -25,10 +25,14 @@ namespace MockHTTP {
     inline size_t                   qIdx = 0;
     inline std::vector<bool>        beginResults; // consumido a cada begin(); vazio = true
     inline size_t                   bIdx = 0;
+    inline bool                     lastHTTP10 = false;
+    inline std::string              lastUA;
+    inline bool                     keepOpen = false;
 
     inline void reset() {
         calledURLs.clear(); requests.clear(); queue.clear(); qIdx = 0;
         beginResults.clear(); bIdx = 0;
+        lastHTTP10 = false; lastUA.clear(); keepOpen = false;
     }
 
     inline void push(int code, const std::string& body = "", int size = -1) {
@@ -64,6 +68,10 @@ public:
     size_t      pos = 0;
 
     int available() override { return (int)(data.size() - pos); }
+    bool connected() override {
+        if (MockHTTP::keepOpen) return true;
+        return pos < data.size();
+    }
     size_t readBytes(uint8_t* buf, size_t n) override {
         size_t k = std::min(n, data.size() - pos);
         std::memcpy(buf, data.data() + pos, k);
@@ -84,6 +92,10 @@ public:
 
     void setTimeout(int) {}
     void setFollowRedirects(int) {}
+    void setRedirectLimit(uint16_t) {}
+    void useHTTP10(bool v = true) { MockHTTP::lastHTTP10 = v; }
+    void setUserAgent(const String& ua) { MockHTTP::lastUA = ua.c_str(); }
+    bool connected() { return _client.connected() || _client.available() > 0; }
     void addHeader(const String& k, const String& v) {
         _req.headers.push_back({k.c_str(), v.c_str()});
     }
@@ -109,7 +121,9 @@ private:
 
         auto r = MockHTTP::next();
         _body   = r.body;
-        _size   = r.size < 0 ? (int)r.body.size() : r.size;
+        if (r.size == -2) _size = -1;
+        else if (r.size < 0) _size = (int)r.body.size();
+        else _size = r.size;
         _stream = MockStream(r.body);
         _client.data = r.body;
         _client.pos  = 0;

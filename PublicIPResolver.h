@@ -16,11 +16,11 @@ public:
     static constexpr uint16_t RX_BUF = 4096;
     static constexpr uint16_t TX_BUF = 512;
 
-    bool prepare(unsigned long ms) {
+    bool prepare(unsigned long ms, uint16_t rx = RX_BUF, uint16_t tx = TX_BUF) {
         if (!_owned) return false;
         setTimeout(ms);
         _owned->setTimeout(ms);
-        setBufferSizes(RX_BUF, TX_BUF);
+        setBufferSizes(rx, tx);
         return true;
     }
 };

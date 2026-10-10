@@ -50,7 +50,9 @@ public:
 
         web.begin();
         ota.setAutomatic(config.ota_auto);
-        iot.begin();
+        ota.begin();
+        if (!ota.slim()) iot.begin();
+        else logger.log("OTA: modo recuperacao");
 
         // getResetReason sobrevive ao reboot e diz por que o boot anterior morreu.
         logger.log("Reset: %s", ESP.getResetReason().c_str());
@@ -64,9 +66,11 @@ public:
         wifi.tick(now);
         wifi.tickRestart(now);
 
-        dns.tick(now);
+        if (!ota.busy()) dns.tick(now);
         ota.tick(now);
-        iot.tick(now);
-        ntfy.tick(now);
+        if (!ota.inProgress()) {
+            iot.tick(now);
+            ntfy.tick(now);
+        }
     }
 };

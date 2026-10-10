@@ -78,7 +78,7 @@ GitHub Releases ──(vN)──► ESP8266
 - O build com `public.key` faz o `Updater` **verificar a assinatura** em `Update.end()` e gravar só o gzip. A instalação manual baixa o mesmo arquivo da automática: `firmware.signed.bin` se a chave está no build, `firmware.bin` se não está. O eboot lê o tamanho descomprimido nos 4 últimos bytes; no arquivo assinado esses bytes são o tamanho da assinatura, e gravá-lo sem remover o trailer corrompe o sketch.
 - O PlatformIO embute `public.key` antes de compilar (`pre:tools/embed_pubkey.py`), como o arduino-cli no CI. O link falha se o ELF não tiver o verificador e essa chave. O teste nativo não define `ARDUINO_SIGNING` e por isso exige `firmware.bin`.
 - A imagem é **comprimida com gzip** (o bootloader descomprime). Sem isso, firmware atual + novo não cabem juntos na área de sketch de 1 MB.
-- O download é abortado se o Wi-Fi cair, em erro de escrita ou após 30 s sem dados.
+- O download é abortado se o Wi-Fi cair, em erro de escrita ou após 60 s sem dados. A sessão TLS com o GitHub usa 16 KB (o GitHub não negocia MFLN; 4 KB travam o handshake). DNS e ntfy param durante o download. Falha transitória retenta com backoff; se a heap não bastar, grava `/ota.pending` e reinicia em modo recuperação (sem IoT) para concluir o OTA.
 
 ### Assets do release
 

@@ -247,7 +247,7 @@ struct EspClass {
     String      getResetInfo()          { return _resetInfo; }
     uint32_t    getFlashChipSize()      { return 1048576; }
     uint32_t    getSketchSize()         { return 300000; }
-    uint32_t    getFreeSketchSpace()    { return 300000; }
+    uint32_t    getFreeSketchSpace()    { return _freeSketch; }
     uint32_t    getCpuFreqMHz()         { return 80; }
     uint32_t    getChipId()             { return 0xDEAD; }
     const char* getSdkVersion()         { return "2.2.2"; }
@@ -258,6 +258,7 @@ struct EspClass {
     // Controláveis nos testes
     uint32_t _heap     = 50000;
     uint32_t _maxBlock = 40000;
+    uint32_t _freeSketch = 300000;
     String   _resetInfo = "Power On";
     uint8_t  _frag     = 10;
     int      _restarts = 0;
