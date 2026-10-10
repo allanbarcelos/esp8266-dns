@@ -46,6 +46,10 @@ struct Config {
     uint8_t iot_angle_off             = 0;
     uint8_t iot_duty_on               = 100;   // PWM 0–100. Ausência = 100 / 0
     uint8_t iot_duty_off              = 0;
+    uint8_t iot_manual                = 0;     // 0 automático, 1 forçar ligado, 2 forçar desligado
+    bool    iot_toggle                = false; // digital: cada pulso inverte o módulo
+    bool    iot_linear                = false; // PWM: potência entre o limite e o limite alto
+    int16_t iot_threshold_hi          = 0;
 
     // Estado em runtime — escrito pelos serviços, lido pelo WebService
     char          publicIP[16]  = {};

@@ -727,6 +727,187 @@ void test_pwm_duty_e_pinos_de_boot() {
     TEST_ASSERT_EQUAL(0, mock::analogValue[1]);
 }
 
+static void nivel(IoTService& iot, int level, unsigned long t) {
+    mock::pinIn[2] = level;
+    iot.tick(t);
+    iot.tick(t + IoTService::DEBOUNCE_MS);
+}
+
+void test_comando_manual_e_pulso() {
+    arm(2, 0);
+    cfg.iot_module_high = true;
+    cfg.iot_manual = IoTService::MANUAL_ON;
+    cfg.iot_notify = true;
+    IoTService ligado{cfg, logger};
+    mock::pinIn[2] = LOW;
+    ligado.begin();
+    TEST_ASSERT_EQUAL(HIGH, mock::pinOut[0]);
+    TEST_ASSERT_TRUE(ligado.moduleOn());
+    nivel(ligado, LOW, 0);
+    TEST_ASSERT_EQUAL(HIGH, mock::pinOut[0]);
+    TEST_ASSERT_EQUAL_STRING("baixo", ligado.sensorText());
+
+    cfg.iot_manual = IoTService::MANUAL_OFF;
+    IoTService solto{cfg, logger};
+    mock::pinIn[2] = HIGH;
+    solto.begin();
+    TEST_ASSERT_EQUAL(LOW, mock::pinOut[0]);
+    nivel(solto, HIGH, 0);
+    TEST_ASSERT_FALSE(solto.moduleOn());
+    TEST_ASSERT_EQUAL(LOW, mock::pinOut[0]);
+
+    cfg.iot_manual = 9;
+    IoTService invalido{cfg, logger};
+    mock::pinIn[2] = HIGH;
+    invalido.begin();
+    nivel(invalido, HIGH, 0);
+    TEST_ASSERT_TRUE(invalido.moduleOn());
+    TEST_ASSERT_EQUAL(HIGH, mock::pinOut[0]);
+
+    cfg.iot_manual = IoTService::MANUAL_AUTO;
+    cfg.iot_toggle = true;
+    cfg.iot_linear = true;
+    IoTService pulso{cfg, logger};
+    mock::pinIn[2] = HIGH;
+    pulso.begin();
+    TEST_ASSERT_EQUAL(LOW, mock::pinOut[0]);
+    nivel(pulso, HIGH, 0);
+    TEST_ASSERT_FALSE(pulso.moduleOn());
+    nivel(pulso, LOW, 1000);
+    TEST_ASSERT_FALSE(pulso.moduleOn());
+    nivel(pulso, HIGH, 2000);
+    TEST_ASSERT_TRUE(pulso.moduleOn());
+    TEST_ASSERT_EQUAL(HIGH, mock::pinOut[0]);
+    nivel(pulso, LOW, 3000);
+    TEST_ASSERT_TRUE(pulso.moduleOn());
+    nivel(pulso, HIGH, 4000);
+    TEST_ASSERT_FALSE(pulso.moduleOn());
+
+    cfg.iot_sensor_high = false;
+    IoTService baixo{cfg, logger};
+    mock::pinIn[2] = HIGH;
+    baixo.begin();
+    nivel(baixo, HIGH, 0);
+    TEST_ASSERT_FALSE(baixo.moduleOn());
+    nivel(baixo, LOW, 1000);
+    TEST_ASSERT_TRUE(baixo.moduleOn());
+
+    cfg.iot_sensor_high = true;
+    cfg.iot_manual = IoTService::MANUAL_OFF;
+    IoTService preso{cfg, logger};
+    mock::pinIn[2] = LOW;
+    preso.begin();
+    nivel(preso, LOW, 0);
+    nivel(preso, HIGH, 1000);
+    TEST_ASSERT_FALSE(preso.moduleOn());
+    TEST_ASSERT_EQUAL(LOW, mock::pinOut[0]);
+}
+
+void test_pwm_proporcional_e_faixa() {
+    arm(2, 0);
+    cfg.iot_sensor_type = IoTService::SENSOR_RANGE;
+    cfg.iot_module_type = IoTService::MODULE_FAN;
+    cfg.iot_linear = true;
+    cfg.iot_threshold = 10;
+    cfg.iot_threshold_hi = 30;
+    cfg.iot_duty_on = 100;
+    cfg.iot_duty_off = 0;
+    cfg.iot_notify = true;
+    IoTService iot{cfg, logger};
+    iot.begin();
+    TEST_ASSERT_EQUAL(0, mock::analogValue[0]);
+
+    echo(2, 20UL * 58);
+    iot.tick(0);
+    TEST_ASSERT_EQUAL_STRING("dist 20 cm", iot.sensorText());
+    TEST_ASSERT_EQUAL(50 * 1023 / 100, mock::analogValue[0]);
+    TEST_ASSERT_TRUE(iot.moduleOn());
+    TEST_ASSERT_TRUE(contains(std::string(iot.message()), "pwm 50%"));
+
+    uint8_t logged = logger.count();
+    echo(2, 20UL * 58);
+    iot.tick(IoTService::READ_GAP_MS);
+    TEST_ASSERT_EQUAL(logged, logger.count());
+
+    echo(2, 30UL * 58);
+    iot.tick(IoTService::READ_GAP_MS * 2);
+    TEST_ASSERT_EQUAL(1023, mock::analogValue[0]);
+
+    echo(2, 5UL * 58);
+    iot.tick(IoTService::READ_GAP_MS * 3);
+    TEST_ASSERT_EQUAL(0, mock::analogValue[0]);
+    TEST_ASSERT_FALSE(iot.moduleOn());
+
+    echo(2, 40UL * 58);
+    iot.tick(IoTService::READ_GAP_MS * 4);
+    TEST_ASSERT_EQUAL(1023, mock::analogValue[0]);
+
+    cfg.iot_threshold_hi = 10;
+    IoTService curto{cfg, logger};
+    curto.begin();
+    echo(2, 10UL * 58);
+    curto.tick(0);
+    TEST_ASSERT_EQUAL(1023, mock::analogValue[0]);
+    echo(2, 5UL * 58);
+    curto.tick(IoTService::READ_GAP_MS);
+    TEST_ASSERT_EQUAL(0, mock::analogValue[0]);
+
+    arm(2, -1);
+    cfg.iot_threshold_hi = 30;
+    IoTService so{cfg, logger};
+    so.begin();
+    echo(2, 20UL * 58);
+    so.tick(0);
+    TEST_ASSERT_EQUAL_STRING("dist 20 cm", so.sensorText());
+    TEST_ASSERT_EQUAL_STRING("nenhum", so.moduleText());
+
+    arm(2, 0);
+    cfg.iot_module_type = IoTService::MODULE_FAN;
+    cfg.iot_manual = IoTService::MANUAL_ON;
+    cfg.iot_duty_on = 80;
+    cfg.iot_duty_off = 10;
+    cfg.iot_threshold_hi = 30;
+    IoTService forca{cfg, logger};
+    forca.begin();
+    TEST_ASSERT_EQUAL(80 * 1023 / 100, mock::analogValue[0]);
+    echo(2, 5UL * 58);
+    forca.tick(0);
+    TEST_ASSERT_EQUAL(80 * 1023 / 100, mock::analogValue[0]);
+    TEST_ASSERT_EQUAL_STRING("dist 5 cm", forca.sensorText());
+
+    arm(2, 0);
+    cfg.iot_sensor_type = IoTService::SENSOR_DS18B20;
+    cfg.iot_manual = IoTService::MANUAL_AUTO;
+    cfg.iot_duty_on = 100;
+    cfg.iot_duty_off = 0;
+    cfg.iot_threshold = 20;
+    cfg.iot_threshold_hi = 30;
+    cfg.iot_notify = false;
+    IoTService ds{cfg, logger};
+    ds.begin();
+    const uint8_t ok[] = {0x90, 0x01, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10, 0x33};
+    feedDs(2, true, true, ok, 9);
+    ds.tick(0);
+    ds.tick(IoTService::DS_CONVERT_MS);
+    TEST_ASSERT_EQUAL_STRING("temp 25.0C", ds.sensorText());
+    TEST_ASSERT_EQUAL(50 * 1023 / 100, mock::analogValue[0]);
+    TEST_ASSERT_FALSE(ds.pending());
+
+    arm(2, 0);
+    cfg.iot_sensor_type = IoTService::SENSOR_RANGE;
+    cfg.iot_module_type = IoTService::MODULE_LEVEL;
+    cfg.iot_linear = true;
+    cfg.iot_above = true;
+    cfg.iot_module_high = false;
+    cfg.iot_threshold = 10;
+    IoTService nivel{cfg, logger};
+    nivel.begin();
+    echo(2, 20UL * 58);
+    nivel.tick(0);
+    TEST_ASSERT_TRUE(nivel.moduleOn());
+    TEST_ASSERT_EQUAL(LOW, mock::pinOut[0]);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_pinos_e_parse);
@@ -747,5 +928,7 @@ int main() {
     RUN_TEST(test_catalogo_e_apelidos_digitais);
     RUN_TEST(test_ultrassom_distancia_falhas_e_folga);
     RUN_TEST(test_pwm_duty_e_pinos_de_boot);
+    RUN_TEST(test_comando_manual_e_pulso);
+    RUN_TEST(test_pwm_proporcional_e_faixa);
     return UNITY_END();
 }

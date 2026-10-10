@@ -63,6 +63,10 @@ public:
         _cfg.iot_angle_off    = doc["iot_angle_off"]    | 0;
         _cfg.iot_duty_on      = doc["iot_duty_on"]      | 100;
         _cfg.iot_duty_off     = doc["iot_duty_off"]     | 0;
+        _cfg.iot_manual       = doc["iot_manual"]       | 0;
+        _cfg.iot_toggle       = doc["iot_toggle"]       | false;
+        _cfg.iot_linear       = doc["iot_linear"]       | false;
+        _cfg.iot_threshold_hi = doc["iot_threshold_hi"] | 0;
         strlcpy(_cfg.cf_token,   doc["cf_token"]   | "", sizeof(_cfg.cf_token));
         strlcpy(_cfg.cf_zone,    doc["cf_zone"]    | "", sizeof(_cfg.cf_zone));
         strlcpy(_cfg.cf_host,    doc["cf_host"]    | "", sizeof(_cfg.cf_host));
@@ -105,6 +109,10 @@ public:
         doc["iot_angle_off"]    = _cfg.iot_angle_off;
         doc["iot_duty_on"]      = _cfg.iot_duty_on;
         doc["iot_duty_off"]     = _cfg.iot_duty_off;
+        doc["iot_manual"]       = _cfg.iot_manual;
+        doc["iot_toggle"]       = _cfg.iot_toggle;
+        doc["iot_linear"]       = _cfg.iot_linear;
+        doc["iot_threshold_hi"] = _cfg.iot_threshold_hi;
         doc["cf_token"]   = _cfg.cf_token;
         doc["cf_zone"]    = _cfg.cf_zone;
         doc["cf_host"]    = _cfg.cf_host;

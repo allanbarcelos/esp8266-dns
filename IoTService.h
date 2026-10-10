@@ -58,6 +58,10 @@ public:
     static constexpr uint8_t MKIND_SERVO = 1;
     static constexpr uint8_t MKIND_PWM   = 2;
 
+    static constexpr uint8_t MANUAL_AUTO = 0;
+    static constexpr uint8_t MANUAL_ON   = 1;
+    static constexpr uint8_t MANUAL_OFF  = 2;
+
     static uint8_t sensorKind(uint8_t type) { return _sensorAt(type).kind; }
     static const char* sensorLabel(uint8_t type) { return _sensorAt(type).label; }
     static uint8_t moduleKind(uint8_t type) { return _moduleAt(type).kind; }
@@ -79,6 +83,10 @@ public:
         _runAngleOff = 0;
         _runDutyOn = 100;
         _runDutyOff = 0;
+        _runManual = MANUAL_AUTO;
+        _runToggle = false;
+        _runLinear = false;
+        _runThresholdHi = 0;
         _clear();
     }
 
@@ -146,8 +154,13 @@ public:
         _runAngleOff   = _cfg.iot_angle_off;
         _runDutyOn     = _clampDuty(_cfg.iot_duty_on);
         _runDutyOff    = _clampDuty(_cfg.iot_duty_off);
+        _runManual     = _cfg.iot_manual;
+        _runToggle     = _cfg.iot_toggle;
+        _runLinear     = _cfg.iot_linear;
+        _runThresholdHi = _cfg.iot_threshold_hi;
         if (_runSensorType >= SENSOR_COUNT) _runSensorType = SENSOR_DIGITAL;
         if (_runModuleType >= MODULE_COUNT) _runModuleType = MODULE_LEVEL;
+        if (_runManual > MANUAL_OFF) _runManual = MANUAL_AUTO;
         if (!allowedPin(_runSensor)) return;
         pinMode((uint8_t)_runSensor, INPUT_PULLUP);
         if (sensorKind(_runSensorType) == KIND_PULSE) {
@@ -155,14 +168,15 @@ public:
             attachInterrupt((uint8_t)_runSensor, onPulse, FALLING);
         }
         if (_moduleIsOutput()) {
+            bool driveOn = _runManual == MANUAL_ON;
             if (moduleKind(_runModuleType) == MKIND_SERVO) {
                 _servoOk = _servo.attach((int)_runModule) != 0;
-                if (_servoOk) _writeModule(false);
+                if (_servoOk) _writeModule(driveOn);
                 else _log.log("IoT: servo indisponivel");
                 _log.log("IoT: sensor GPIO%d servo GPIO%d", _runSensor, _runModule);
             } else {
                 pinMode((uint8_t)_runModule, OUTPUT);
-                _writeModule(false);
+                _writeModule(driveOn);
                 _log.log("IoT: sensor GPIO%d modulo GPIO%d", _runSensor, _runModule);
             }
         } else {
@@ -272,7 +286,12 @@ private:
     uint8_t _runAngleOff;
     uint8_t _runDutyOn;
     uint8_t _runDutyOff;
+    uint8_t _runManual;
+    bool    _runToggle;
+    bool    _runLinear;
+    int16_t _runThresholdHi;
     uint8_t _shownDuty;
+    bool    _edgeReady;
     Servo   _servo;
 
     struct _Cat {
@@ -347,6 +366,7 @@ private:
         _temp = 0;
         _shownAngle = 0;
         _shownDuty = 0;
+        _edgeReady = false;
         _since = 0;
         _lastRead = 0;
         _owSince = 0;
@@ -444,9 +464,50 @@ private:
         snprintf(buf, n, " modulo %s", _moduleOn ? "ligado" : "desligado");
     }
 
+    bool _outputLocked() const { return _runManual != MANUAL_AUTO; }
+
+    bool _proportional() const {
+        return _runLinear && moduleKind(_runModuleType) == MKIND_PWM;
+    }
+
+    void _command(bool on) {
+        if (_outputLocked()) return;
+        _writeModule(on);
+    }
+
+    void _commandDuty(uint8_t duty) {
+        if (_outputLocked()) return;
+        if (!_moduleIsOutput()) {
+            _moduleOn = false;
+            return;
+        }
+        _shownDuty = duty;
+        _moduleOn = duty != _runDutyOff;
+        analogWrite((uint8_t)_runModule, _dutyPwm(duty));
+        snprintf(_moduleLine, sizeof(_moduleLine), "pwm %u%%", duty);
+    }
+
+    // Limite alto acima do limite: interpola. Faixa vazia vira dois patamares.
+    uint8_t _mapDuty(int value, bool tenths) const {
+        int scale = tenths ? 10 : 1;
+        int lo = (int)_runThreshold * scale;
+        int hi = (int)_runThresholdHi * scale;
+        if (hi <= lo) return value >= lo ? _runDutyOn : _runDutyOff;
+        if (value <= lo) return _runDutyOff;
+        if (value >= hi) return _runDutyOn;
+        int span = hi - lo;
+        int delta = (int)_runDutyOn - (int)_runDutyOff;
+        return (uint8_t)((int)_runDutyOff + delta * (value - lo) / span);
+    }
+
     void _apply(int level) {
         bool sensorOn = (level == HIGH) == _runSensorHigh;
-        _writeModule(sensorOn);
+        if (_runToggle) {
+            if (_edgeReady && sensorOn) _command(!_moduleOn);
+            _edgeReady = true;
+        } else {
+            _command(sensorOn);
+        }
         const char* name = level == HIGH ? "alto" : "baixo";
         if (_runNotify) {
             char suffix[24];
@@ -506,11 +567,19 @@ private:
             _fmtTenths(temp, sizeof(temp), _temp);
             snprintf(_sensorLine, sizeof(_sensorLine), "umid %s%% temp %sC", hum, temp);
         }
-        bool on = _rule(value, tenths);
-        bool changed = !_haveLevel || on != _conditionOn;
-        if (changed) _writeModule(on);
+        bool changed;
+        if (_proportional()) {
+            uint8_t duty = _mapDuty(value, tenths);
+            changed = !_haveLevel || duty != _shownDuty;
+            if (changed) _commandDuty(duty);
+            _conditionOn = _shownDuty != _runDutyOff;
+        } else {
+            bool on = _rule(value, tenths);
+            changed = !_haveLevel || on != _conditionOn;
+            if (changed) _command(on);
+            _conditionOn = on;
+        }
         _haveLevel = true;
-        _conditionOn = on;
         if (!_runNotify) {
             _pending[0] = '\0';
             if (changed) _log.log("IoT: GPIO%d %s", _runSensor, _sensorLine);

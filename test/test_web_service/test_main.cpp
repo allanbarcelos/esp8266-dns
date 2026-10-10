@@ -648,7 +648,12 @@ void test_iot_pagina_tipos() {
     TEST_ASSERT_TRUE(contains(f.out(), "mk=[0,1,0,0,0,0,2,2]"));
     TEST_ASSERT_TRUE(contains(f.out(), "}iotSync();"));
     TEST_ASSERT_TRUE(contains(f.out(), "id='iot_pwm' style='display:none'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_span' style='display:none'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='0' selected>Automatico"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='0' selected>Seguir o nivel"));
     TEST_ASSERT_TRUE(contains(f.out(), "value='0' selected>Abaixo de"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='threshold' value='0' min='-55' max='100000'>"));
+    TEST_ASSERT_FALSE(contains(f.out(), "max='100000'<"));
     TEST_ASSERT_TRUE(contains(f.out(), "id='iot_value' style='display:none'"));
     TEST_ASSERT_TRUE(contains(f.out(), "iotSync"));
 
@@ -680,18 +685,37 @@ void test_iot_pagina_tipos() {
     f.get("/iot");
     TEST_ASSERT_TRUE(contains(f.out(), "value='4' selected>Pulsos (10 s)"));
 
+    cfg.iot_sensor_type = IoTService::SENSOR_DIGITAL;
+    cfg.iot_module_type = IoTService::MODULE_FAN;
+    cfg.iot_manual = IoTService::MANUAL_OFF;
+    cfg.iot_toggle = true;
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(), "value='2' selected>Desligado"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='1' selected>Alternar"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_pwm'>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_span' style='display:none'"));
+
     cfg.iot_sensor_type = IoTService::SENSOR_RANGE;
     cfg.iot_module_type = IoTService::MODULE_FAN;
     cfg.iot_duty_on = 70;
+    cfg.iot_linear = true;
+    cfg.iot_threshold = 32767;
+    cfg.iot_threshold_hi = 32767;
+    cfg.iot_manual = IoTService::MANUAL_ON;
     f.get("/iot");
     TEST_ASSERT_TRUE(contains(f.out(), "value='15' selected>Ultrassom"));
     TEST_ASSERT_TRUE(contains(f.out(), "value='6' selected>Ventilador"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='1' selected>Ligado"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='1' selected>Proporcional"));
     TEST_ASSERT_TRUE(contains(f.out(), "id='iot_value'>"));
     TEST_ASSERT_TRUE(contains(f.out(), "id='iot_metric' style='display:none'"));
     TEST_ASSERT_TRUE(contains(f.out(), "id='iot_pwm'>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "id='iot_span'>"));
     TEST_ASSERT_TRUE(contains(f.out(), "id='iot_level' style='display:none'"));
     TEST_ASSERT_TRUE(contains(f.out(), "id='iot_servo' style='display:none'"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='duty_on' value='70'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='threshold' value='32767' min='-55' max='100000'>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='threshold_hi' value='32767' min='-55' max='100000'>"));
 }
 
 void test_iot_save_dht_servo_e_pulsos() {
@@ -773,6 +797,29 @@ void test_iot_save_rejeita_valores() {
                          {"threshold", "30"}, {"duty_on", "10"},
                          {"duty_off", "101"}});
     TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"}, {"manual", "9"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"}, {"toggle", "2"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"}, {"linear", "2"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "15"}, {"module_type", "6"},
+                         {"threshold", "30"}, {"linear", "1"},
+                         {"threshold_hi", "30"}, {"duty_on", "80"},
+                         {"duty_off", "10"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "15"}, {"module_type", "6"},
+                         {"threshold", "30"}, {"linear", "1"},
+                         {"threshold_hi", "x"}, {"duty_on", "80"},
+                         {"duty_off", "10"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Valor invalido"));
 }
 
 void test_iot_save_ultrassom_pwm_e_apelido() {
@@ -802,6 +849,40 @@ void test_iot_save_ultrassom_pwm_e_apelido() {
     TEST_ASSERT_EQUAL(100, cfg.iot_duty_on);
     TEST_ASSERT_EQUAL(0, cfg.iot_duty_off);
     TEST_ASSERT_EQUAL(OUTPUT, mock::pinModeV[0]);
+    TEST_ASSERT_EQUAL(0, cfg.iot_manual);
+    TEST_ASSERT_FALSE(cfg.iot_toggle);
+    TEST_ASSERT_FALSE(cfg.iot_linear);
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "14"}, {"module_type", "0"},
+                         {"manual", "1"}, {"toggle", "1"},
+                         {"sensor_high", "1"}, {"module_high", "1"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL(IoTService::SENSOR_BUTTON, cfg.iot_sensor_type);
+    TEST_ASSERT_EQUAL(IoTService::MANUAL_ON, cfg.iot_manual);
+    TEST_ASSERT_TRUE(cfg.iot_toggle);
+    TEST_ASSERT_EQUAL(HIGH, mock::pinOut[0]);
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "15"}, {"module_type", "6"},
+                         {"threshold", "10"}, {"threshold_hi", "30"},
+                         {"linear", "1"}, {"toggle", "1"},
+                         {"duty_on", "100"}, {"duty_off", "0"},
+                         {"sensor_high", "1"}, {"module_high", "0"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(cfg.iot_linear);
+    TEST_ASSERT_FALSE(cfg.iot_toggle);
+    TEST_ASSERT_EQUAL(30, cfg.iot_threshold_hi);
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"iot_linear\":true"));
+
+    f.post("/iot/save", {{"sensor", "2"}, {"module", "0"},
+                         {"sensor_type", "0"}, {"module_type", "0"},
+                         {"linear", "1"}, {"toggle", "0"},
+                         {"sensor_high", "1"}, {"module_high", "0"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_FALSE(cfg.iot_linear);
+    TEST_ASSERT_FALSE(cfg.iot_toggle);
+    TEST_ASSERT_EQUAL(0, cfg.iot_threshold_hi);
 }
 
 void test_iot_save_rejeita_pino_e_falha_ao_gravar() {

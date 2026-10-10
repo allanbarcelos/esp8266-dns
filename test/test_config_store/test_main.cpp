@@ -58,6 +58,10 @@ void test_load_defaults() {
     TEST_ASSERT_EQUAL(0, config.iot_angle_off);
     TEST_ASSERT_EQUAL(100, config.iot_duty_on);
     TEST_ASSERT_EQUAL(0, config.iot_duty_off);
+    TEST_ASSERT_EQUAL(0, config.iot_manual);
+    TEST_ASSERT_FALSE(config.iot_toggle);
+    TEST_ASSERT_FALSE(config.iot_linear);
+    TEST_ASSERT_EQUAL(0, config.iot_threshold_hi);
 }
 
 void test_iot_persiste_e_ausencia_desliga() {
@@ -94,6 +98,10 @@ void test_iot_persiste_e_ausencia_desliga() {
     config.iot_angle_off = 15;
     config.iot_duty_on = 40;
     config.iot_duty_off = 10;
+    config.iot_manual = 2;
+    config.iot_toggle = true;
+    config.iot_linear = true;
+    config.iot_threshold_hi = 40;
     TEST_ASSERT_TRUE(store.save());
     config = Config{};
     TEST_ASSERT_TRUE(store.load());
@@ -107,6 +115,10 @@ void test_iot_persiste_e_ausencia_desliga() {
     TEST_ASSERT_EQUAL(15, config.iot_angle_off);
     TEST_ASSERT_EQUAL(40, config.iot_duty_on);
     TEST_ASSERT_EQUAL(10, config.iot_duty_off);
+    TEST_ASSERT_EQUAL(2, config.iot_manual);
+    TEST_ASSERT_TRUE(config.iot_toggle);
+    TEST_ASSERT_TRUE(config.iot_linear);
+    TEST_ASSERT_EQUAL(40, config.iot_threshold_hi);
 }
 
 void test_ota_auto_persiste() {

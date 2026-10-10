@@ -763,8 +763,9 @@ private:
         _server.sendContent(show ? "'>" : "' style='display:none'>");
     }
 
+    // min -55 e max 100000 passam de 128 caracteres e cortavam o '>'.
     void _number(const char* name, int value, int min, int max) {
-        char buf[128];
+        char buf[160];
         snprintf(buf, sizeof(buf),
                  "<input class='form-control bg-dark text-light border-secondary' "
                  "type='number' name='%s' value='%d' min='%d' max='%d'>",
@@ -785,12 +786,14 @@ private:
             "<p class='small mb-3' style='color:#d7dbe0'>"
             "GPIO0 e GPIO2 ficam em alto no boot. O sensor e o modulo usam pinos "
             "diferentes. Digital, PIR, porta, chuva, chama, gas, solo, luz, som, "
-            "boia e botao ligam por nivel. DHT, DS18B20, pulsos (a cada 10 s) e "
-            "ultrassom (trig e echo no mesmo pino, em cm) comparam um valor com o "
-            "limite. Rele, LED, buzzer, bomba e valvula usam um nivel. O servo vai "
-            "para um angulo. Ventilador e motor usam PWM de 0 a 100. DHT e DS18B20 "
-            "pedem pull-up. A leitura segue no topico ntfy ja cadastrado, com o "
-            "prefixo [sensor]. O IP sai como [ip].</p>");
+            "boia e botao ligam por nivel, ou alternam a cada pulso. O comando "
+            "pode forcar o modulo ligado ou desligado. DHT, DS18B20, pulsos "
+            "(a cada 10 s) e ultrassom (trig e echo no mesmo pino, em cm) comparam "
+            "um valor com o limite. Rele, LED, buzzer, bomba e valvula usam um "
+            "nivel. O servo vai para um angulo. Ventilador e motor usam PWM de 0 "
+            "a 100, em dois patamares ou proporcional entre o limite e o limite "
+            "alto. DHT e DS18B20 pedem pull-up. A leitura segue no topico ntfy ja "
+            "cadastrado, com o prefixo [sensor]. O IP sai como [ip].</p>");
 
         _box("Agora");
         _row("Sensor", _iot.sensorText());
@@ -820,6 +823,13 @@ private:
         _pinOptions(_cfg.iot_module_pin);
         _server.sendContent("</select>");
 
+        _server.sendContent("<label class='form-label small mt-2'>Comando</label>");
+        _selectOpen("manual");
+        _choice("0", "Automatico", _cfg.iot_manual == IoTService::MANUAL_AUTO);
+        _choice("1", "Ligado", _cfg.iot_manual == IoTService::MANUAL_ON);
+        _choice("2", "Desligado", _cfg.iot_manual == IoTService::MANUAL_OFF);
+        _server.sendContent("</select>");
+
         _server.sendContent("<label class='form-label small mt-2'>Tipo do sensor</label>");
         _selectOpen("sensor_type");
         _typeOptions(true, _cfg.iot_sensor_type);
@@ -830,6 +840,11 @@ private:
             "<label class='form-label small mt-2'>Ligar o modulo quando o sensor estiver</label>");
         _selectOpen("sensor_high");
         _levelOptions(_cfg.iot_sensor_high);
+        _server.sendContent("</select>");
+        _server.sendContent("<label class='form-label small mt-2'>Ao pulso</label>");
+        _selectOpen("toggle");
+        _choice("0", "Seguir o nivel", !_cfg.iot_toggle);
+        _choice("1", "Alternar", _cfg.iot_toggle);
         _server.sendContent("</select></div>");
 
         _divOpen("iot_value", numeric);
@@ -876,6 +891,16 @@ private:
         _number("duty_off", _cfg.iot_duty_off, 0, 100);
         _server.sendContent("</div>");
 
+        _divOpen("iot_span", pwm && numeric);
+        _server.sendContent("<label class='form-label small mt-2'>Curva da potencia</label>");
+        _selectOpen("linear");
+        _choice("0", "Dois patamares", !_cfg.iot_linear);
+        _choice("1", "Proporcional", _cfg.iot_linear);
+        _server.sendContent("</select>");
+        _server.sendContent("<label class='form-label small mt-2'>Limite alto</label>");
+        _number("threshold_hi", _cfg.iot_threshold_hi, -55, 100000);
+        _server.sendContent("</div>");
+
         _server.sendContent(
             "<div class='form-check form-switch my-3'>"
             "<input class='form-check-input' type='checkbox' role='switch' "
@@ -889,23 +914,25 @@ private:
         _sendKindList(true);
         _server.sendContent("];var mk=[");
         _sendKindList(false);
-        char js[700];
+        char js[900];
         snprintf(js, sizeof(js),
             "];var s=+document.getElementById('sensor_type').value;"
             "var m=+document.getElementById('module_type').value;"
             "if(!(s>=0&&s<sk.length))s=0;"
             "if(!(m>=0&&m<mk.length))m=0;"
             "var num=sk[s]!=%u;"
+            "var pwm=mk[m]==%u;"
             "document.getElementById('iot_digital').style.display=num?'none':'';"
             "document.getElementById('iot_value').style.display=num?'':'none';"
             "document.getElementById('iot_metric').style.display=(sk[s]==%u||sk[s]==%u)?'':'none';"
             "document.getElementById('iot_level').style.display=mk[m]==%u?'':'none';"
             "document.getElementById('iot_servo').style.display=mk[m]==%u?'':'none';"
-            "document.getElementById('iot_pwm').style.display=mk[m]==%u?'':'none';"
+            "document.getElementById('iot_pwm').style.display=pwm?'':'none';"
+            "document.getElementById('iot_span').style.display=(pwm&&num)?'':'none';"
             "}iotSync();</script>",
-            IoTService::KIND_DIGITAL,
+            IoTService::KIND_DIGITAL, IoTService::MKIND_PWM,
             IoTService::KIND_DHT11, IoTService::KIND_DHT22,
-            IoTService::MKIND_LEVEL, IoTService::MKIND_SERVO, IoTService::MKIND_PWM);
+            IoTService::MKIND_LEVEL, IoTService::MKIND_SERVO);
         _server.sendContent(js);
         _pageEnd();
     }
@@ -987,6 +1014,53 @@ private:
                 return;
             }
         }
+        uint8_t manual = IoTService::MANUAL_AUTO;
+        String manualArg = _server.arg("manual");
+        if (manualArg.length() > 0 &&
+            !IoTService::parseU8(manualArg, 0, IoTService::MANUAL_OFF, manual)) {
+            _errorPage("Valor invalido", "/iot");
+            return;
+        }
+        bool toggle = false;
+        String toggleArg = _server.arg("toggle");
+        if (toggleArg.length() > 0) {
+            uint8_t toggleBit = 0;
+            if (!IoTService::parseU8(toggleArg, 0, 1, toggleBit)) {
+                _errorPage("Valor invalido", "/iot");
+                return;
+            }
+            toggle = toggleBit == 1;
+        }
+        bool linear = false;
+        String linearArg = _server.arg("linear");
+        if (linearArg.length() > 0) {
+            uint8_t linearBit = 0;
+            if (!IoTService::parseU8(linearArg, 0, 1, linearBit)) {
+                _errorPage("Valor invalido", "/iot");
+                return;
+            }
+            linear = linearBit == 1;
+        }
+        if (IoTService::sensorKind(sensorType) != IoTService::KIND_DIGITAL)
+            toggle = false;
+        if (IoTService::sensorKind(sensorType) == IoTService::KIND_DIGITAL)
+            linear = false;
+        if (IoTService::moduleKind(moduleType) != IoTService::MKIND_PWM)
+            linear = false;
+
+        int16_t thresholdHi = 0;
+        if (linear) {
+            String hiArg = _server.arg("threshold_hi");
+            if (!IoTService::parseI16(hiArg, -55, 100000, thresholdHi)) {
+                _errorPage("Valor invalido", "/iot");
+                return;
+            }
+            if (thresholdHi <= threshold) {
+                _errorPage("Valor invalido", "/iot");
+                return;
+            }
+        }
+
         uint8_t dutyOn = 100;
         uint8_t dutyOff = 0;
         if (IoTService::moduleKind(moduleType) == IoTService::MKIND_PWM) {
@@ -1017,6 +1091,10 @@ private:
         _cfg.iot_angle_off    = angleOff;
         _cfg.iot_duty_on      = dutyOn;
         _cfg.iot_duty_off     = dutyOff;
+        _cfg.iot_manual       = manual;
+        _cfg.iot_toggle       = toggle;
+        _cfg.iot_linear       = linear;
+        _cfg.iot_threshold_hi = thresholdHi;
         if (!_store.save()) {
             _errorPage("Falha ao salvar configuracao", "/iot");
             return;
