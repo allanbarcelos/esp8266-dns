@@ -29,7 +29,7 @@ public:
         if (!_wifi.isConnected()) return;
         if (!_clock.synced()) return; // TLS precisa de relógio válido
         _lastCheck = now;
-        _update();
+        _update(now);
     }
 
     bool configured() const {
@@ -49,9 +49,9 @@ private:
     unsigned long     _lastCheck;
     char              _syncedIP[16];
 
-    void _update() {
+    void _update(unsigned long now) {
         char ip[16];
-        if (!_resolver.resolve(ip, sizeof(ip))) {
+        if (!_resolver.resolve(ip, sizeof(ip), now)) {
             _log.log("Falha ao obter IP publico");
             return;
         }

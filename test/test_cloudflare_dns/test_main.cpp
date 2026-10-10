@@ -31,7 +31,7 @@ void tearDown() {}
 struct Fixture {
     Clock            clock{fakeTime};
     WiFiService      wifi{cfg, logger};
-    PublicIPResolver resolver{logger};
+    PublicIPResolver resolver{logger, clock};
     CloudflareDNS    dns{cfg, logger, wifi, resolver, clock};
 };
 

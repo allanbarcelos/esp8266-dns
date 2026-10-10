@@ -5,10 +5,10 @@
 Firmware para **ESP-01 (ESP8266, 1 MB)** que funciona como agente autônomo de DNS dinâmico:
 
 1. **Mantém registros A do Cloudflare** apontando para o IP público residencial.
-2. **Notifica o IP público via [ntfy.sh](https://ntfy.sh)** no boot e sempre que ele mudar.
+2. **Notifica o IP público via [ntfy.sh](https://ntfy.sh)** no boot e sempre que ele mudar, com ou sem Cloudflare configurado.
 3. **Atualiza o próprio firmware (OTA)** a partir dos GitHub Releases, com **assinatura RSA verificada** no aparelho.
 4. Oferece um **painel web local** (autenticado) para configuração e diagnóstico.
-5. Tem **watchdogs** de Wi-Fi, internet, memória e reinício diário.
+5. Tem **watchdogs** de Wi-Fi, memória e reinício diário.
 
 ---
 
@@ -24,9 +24,9 @@ Cada serviço é um header com dependências injetadas por referência, composto
 | `Logger.h`           | Buffer circular de logs (Serial + painel)                                      |
 | `Clock.h`            | Relógio via SNTP (necessário para validar certificados TLS)                   |
 | `WiFiService.h`      | Conexão, modo de configuração (AP), reconexão e watchdogs                      |
-| `PublicIPResolver.h` | Descobre o IP público consultando vários serviços, com validação IPv4         |
+| `PublicIPResolver.h` | IPv4 público via HTTPS (raízes de `CloudflareCA.h`), com cache de 60 s       |
 | `CloudflareDNS.h`    | PATCH dos registros via API Cloudflare (TLS validado com `CloudflareCA.h`)    |
-| `NtfyNotifier.h`     | Notificação do IP público                                                      |
+| `NtfyNotifier.h`     | Notificação do IP público; resolve o IP por conta própria                     |
 | `OTAService.h`       | Checagem de versão e download do firmware assinado                            |
 | `WebService.h`       | Painel HTTP (Basic Auth + CSRF + escape de HTML)                               |
 | `Version.h`          | `firmware_version` (injetado pelo CI; `"dev"` em builds locais)               |
@@ -53,9 +53,13 @@ Crie um token com escopo mínimo: **Zone → DNS → Edit**, restrito à zona us
 
 A cada 60 s (com Wi-Fi conectado e relógio sincronizado):
 
-1. Obtém o IP público (ipify → ifconfig.me → checkip.amazonaws → ident.me) e valida o formato IPv4.
+1. Obtém o IP público por HTTPS. O corpo precisa ser um único IPv4 e o certificado precisa encadear nas raízes de `CloudflareCA.h`.
 2. Se o IP for diferente do **último IP sincronizado** (em memória), envia `PATCH` para cada registro.
 3. Só marca como sincronizado quando **todos** os registros são atualizados. Em caso de falha, tenta de novo no próximo ciclo.
+
+A busca tenta `api4.ipify.org`, depois `icanhazip.com`, depois `ifconfig.co`. Os três respondem com um IPv4 puro e apresentam a cadeia WE1 → GTS Root R4, a mesma que `api.cloudflare.com` já valida nos aparelhos em campo. Nenhuma raiz nova é adicionada. A primeira resposta válida fica em cache por 60 s e é compartilhada: DNS e ntfy abrem uma sessão TLS por ciclo.
+
+O ntfy lê esse resultado por conta própria. Um tópico sem token Cloudflare continua resolvendo e notificando.
 
 Não dependemos do DNS resolvido localmente: ele tem cache/TTL e, em registros *proxied*, devolve IPs da Cloudflare. Após cada boot há um `PATCH` inicial, que é idempotente.
 
@@ -103,7 +107,7 @@ gh secret set OTA_SIGNING_KEY < private.key
 | Mecanismo                | Comportamento                                                                  |
 | ------------------------ | ------------------------------------------------------------------------------ |
 | Wi-Fi caiu               | Checagem a cada 15 s, reconexão; 5 falhas seguidas → reinício                 |
-| Sem internet             | `generate_204` a cada 60 s conta como falha                                    |
+| WAN inacessível          | A busca do IP falha, é registrada e tenta de novo em 60 s. O reinício fica reservado à perda de associação Wi-Fi (5 falhas) e ao ciclo diário. |
 | Memória crítica          | Heap < 15 KB ou fragmentação > 50 % em 3 checagens seguidas (10 s) → reinício |
 | Reinício diário          | Após 24 h de uptime (adiado durante OTA)                                       |
 | Modo de configuração     | Nenhum watchdog derruba o AP enquanto ele está ativo                           |

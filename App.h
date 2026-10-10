@@ -26,10 +26,10 @@ public:
     WiFiService wifi{config, logger};
 
     // Camada 2 — dependem de WiFi + acima
-    PublicIPResolver resolver{logger};
+    PublicIPResolver resolver{logger, clock};
     CloudflareDNS    dns{config, logger, wifi, resolver, clock};
     OTAService       ota{logger, wifi};
-    NtfyNotifier     ntfy{config, logger};
+    NtfyNotifier     ntfy{config, logger, resolver};
 
     // Camada 3 — painel web
     WebService web{config, logger, configStore, wifi, ota};

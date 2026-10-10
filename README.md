@@ -5,10 +5,10 @@ English | [Português](README.pt.md)
 Firmware for the **ESP-01 (ESP8266, 1 MB)** that acts as an autonomous dynamic-DNS agent:
 
 1. **Keeps Cloudflare A records** pointing at the residential public IP.
-2. **Sends the public IP via [ntfy.sh](https://ntfy.sh)** at boot and whenever it changes.
+2. **Sends the public IP via [ntfy.sh](https://ntfy.sh)** at boot and whenever it changes, whether or not Cloudflare is configured.
 3. **Updates its own firmware (OTA)** from GitHub Releases, with **on-device RSA signature verification**.
 4. Provides an **authenticated local web panel** for configuration and diagnostics.
-5. Has **watchdogs** for Wi-Fi, internet reachability, memory and a daily reboot.
+5. Has **watchdogs** for Wi-Fi, memory and a daily reboot.
 
 ---
 
@@ -24,9 +24,9 @@ Each service is a header with dependencies injected by reference, composed in la
 | `Logger.h`           | Ring buffer of log lines (Serial + panel)                                   |
 | `Clock.h`            | SNTP wall clock (required to validate TLS certificates)                     |
 | `WiFiService.h`      | Connection, configuration mode (AP), reconnection and watchdogs             |
-| `PublicIPResolver.h` | Discovers the public IP from several services, with IPv4 validation         |
+| `PublicIPResolver.h` | Public IPv4 over HTTPS (CA bundle in `CloudflareCA.h`), cached for 60 s    |
 | `CloudflareDNS.h`    | PATCHes records through the Cloudflare API (TLS validated by `CloudflareCA.h`) |
-| `NtfyNotifier.h`     | Public IP notification                                                      |
+| `NtfyNotifier.h`     | Public IP notification; resolves the IP on its own                          |
 | `OTAService.h`       | Version check and signed firmware download                                  |
 | `WebService.h`       | HTTP panel (Basic Auth + CSRF + HTML escaping)                              |
 | `Version.h`          | `firmware_version` (injected by CI; `"dev"` for local builds)               |
@@ -53,9 +53,13 @@ Create a least-privilege token: **Zone → DNS → Edit**, restricted to the zon
 
 Every 60 s (while Wi-Fi is up and the clock is synchronized):
 
-1. Fetch the public IP (ipify → ifconfig.me → checkip.amazonaws → ident.me) and validate it as IPv4.
+1. Fetch the public IP over HTTPS. The body must be a single IPv4 and the certificate must chain to the roots in `CloudflareCA.h`.
 2. If it differs from the **last synchronized IP** (kept in memory), send a `PATCH` for each record.
 3. Mark it synchronized only when **all** records succeed. On any failure, retry on the next cycle.
+
+The lookup tries `api4.ipify.org`, then `icanhazip.com`, then `ifconfig.co`. All three answer with a bare IPv4 and present the WE1 → GTS Root R4 chain, the same chain `api.cloudflare.com` already validates on devices in the field. No new root is added. The first valid answer is kept for 60 s and shared, so DNS and ntfy open one TLS session per cycle.
+
+ntfy reads that result on its own. A topic with no Cloudflare token still resolves and notifies.
 
 The firmware does not rely on local DNS resolution: it is cached by TTL and returns Cloudflare IPs for *proxied* records. Each boot performs one initial `PATCH`, which is idempotent.
 
@@ -103,7 +107,7 @@ gh secret set OTA_SIGNING_KEY < private.key
 | Mechanism           | Behaviour                                                                  |
 | ------------------- | -------------------------------------------------------------------------- |
 | Wi-Fi lost          | Checked every 15 s and reconnected; 5 consecutive failures → reboot        |
-| No internet         | `generate_204` every 60 s counts as a failure                              |
+| Upstream unreachable | The public-IP lookup fails, is logged, and retries in 60 s. Reboot is reserved for lost Wi-Fi association (5 failures) and the daily restart. |
 | Critical memory     | Heap < 15 KB or fragmentation > 50 % on 3 consecutive checks (10 s) → reboot |
 | Daily reboot        | After 24 h of uptime (postponed during OTA)                                |
 | Configuration mode  | No watchdog takes the AP down while it is active                           |

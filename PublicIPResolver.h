@@ -2,30 +2,59 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include "Logger.h"
+#include "Clock.h"
+#include "CloudflareCA.h"
 
-// Tabela PROGMEM — adicione serviços aqui sem alterar a lógica de resolve()
-static const char _IP_SVC_0[] PROGMEM = "http://api.ipify.org";
-static const char _IP_SVC_1[] PROGMEM = "http://ifconfig.me/ip";
-static const char _IP_SVC_2[] PROGMEM = "http://checkip.amazonaws.com";
-static const char _IP_SVC_3[] PROGMEM = "http://v4.ident.me";
+// IP público por HTTPS. Os três provedores devolvem só o IPv4 e usam a
+// cadeia WE1 → GTS Root R4 — a mesma já validada em campo por
+// api.cloudflare.com, com as raízes de CloudflareCA.h. Serviço fora
+// dessa cadeia não entra: o TLS falharia neste aparelho.
+//
+// A primeira resposta IPv4 válida encerra a busca (uma sessão TLS por
+// ciclo). DNS e ntfy compartilham o resultado pelo cache.
+static const char _IP_SVC_0[] PROGMEM = "https://api4.ipify.org";
+static const char _IP_SVC_1[] PROGMEM = "https://icanhazip.com";
+static const char _IP_SVC_2[] PROGMEM = "https://ifconfig.co/ip";
 
 static const char* const IP_SERVICES[] PROGMEM = {
-    _IP_SVC_0, _IP_SVC_1, _IP_SVC_2, _IP_SVC_3
+    _IP_SVC_0, _IP_SVC_1, _IP_SVC_2
 };
-static const uint8_t NUM_IP_SERVICES = 4;
+static const uint8_t NUM_IP_SERVICES = 3;
 
 class PublicIPResolver {
 public:
-    explicit PublicIPResolver(Logger& log) : _log(log) {}
+    PublicIPResolver(Logger& log, Clock& clock)
+        : _log(log), _clock(clock), _cachedAt(0), _failedAt(0), _failed(false) {
+        _cached[0] = '\0';
+    }
 
-    // Tenta cada serviço em ordem. Só escreve em out[len] quando a resposta
-    // é um IPv4 válido — em falha, out permanece intacto.
-    bool resolve(char* out, size_t len) {
+    // Escreve um IPv4 em out somente quando a resposta é válida.
+    // Em falha, out permanece intacto. `now` é o mesmo millis() do tick.
+    bool resolve(char* out, size_t len, unsigned long now) {
+        if (_cached[0] != '\0' && now - _cachedAt < CACHE_TTL)
+            return _copyCached(out, len);
+        if (_failed && now - _failedAt < CACHE_TTL)
+            return false;
+        if (!_clock.synced()) {
+            _log.log("IP: relogio nao sincronizado");
+            return false;
+        }
+
+        // Marca a tentativa antes da rede: falha recente não repete o TLS
+        // até o próximo ciclo, nem quando DNS e ntfy perguntam no mesmo tick.
+        _failed   = true;
+        _failedAt = now;
+
+        BearSSL::X509List trust(CLOUDFLARE_CA);
         for (uint8_t i = 0; i < NUM_IP_SERVICES; i++) {
-            char url[40];
+            char url[48];
             strcpy_P(url, (char*)pgm_read_ptr(&IP_SERVICES[i]));
-
-            if (_query(url, out, len)) return true;
+            if (_query(trust, url, out, len)) {
+                strlcpy(_cached, out, sizeof(_cached));
+                _cachedAt = now;
+                _failed   = false;
+                return true;
+            }
             yield();
         }
 
@@ -33,18 +62,34 @@ public:
         return false;
     }
 
-private:
-    Logger& _log;
+    static constexpr unsigned long CACHE_TTL = 60000UL;
 
-    bool _query(const char* url, char* out, size_t len) {
-        WiFiClient client;
+private:
+    Logger&       _log;
+    Clock&        _clock;
+    char          _cached[16];
+    unsigned long _cachedAt;
+    unsigned long _failedAt;
+    bool          _failed;
+
+    bool _copyCached(char* out, size_t len) const {
+        if (strlen(_cached) >= len) return false;
+        strlcpy(out, _cached, len);
+        return true;
+    }
+
+    bool _query(BearSSL::X509List& trust, const char* url, char* out, size_t len) {
+        WiFiClientSecure client;
+        client.setTrustAnchors(&trust);
+        client.setX509Time(_clock.now());
+
         HTTPClient http;
         http.setTimeout(4000);
-
         if (!http.begin(client, url)) {
             _log.log("IP: falha ao conectar %s", url);
             return false;
         }
+        http.addHeader("User-Agent", "ESP8266");
 
         int code = http.GET();
         String body = (code == HTTP_CODE_OK) ? http.getString() : String();

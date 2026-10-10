@@ -3,25 +3,31 @@
 #include <ESP8266HTTPClient.h>
 #include "Config.h"
 #include "Logger.h"
+#include "PublicIPResolver.h"
 
 // Notifica o IP público via ntfy.sh no boot e sempre que ele mudar.
+// Descobre o IP sozinho: não depende do Cloudflare estar configurado.
 class NtfyNotifier {
 public:
-    NtfyNotifier(Config& cfg, Logger& log)
-        : _cfg(cfg), _log(log), _lastAttempt(0), _attempted(false) {
+    NtfyNotifier(Config& cfg, Logger& log, PublicIPResolver& resolver)
+        : _cfg(cfg), _log(log), _resolver(resolver), _lastAttempt(0), _attempted(false) {
         _lastSent[0] = '\0';
     }
 
     void tick(unsigned long now) {
-        if (_cfg.publicIP[0] == '\0' || _cfg.ntfy_topic[0] == '\0') return;
-        if (strcmp(_cfg.publicIP, _lastSent) == 0) return;
+        if (_cfg.ntfy_topic[0] == '\0') return;
         if (_attempted && now - _lastAttempt < RETRY_INTERVAL) return;
 
         _attempted   = true;
         _lastAttempt = now;
-        if (_send(_cfg.publicIP)) {
-            strlcpy(_lastSent, _cfg.publicIP, sizeof(_lastSent));
-        }
+
+        char ip[16];
+        if (!_resolver.resolve(ip, sizeof(ip), now)) return;
+
+        strlcpy(_cfg.publicIP, ip, sizeof(_cfg.publicIP));
+        if (strcmp(ip, _lastSent) == 0) return;
+        if (_send(ip))
+            strlcpy(_lastSent, ip, sizeof(_lastSent));
     }
 
     // Tópicos ntfy: 1–64 caracteres [A-Za-z0-9_-]
@@ -34,11 +40,12 @@ public:
         return true;
     }
 
-    static constexpr unsigned long RETRY_INTERVAL = 60000UL; // 1 min após falha
+    static constexpr unsigned long RETRY_INTERVAL = 60000UL; // entre tentativas
 
 private:
-    Config& _cfg;
-    Logger& _log;
+    Config&           _cfg;
+    Logger&           _log;
+    PublicIPResolver& _resolver;
 
     char          _lastSent[16];
     unsigned long _lastAttempt;

@@ -1,6 +1,5 @@
 #pragma once
 #include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
 #include "Config.h"
 #include "Logger.h"
 
@@ -57,8 +56,13 @@ public:
         );
     }
 
-    // Chamado a cada loop() — verifica saúde e processa reconexão.
+    // Chamado a cada loop() — verifica a associação e processa reconexão.
     // Em modo de configuração nada é feito: forçar WIFI_STA derrubaria o AP.
+    //
+    // Não há sonda de internet. Perda de associação reconecta e, após 5
+    // falhas, reinicia. WAN fora do ar fica com quem precisa dela (busca de
+    // IP, DNS, ntfy), que tenta de novo no ciclo seguinte. Reiniciar porque
+    // um host externo não responde derrubaria aparelhos com a rede saudável.
     void tick(unsigned long now) {
         if (_configMode) return;
 
@@ -67,16 +71,6 @@ public:
             if (WiFi.status() != WL_CONNECTED) {
                 _log.log("Wi-Fi desconectado");
                 _startReconnect(now);
-            }
-        }
-
-        if (isConnected() && now - _lastInternetCheck >= INTERNET_INTERVAL) {
-            _lastInternetCheck = now;
-            if (_hasInternet()) {
-                notifySuccess();
-            } else {
-                _log.log("Wi-Fi conectado, sem internet");
-                notifyFailure();
             }
         }
 
@@ -125,7 +119,6 @@ public:
     void setOTAInProgress(bool v) { _otaInProgress = v; }
 
     static constexpr unsigned long STATUS_INTERVAL    = 15000UL;
-    static constexpr unsigned long INTERNET_INTERVAL  = 60000UL;
     static constexpr unsigned long MEM_CHECK_INTERVAL = 10000UL;
     static constexpr unsigned long DAILY_RESTART      = 86400000UL;
     static constexpr unsigned long RECONNECT_DELAY    = 500UL;
@@ -145,7 +138,6 @@ private:
     bool          _restartPending    = false;
     unsigned long _restartAt         = 0;
     unsigned long _lastStatusCheck   = 0;
-    unsigned long _lastInternetCheck = 0;
     unsigned long _lastMemCheck      = 0;
     uint8_t       _memStrikes        = 0;
     bool          _otaInProgress     = false;
@@ -191,16 +183,5 @@ private:
         WiFi.mode(WIFI_STA);
         WiFi.begin(_cfg.ssid.c_str(), _cfg.pass.c_str());
         _reconnecting = false;
-    }
-
-    bool _hasInternet() {
-        WiFiClient client;
-        HTTPClient http;
-        http.setTimeout(3000);
-        if (!http.begin(client, "http://clients3.google.com/generate_204"))
-            return false;
-        int code = http.GET();
-        http.end();
-        return code == 204;
     }
 };

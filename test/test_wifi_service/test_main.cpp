@@ -149,36 +149,17 @@ void test_desconexao_prolongada_agenda_restart() {
     TEST_ASSERT_TRUE(wifi.restartPending());
 }
 
-void test_internet_ok_zera_falhas() {
+void test_conectado_nao_sonda_nem_reinicia() {
     W wifi(cfg, logger);
-    for (int i = 0; i < W::MAX_FAILURES - 1; i++) wifi.notifyFailure();
-    MockHTTP::push(204);
-    wifi.tick(W::INTERNET_INTERVAL);
-    TEST_ASSERT_EQUAL_STRING("http://clients3.google.com/generate_204", MockHTTP::calledURLs[0].c_str());
-    wifi.notifyFailure();
-    TEST_ASSERT_FALSE(wifi.restartPending());
-}
-
-void test_sem_internet_conta_falha() {
-    W wifi(cfg, logger);
-    for (int i = 0; i < W::MAX_FAILURES - 1; i++) wifi.notifyFailure();
-    MockHTTP::push(200); // portal cativo, por exemplo
-    wifi.tick(W::INTERNET_INTERVAL);
-    TEST_ASSERT_TRUE(logHas(logger, "sem internet"));
-    TEST_ASSERT_TRUE(wifi.restartPending());
-}
-
-void test_falha_de_conexao_no_teste_de_internet() {
-    W wifi(cfg, logger);
-    MockHTTP::failNextBegin();
-    wifi.tick(W::INTERNET_INTERVAL);
-    TEST_ASSERT_TRUE(logHas(logger, "sem internet"));
-}
-
-void test_internet_verificada_apenas_no_intervalo() {
-    W wifi(cfg, logger);
-    wifi.tick(W::INTERNET_INTERVAL - 1);
+    unsigned long t = 0;
+    for (int i = 0; i < W::MAX_FAILURES; i++) {
+        t += W::STATUS_INTERVAL;
+        wifi.tick(t);
+    }
+    TEST_ASSERT_EQUAL(0, WiFi.disconnectCalls);
+    TEST_ASSERT_EQUAL(0, WiFi.beginCalls);
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_FALSE(wifi.restartPending());
 }
 
 // ── tickRestart() ────────────────────────────────────────────────────────────
@@ -273,10 +254,7 @@ int main() {
     RUN_TEST(test_reconecta_quando_desconectado);
     RUN_TEST(test_nao_inicia_reconexao_duplicada);
     RUN_TEST(test_desconexao_prolongada_agenda_restart);
-    RUN_TEST(test_internet_ok_zera_falhas);
-    RUN_TEST(test_sem_internet_conta_falha);
-    RUN_TEST(test_falha_de_conexao_no_teste_de_internet);
-    RUN_TEST(test_internet_verificada_apenas_no_intervalo);
+    RUN_TEST(test_conectado_nao_sonda_nem_reinicia);
     RUN_TEST(test_memoria_critica_exige_checagens_consecutivas);
     RUN_TEST(test_memoria_verificada_apenas_no_intervalo);
     RUN_TEST(test_ota_inibe_watchdogs);
