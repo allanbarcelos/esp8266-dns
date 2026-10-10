@@ -79,7 +79,8 @@ public:
         if (_wantInstall) {
             _wantInstall = false;
             _nextRetry = 0;
-            if (!_startDownload(_available, now)) _scheduleRetry(now, true);
+            if (!_startDownload(_available, now) && !_wifi.restartPending())
+                _scheduleRetry(now, true);
             return;
         }
         if (_wantCheck) {
@@ -189,17 +190,26 @@ private:
     }
 
     bool _tlsReady() {
-        if (ESP.getFreeHeap() >= GITHUB_HEAP &&
-            ESP.getMaxFreeBlockSize() >= GITHUB_BLOCK) return true;
+        uint32_t heap  = ESP.getFreeHeap();
+        uint32_t block = ESP.getMaxFreeBlockSize();
+        uint32_t needHeap  = _slim ? 20000u : GITHUB_HEAP;
+        uint32_t needBlock = _slim ? 17000u : GITHUB_BLOCK;
+        _log.log("OTA heap %u block %u", heap, block);
+        if (heap >= needHeap && block >= needBlock) return true;
         _note(Report::Failed, "Memoria insuficiente");
         _log.log("OTA: memoria insuficiente");
         return false;
     }
 
+    void _recoverHeap() {
+        if (_available[0] == '\0') strlcpy(_available, "check", sizeof(_available));
+        _persistAndReboot();
+    }
+
     void _checkNow(unsigned long now, bool install) {
         String latest;
         if (!_checkVersion(latest)) {
-            _scheduleRetry(now, false);
+            if (!_wifi.restartPending()) _scheduleRetry(now, false);
             return;
         }
         if (!isNewer(latest.c_str(), firmware_version)) {
@@ -214,12 +224,16 @@ private:
         _note(Report::Available, "Nova versao %s", _available);
         _log.log("Nova versao encontrada: %s", _available);
         if (!install) return;
-        if (!_startDownload(_available, now)) _scheduleRetry(now, true);
+        if (!_startDownload(_available, now) && !_wifi.restartPending())
+            _scheduleRetry(now, true);
     }
 
     // Consulta a GitHub Releases API para obter o tag_name do último release
     bool _checkVersion(String& latest) {
-        if (!_tlsReady()) return false;
+        if (!_tlsReady()) {
+            _recoverHeap();
+            return false;
+        }
 
         TlsClient client;
         client.setInsecure();
@@ -272,7 +286,10 @@ private:
     }
 
     bool _startDownload(const char* version, unsigned long now) {
-        if (!_tlsReady()) return false;
+        if (!_tlsReady()) {
+            _recoverHeap();
+            return false;
+        }
         _client.stop();
         _client.setInsecure();
         if (!_client.prepare(15000, GITHUB_RX, GITHUB_TX)) {
@@ -484,7 +501,8 @@ private:
         char tag[16];
         unsigned boots = 0;
         int got = sscanf(buf, "%15s %u", tag, &boots);
-        if (got < 1 || parseTag(tag) < 0) {
+        bool isCheck = strcmp(tag, "check") == 0;
+        if (got < 1 || (!isCheck && parseTag(tag) < 0)) {
             LittleFS.remove(PENDING_PATH);
             _log.log("OTA: pedido de recuperacao invalido");
             return;
@@ -494,9 +512,16 @@ private:
             _log.log("OTA: recuperacao esgotada");
             return;
         }
-        strlcpy(_available, tag, sizeof(_available));
         _pendingBoots = (uint8_t)boots;
         _slim = true;
+        if (isCheck) {
+            _available[0] = '\0';
+            _wantCheck = true;
+            _note(Report::Checking, "Retomando consulta");
+            _log.log("OTA: retomando consulta (boot %u)", (unsigned)_pendingBoots);
+            return;
+        }
+        strlcpy(_available, tag, sizeof(_available));
         _wantInstall = true;
         _note(Report::Available, "Retomando %s", _available);
         _log.log("OTA: retomando %s (boot %u)", _available, (unsigned)_pendingBoots);

@@ -48,11 +48,14 @@ public:
         wifi.begin();
         clock.begin();
 
-        web.begin();
         ota.setAutomatic(config.ota_auto);
         ota.begin();
-        if (!ota.slim()) iot.begin();
-        else logger.log("OTA: modo recuperacao");
+        if (ota.slim()) {
+            logger.log("OTA: modo recuperacao");
+        } else {
+            web.begin();
+            iot.begin();
+        }
 
         // getResetReason sobrevive ao reboot e diz por que o boot anterior morreu.
         logger.log("Reset: %s", ESP.getResetReason().c_str());
@@ -62,7 +65,7 @@ public:
     void tick() {
         unsigned long now = millis();
 
-        web.tick();
+        if (!ota.slim()) web.tick();
         wifi.tick(now);
         wifi.tickRestart(now);
 

@@ -417,15 +417,18 @@ void test_consulta_memoria_insuficiente() {
     f.ota.tick(T);
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
     TEST_ASSERT_TRUE(logHas(logger, "OTA: memoria insuficiente"));
-    TEST_ASSERT_EQUAL_STRING("Nova tentativa em 10 s", f.ota.detail());
-    TEST_ASSERT_TRUE(f.ota.pending());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA heap"));
+    TEST_ASSERT_TRUE(f.wifi.restartPending());
+    TEST_ASSERT_TRUE(LittleFS.exists("/ota.pending"));
+}
 
-    logger = Logger();
-    ESP._heap = 50000;
+void test_consulta_bloco_insuficiente() {
+    Fixture f;
     ESP._maxBlock = OTAService::GITHUB_BLOCK - 1;
-    f.ota.tick(T + OTAService::CHECK_INTERVAL);
+    f.ota.tick(T);
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
     TEST_ASSERT_TRUE(logHas(logger, "OTA: memoria insuficiente"));
+    TEST_ASSERT_TRUE(f.wifi.restartPending());
 }
 
 void test_consulta_tls_indisponivel() {
@@ -446,10 +449,10 @@ void test_download_memoria_insuficiente() {
     f.ota.requestInstall();
     f.ota.tick(1);
     TEST_ASSERT_FALSE(f.ota.inProgress());
-    TEST_ASSERT_EQUAL_STRING("Nova tentativa em 10 s", f.ota.detail());
     TEST_ASSERT_TRUE(logHas(logger, "OTA: memoria insuficiente"));
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
-    TEST_ASSERT_TRUE(f.ota.pending());
+    TEST_ASSERT_TRUE(f.wifi.restartPending());
+    TEST_ASSERT_TRUE(LittleFS.exists("/ota.pending"));
 }
 
 void test_download_tls_indisponivel() {
@@ -554,6 +557,16 @@ void test_tamanho_desconhecido_vazio_aborta() {
     TEST_ASSERT_FALSE(f.ota.inProgress());
     TEST_ASSERT_TRUE(logHas(logger, "OTA vazio"));
     TEST_ASSERT_TRUE(f.ota.pending());
+}
+
+void test_carrega_pedido_consulta() {
+    MockFS::put("/ota.pending", "check 1");
+    Fixture f;
+    f.ota.begin();
+    TEST_ASSERT_TRUE(f.ota.slim());
+    TEST_ASSERT_TRUE(f.ota.pending());
+    TEST_ASSERT_EQUAL_STRING("", f.ota.availableVersion());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: retomando consulta"));
 }
 
 void test_carrega_pedido_pendente() {
@@ -719,6 +732,7 @@ int main() {
     RUN_TEST(test_pedidos_ignorados_durante_download);
     RUN_TEST(test_wifi_cai_com_pedido_pendente);
     RUN_TEST(test_consulta_memoria_insuficiente);
+    RUN_TEST(test_consulta_bloco_insuficiente);
     RUN_TEST(test_consulta_tls_indisponivel);
     RUN_TEST(test_download_memoria_insuficiente);
     RUN_TEST(test_download_tls_indisponivel);
@@ -728,6 +742,7 @@ int main() {
     RUN_TEST(test_tamanho_desconhecido_completa_no_fim_do_fluxo);
     RUN_TEST(test_tamanho_desconhecido_espera_conexao);
     RUN_TEST(test_tamanho_desconhecido_vazio_aborta);
+    RUN_TEST(test_carrega_pedido_consulta);
     RUN_TEST(test_carrega_pedido_pendente);
     RUN_TEST(test_pedido_pendente_invalido);
     RUN_TEST(test_pedido_pendente_sem_contador);
