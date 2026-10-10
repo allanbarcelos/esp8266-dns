@@ -71,7 +71,7 @@ void test_format_duration() {
 void test_begin_registra_rotas_e_gera_csrf_aleatorio() {
     Fixture f;
     TEST_ASSERT_TRUE(f.srv.started);
-    TEST_ASSERT_EQUAL(10, (int)f.srv.routes.size());
+    TEST_ASSERT_EQUAL(14, (int)f.srv.routes.size());
     TEST_ASSERT_EQUAL(16, (int)std::strlen(f.web.csrfToken()));
 
     std::string first = f.web.csrfToken();
@@ -88,7 +88,7 @@ void test_tick_atende_clientes() {
 void test_sem_senha_redireciona_para_definir_senha() {
     cfg.webpss = "";
     Fixture f;
-    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy"};
+    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/update"};
     for (const char* p : paths) {
         f.get(p);
         TEST_ASSERT_EQUAL(302, f.srv.code);
@@ -101,13 +101,14 @@ void test_sem_senha_redireciona_para_definir_senha() {
 void test_autenticacao_obrigatoria() {
     Fixture f;
     f.srv.authOk = false;
-    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/password"};
+    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/password", "/update"};
     for (const char* p : paths) {
         f.get(p);
         TEST_ASSERT_TRUE(f.srv.authRequested);
         TEST_ASSERT_EQUAL(401, f.srv.code);
     }
-    const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/password/save"};
+    const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/password/save",
+                           "/update/auto", "/update/check", "/update/install"};
     for (const char* p : posts) {
         f.post(p);
         TEST_ASSERT_EQUAL(401, f.srv.code);
@@ -118,7 +119,8 @@ void test_autenticacao_obrigatoria() {
 
 void test_csrf_invalido_rejeitado_em_todos_os_posts() {
     Fixture f;
-    const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/password/save"};
+    const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/password/save",
+                           "/update/auto", "/update/check", "/update/install"};
     for (const char* p : posts) {
         f.srv.request(HTTP_POST, p, {{"_csrf", "00000000deadbeef"}});
         TEST_ASSERT_EQUAL(403, f.srv.code);
@@ -278,6 +280,7 @@ void test_log_escapa_conteudo() {
 void test_status_conectado() {
     Fixture f;
     MockFS::put("/config.json", "{}");
+    ESP._resetInfo = "Fatal <exception>";
     f.get("/status");
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "http-equiv='refresh' content='30'"));
@@ -285,6 +288,9 @@ void test_status_conectado() {
     TEST_ASSERT_TRUE(contains(f.out(), "dead"));               // chip id em hex
     TEST_ASSERT_TRUE(contains(f.out(), "192.168.1.1"));
     TEST_ASSERT_TRUE(contains(f.out(), "AA:BB:CC:DD:EE:FF"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Fatal &lt;exception&gt;"));
+    TEST_ASSERT_TRUE(contains(f.out(), "kv-value"));
+    TEST_ASSERT_TRUE(contains(f.out(), "color:#ffffff"));
     TEST_ASSERT_FALSE(contains(f.out(), "Temp"));
 }
 
@@ -440,6 +446,98 @@ void test_password_save_invalido() {
     TEST_ASSERT_EQUAL_STRING("senha-forte", cfg.webpss.c_str());
 }
 
+// ── /update ──────────────────────────────────────────────────────────────────
+
+void test_update_pagina_inicial() {
+    Fixture f;
+    TEST_ASSERT_TRUE(f.get("/update"));
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Atualizacao automatica"));
+    TEST_ASSERT_TRUE(contains(f.out(), " checked"));
+    TEST_ASSERT_TRUE(contains(f.out(), "ligada"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Verificar agora"));
+    TEST_ASSERT_TRUE(contains(f.out(), "color:#ffffff"));
+    TEST_ASSERT_FALSE(contains(f.out(), "http-equiv='refresh'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "Instalar esta versao"));
+}
+
+void test_update_automatica_desligada() {
+    cfg.ota_auto = false;
+    Fixture f;
+    f.ota.setAutomatic(false);
+    f.get("/update");
+    TEST_ASSERT_TRUE(contains(f.out(), "desligada"));
+    TEST_ASSERT_FALSE(contains(f.out(), " checked"));
+}
+
+void test_update_salva_automatica() {
+    Fixture f;
+    f.post("/update/auto", {});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_FALSE(cfg.ota_auto);
+    TEST_ASSERT_FALSE(f.ota.automatic());
+    TEST_ASSERT_TRUE(contains(f.out(), "desligada"));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"ota_auto\":false"));
+
+    f.post("/update/auto", {{"ota_auto", "1"}});
+    TEST_ASSERT_TRUE(cfg.ota_auto);
+    TEST_ASSERT_TRUE(f.ota.automatic());
+    TEST_ASSERT_TRUE(contains(f.out(), "ligada"));
+}
+
+void test_update_auto_falha_ao_gravar() {
+    Fixture f;
+    MockFS::failWriteOpen = true;
+    f.post("/update/auto", {{"ota_auto", "1"}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Falha ao salvar"));
+}
+
+void test_update_verificar_redireciona_e_mostra_resultado() {
+    Fixture f;
+    f.post("/update/check");
+    TEST_ASSERT_EQUAL(303, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/update", f.srv.headers["Location"].c_str());
+    TEST_ASSERT_TRUE(f.ota.pending());
+
+    f.get("/update");
+    TEST_ASSERT_TRUE(contains(f.out(), "http-equiv='refresh' content='3'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Consultando o GitHub..."));
+    TEST_ASSERT_FALSE(contains(f.out(), "Instalar esta versao"));
+
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    f.ota.tick(0);
+    f.get("/update");
+    TEST_ASSERT_TRUE(contains(f.out(), "v999"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Instalar esta versao"));
+    TEST_ASSERT_FALSE(contains(f.out(), "http-equiv='refresh'"));
+}
+
+void test_update_instalar_sem_versao() {
+    Fixture f;
+    f.post("/update/install");
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Nenhuma versao nova"));
+}
+
+void test_update_instalar_mostra_progresso() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    f.ota.requestCheck();
+    f.ota.tick(0);
+    MockHTTP::push(200, std::string(1000, 'X'));
+    f.post("/update/install");
+    TEST_ASSERT_EQUAL(303, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/update", f.srv.headers["Location"].c_str());
+
+    f.ota.tick(1);
+    f.get("/update");
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    TEST_ASSERT_TRUE(contains(f.out(), "OTA em progresso"));
+    TEST_ASSERT_TRUE(contains(f.out(), "http-equiv='refresh' content='3'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "Instalar esta versao"));
+}
+
 void test_password_save_falha_ao_gravar() {
     Fixture f;
     std::string old = f.web.csrfToken();
@@ -487,5 +585,12 @@ int main() {
     RUN_TEST(test_password_save_rotaciona_csrf);
     RUN_TEST(test_password_save_invalido);
     RUN_TEST(test_password_save_falha_ao_gravar);
+    RUN_TEST(test_update_pagina_inicial);
+    RUN_TEST(test_update_automatica_desligada);
+    RUN_TEST(test_update_salva_automatica);
+    RUN_TEST(test_update_auto_falha_ao_gravar);
+    RUN_TEST(test_update_verificar_redireciona_e_mostra_resultado);
+    RUN_TEST(test_update_instalar_sem_versao);
+    RUN_TEST(test_update_instalar_mostra_progresso);
     return UNITY_END();
 }

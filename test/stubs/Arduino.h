@@ -136,7 +136,8 @@ struct SerialClass {
 struct EspClass {
     uint32_t    getFreeHeap()           { return _heap; }
     uint8_t     getHeapFragmentation()  { return _frag; }
-    uint32_t    getMaxFreeBlockSize()   { return 40000; }
+    uint32_t    getMaxFreeBlockSize()   { return _maxBlock; }
+    String      getResetInfo()          { return _resetInfo; }
     uint32_t    getFlashChipSize()      { return 1048576; }
     uint32_t    getSketchSize()         { return 300000; }
     uint32_t    getFreeSketchSpace()    { return 300000; }
@@ -149,6 +150,8 @@ struct EspClass {
 
     // Controláveis nos testes
     uint32_t _heap     = 50000;
+    uint32_t _maxBlock = 40000;
+    String   _resetInfo = "Power On";
     uint8_t  _frag     = 10;
     int      _restarts = 0;
     uint32_t _rand     = 1;

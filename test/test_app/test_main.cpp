@@ -17,6 +17,16 @@ void test_begin_inicializa_servicos() {
     TEST_ASSERT_EQUAL(1, mock::configTimeCalls);
     TEST_ASSERT_TRUE(ESP8266WebServer::instance()->started);
     TEST_ASSERT_TRUE(logHas(app.logger, "Sistema inicializado dev"));
+    TEST_ASSERT_TRUE(logHas(app.logger, "Reset: Power On"));
+    TEST_ASSERT_TRUE(app.ota.automatic());
+}
+
+void test_begin_desliga_ota_automatico() {
+    MockFS::put("/config.json", R"({"ssid":"Rede","pass":"12345678","webpss":"senha-forte","ota_auto":false})");
+    App app;
+    app.begin();
+    TEST_ASSERT_FALSE(app.config.ota_auto);
+    TEST_ASSERT_FALSE(app.ota.automatic());
 }
 
 void test_begin_sem_config_entra_em_modo_ap() {
@@ -38,6 +48,7 @@ void test_tick_executa_todos_os_servicos() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_begin_inicializa_servicos);
+    RUN_TEST(test_begin_desliga_ota_automatico);
     RUN_TEST(test_begin_sem_config_entra_em_modo_ap);
     RUN_TEST(test_tick_executa_todos_os_servicos);
     return UNITY_END();

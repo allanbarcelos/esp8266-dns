@@ -10,9 +10,18 @@
 // do core: cada host inacessível trava o loop por esse tempo.
 class TlsClient : public WiFiClientSecure {
 public:
-    void armTimeout(unsigned long ms) {
+    // O buffer padrão do BearSSL é 16 KB. Neste aparelho sobram ~30 KB de
+    // heap: a alocação fragmenta a memória, o watchdog reinicia o ESP e,
+    // sem bloco contíguo, o handshake gera Exception.
+    static constexpr uint16_t RX_BUF = 4096;
+    static constexpr uint16_t TX_BUF = 512;
+
+    bool prepare(unsigned long ms) {
+        if (!_owned) return false;
         setTimeout(ms);
         _owned->setTimeout(ms);
+        setBufferSizes(RX_BUF, TX_BUF);
+        return true;
     }
 };
 
@@ -56,6 +65,11 @@ public:
         _failed   = true;
         _failedAt = now;
 
+        if (!memoryOk()) {
+            _log.log("IP: memoria insuficiente");
+            return false;
+        }
+
         BearSSL::X509List trust(CLOUDFLARE_CA);
         for (uint8_t i = 0; i < NUM_IP_SERVICES; i++) {
             char url[48];
@@ -75,6 +89,15 @@ public:
 
     static constexpr unsigned long CACHE_TTL       = 60000UL;
     static constexpr unsigned long CONNECT_TIMEOUT = 4000UL;
+    static constexpr uint32_t      MIN_TLS_HEAP    = 18000;
+    static constexpr uint32_t      MIN_TLS_BLOCK   = 8192;
+
+    // Heap baixo ou sem bloco contíguo: o BearSSL não consegue o handshake
+    // e o core gera Exception em vez de devolver erro.
+    static bool memoryOk() {
+        return ESP.getFreeHeap() >= MIN_TLS_HEAP &&
+               ESP.getMaxFreeBlockSize() >= MIN_TLS_BLOCK;
+    }
 
 private:
     Logger&       _log;
@@ -94,7 +117,10 @@ private:
         TlsClient client;
         client.setTrustAnchors(&trust);
         client.setX509Time(_clock.now());
-        client.armTimeout(CONNECT_TIMEOUT);
+        if (!client.prepare(CONNECT_TIMEOUT)) {
+            _log.log("IP: TLS indisponivel");
+            return false;
+        }
 
         HTTPClient http;
         http.setTimeout(CONNECT_TIMEOUT);

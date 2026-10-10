@@ -49,6 +49,16 @@ void test_load_defaults() {
     TEST_ASSERT_EQUAL_STRING("", config.webpss.c_str());
     TEST_ASSERT_EQUAL_STRING("", config.pass.c_str());
     TEST_ASSERT_EQUAL(0, config.cf_record_count);
+    TEST_ASSERT_TRUE(config.ota_auto);
+}
+
+void test_ota_auto_persiste() {
+    config.ota_auto = false;
+    TEST_ASSERT_TRUE(store.save());
+    config = Config{};
+    TEST_ASSERT_TRUE(config.ota_auto);
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_FALSE(config.ota_auto);
 }
 
 void test_load_limita_quantidade_de_records() {
@@ -156,6 +166,7 @@ int main() {
     RUN_TEST(test_load_falha_ao_abrir);
     RUN_TEST(test_load_retorna_false_json_invalido);
     RUN_TEST(test_load_defaults);
+    RUN_TEST(test_ota_auto_persiste);
     RUN_TEST(test_load_limita_quantidade_de_records);
     RUN_TEST(test_load_record_nao_texto_vira_vazio);
     RUN_TEST(test_roundtrip_completo);

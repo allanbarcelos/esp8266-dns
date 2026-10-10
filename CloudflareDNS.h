@@ -87,9 +87,17 @@ private:
         url += "/dns_records/";
         url += record;
 
-        WiFiClientSecure client;
+        if (!PublicIPResolver::memoryOk()) {
+            _log.log("DNS: memoria insuficiente");
+            return false;
+        }
+        TlsClient client;
         client.setTrustAnchors(&trust);
         client.setX509Time(_clock.now());
+        if (!client.prepare(5000)) {
+            _log.log("DNS: TLS indisponivel");
+            return false;
+        }
 
         HTTPClient http;
         http.setTimeout(5000);

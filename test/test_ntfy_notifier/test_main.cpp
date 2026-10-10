@@ -117,6 +117,30 @@ void test_codigo_negativo() {
     TEST_ASSERT_TRUE(logHas(logger, "ntfy erro: -1"));
 }
 
+void test_memoria_insuficiente_nao_envia() {
+    Fix f;
+    MockHTTP::push(200, "1.2.3.4");
+    char ip[16];
+    TEST_ASSERT_TRUE(f.resolver.resolve(ip, sizeof(ip), 0));
+    ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;
+    f.ntfy.tick(0);
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy: memoria insuficiente"));
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+}
+
+void test_tls_indisponivel_nao_envia() {
+    Fix f;
+    MockHTTP::push(200, "1.2.3.4");
+    char ip[16];
+    TEST_ASSERT_TRUE(f.resolver.resolve(ip, sizeof(ip), 0));
+    MockTLS::nullOwned = true;
+    MockTLS::bufIn = 0;
+    f.ntfy.tick(0);
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy: TLS indisponivel"));
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_EQUAL(0, MockTLS::bufIn);
+}
+
 void test_valida_topico() {
     TEST_ASSERT_TRUE(NtfyNotifier::isValidTopic("abc_DEF-123"));
     TEST_ASSERT_FALSE(NtfyNotifier::isValidTopic(""));
@@ -136,6 +160,8 @@ int main() {
     RUN_TEST(test_falha_aguarda_intervalo_para_retentar);
     RUN_TEST(test_erro_de_conexao);
     RUN_TEST(test_codigo_negativo);
+    RUN_TEST(test_memoria_insuficiente_nao_envia);
+    RUN_TEST(test_tls_indisponivel_nao_envia);
     RUN_TEST(test_valida_topico);
     return UNITY_END();
 }

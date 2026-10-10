@@ -47,7 +47,10 @@ public:
         clock.begin();
 
         web.begin();
+        ota.setAutomatic(config.ota_auto);
 
+        // getResetReason sobrevive ao reboot e diz por que o boot anterior morreu.
+        logger.log("Reset: %s", ESP.getResetReason().c_str());
         logger.log("Sistema inicializado %s", firmware_version);
     }
 

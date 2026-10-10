@@ -52,8 +52,16 @@ private:
     bool          _attempted;
 
     bool _send(const char* ip) {
-        WiFiClientSecure client;
+        if (!PublicIPResolver::memoryOk()) {
+            _log.log("ntfy: memoria insuficiente");
+            return false;
+        }
+        TlsClient client;
         client.setInsecure(); // o conteúdo (IP público) não é sigiloso
+        if (!client.prepare(5000)) {
+            _log.log("ntfy: TLS indisponivel");
+            return false;
+        }
         HTTPClient http;
         http.setTimeout(5000);
 

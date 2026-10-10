@@ -27,6 +27,7 @@ struct Config {
     char    cf_host[64]               = {};  // apenas exibição no painel
 
     char    ntfy_topic[64]            = {};
+    bool    ota_auto                  = true; // ausência no JSON mantém o automático ligado
 
     // Estado em runtime — escrito pelos serviços, lido pelo WebService
     char          publicIP[16]  = {};

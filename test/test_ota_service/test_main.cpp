@@ -242,6 +242,155 @@ void test_stream_parado_aborta_por_timeout() {
     TEST_ASSERT_TRUE(logHas(logger, "OTA sem dados"));
 }
 
+void test_automatico_desligado_nao_consulta() {
+    Fixture f;
+    f.ota.setAutomatic(false);
+    f.ota.tick(T);
+    TEST_ASSERT_FALSE(f.ota.automatic());
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+}
+
+void test_verificacao_manual_nao_instala() {
+    Fixture f;
+    f.ota.setAutomatic(false);
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    f.ota.requestCheck();
+    TEST_ASSERT_EQUAL(OTAService::Report::Checking, f.ota.report());
+    f.ota.requestCheck(); // já pendente: não reinicia o pedido
+    f.ota.tick(0);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_FALSE(f.ota.pending());
+    TEST_ASSERT_EQUAL_STRING("v999", f.ota.availableVersion());
+    TEST_ASSERT_EQUAL(OTAService::Report::Available, f.ota.report());
+    TEST_ASSERT_TRUE(logHas(logger, "Nova versao encontrada: v999"));
+}
+
+void test_verificacao_manual_ja_atualizado() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"dev"})");
+    f.ota.requestCheck();
+    f.ota.tick(0);
+    TEST_ASSERT_EQUAL(OTAService::Report::UpToDate, f.ota.report());
+    TEST_ASSERT_EQUAL_STRING("", f.ota.availableVersion());
+    TEST_ASSERT_EQUAL_STRING("Firmware ja esta atualizado", f.ota.detail());
+}
+
+void test_instalacao_manual() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    f.ota.requestCheck();
+    f.ota.tick(0);
+    MockHTTP::push(200, std::string(128, 'X'));
+    f.ota.requestInstall();
+    TEST_ASSERT_TRUE(f.ota.pending());
+    f.ota.tick(1);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    TEST_ASSERT_EQUAL(128, f.ota.contentLength());
+}
+
+void test_instalacao_sem_versao_e_ignorada() {
+    Fixture f;
+    f.ota.setAutomatic(false);
+    f.ota.requestInstall();
+    TEST_ASSERT_FALSE(f.ota.pending());
+    TEST_ASSERT_EQUAL(OTAService::Report::None, f.ota.report());
+    f.ota.tick(T);
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+}
+
+void test_pedidos_ignorados_durante_download() {
+    Fixture f;
+    Update._endOk = false;
+    queueUpdate(std::string(1024, 'X'));
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    f.ota.requestCheck();
+    f.ota.requestInstall();
+    f.ota.tick(T + 1);
+    f.ota.tick(T + 2);
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_FALSE(f.wifi.restartPending());
+    int calls = (int)MockHTTP::calledURLs.size();
+    f.ota.tick(T + 3);
+    TEST_ASSERT_EQUAL(calls, (int)MockHTTP::calledURLs.size());
+}
+
+void test_wifi_cai_com_pedido_pendente() {
+    Fixture f;
+    f.ota.requestCheck();
+    WiFi._status = WL_DISCONNECTED;
+    f.ota.tick(0);
+    TEST_ASSERT_TRUE(logHas(logger, "OTA adiado: Wi-Fi desconectado"));
+    TEST_ASSERT_EQUAL_STRING("Wi-Fi desconectado", f.ota.detail());
+    TEST_ASSERT_FALSE(f.ota.pending());
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+
+    logger = Logger();
+    WiFi._status = WL_CONNECTED;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    f.ota.requestCheck();
+    f.ota.tick(1);
+    f.ota.requestInstall();
+    WiFi._status = WL_DISCONNECTED;
+    f.ota.tick(2);
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA adiado: Wi-Fi desconectado"));
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+}
+
+void test_consulta_memoria_insuficiente() {
+    Fixture f;
+    ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;
+    f.ota.tick(T);
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: memoria insuficiente"));
+    TEST_ASSERT_EQUAL_STRING("Memoria insuficiente", f.ota.detail());
+
+    logger = Logger();
+    ESP._heap = 50000;
+    ESP._maxBlock = PublicIPResolver::MIN_TLS_BLOCK - 1;
+    f.ota.tick(T + OTAService::CHECK_INTERVAL);
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: memoria insuficiente"));
+}
+
+void test_consulta_tls_indisponivel() {
+    Fixture f;
+    MockTLS::nullOwned = true;
+    f.ota.tick(T);
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_EQUAL_STRING("Cliente TLS indisponivel", f.ota.detail());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: TLS indisponivel"));
+}
+
+void test_download_memoria_insuficiente() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    f.ota.requestCheck();
+    f.ota.tick(0);
+    ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;
+    f.ota.requestInstall();
+    f.ota.tick(1);
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_EQUAL_STRING("Memoria insuficiente", f.ota.detail());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: memoria insuficiente"));
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+}
+
+void test_download_tls_indisponivel() {
+    MockTLS::nullOwned = true;
+    Fixture f;
+    MockTLS::nullOwned = false;
+    queueUpdate(std::string(64, 'X'));
+    f.ota.tick(T);
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_EQUAL_STRING("v999", f.ota.availableVersion());
+    TEST_ASSERT_EQUAL_STRING("Cliente TLS indisponivel", f.ota.detail());
+    TEST_ASSERT_TRUE(logHas(logger, "Nova versao encontrada"));
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+}
+
 void test_sem_novo_check_durante_ota() {
     Fixture f;
     queueUpdate(std::string(512, 'X'), 4096);
@@ -277,5 +426,16 @@ int main() {
     RUN_TEST(test_wifi_cai_durante_ota);
     RUN_TEST(test_stream_parado_aborta_por_timeout);
     RUN_TEST(test_sem_novo_check_durante_ota);
+    RUN_TEST(test_automatico_desligado_nao_consulta);
+    RUN_TEST(test_verificacao_manual_nao_instala);
+    RUN_TEST(test_verificacao_manual_ja_atualizado);
+    RUN_TEST(test_instalacao_manual);
+    RUN_TEST(test_instalacao_sem_versao_e_ignorada);
+    RUN_TEST(test_pedidos_ignorados_durante_download);
+    RUN_TEST(test_wifi_cai_com_pedido_pendente);
+    RUN_TEST(test_consulta_memoria_insuficiente);
+    RUN_TEST(test_consulta_tls_indisponivel);
+    RUN_TEST(test_download_memoria_insuficiente);
+    RUN_TEST(test_download_tls_indisponivel);
     return UNITY_END();
 }

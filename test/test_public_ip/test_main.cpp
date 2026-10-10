@@ -35,6 +35,35 @@ void test_primeiro_servico_ok() {
     // wrapper e contexto BearSSL recebem o mesmo orçamento
     TEST_ASSERT_EQUAL(2, MockTLS::timeoutCalls);
     TEST_ASSERT_EQUAL(PublicIPResolver::CONNECT_TIMEOUT, MockTLS::lastTimeoutMs);
+    TEST_ASSERT_EQUAL(TlsClient::RX_BUF, MockTLS::bufIn);
+    TEST_ASSERT_EQUAL(TlsClient::TX_BUF, MockTLS::bufOut);
+}
+
+void test_memoria_insuficiente_nao_consulta() {
+    Fix f;
+    ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;
+    char out[16] = "x";
+    TEST_ASSERT_FALSE(f.resolver.resolve(out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("x", out);
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_TRUE(logHas(logger, "memoria insuficiente"));
+
+    logger = Logger();
+    ESP._heap = 50000;
+    ESP._maxBlock = PublicIPResolver::MIN_TLS_BLOCK - 1;
+    TEST_ASSERT_FALSE(f.resolver.resolve(out, sizeof(out), PublicIPResolver::CACHE_TTL));
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_TRUE(logHas(logger, "memoria insuficiente"));
+}
+
+void test_tls_indisponivel() {
+    Fix f;
+    MockTLS::nullOwned = true;
+    char out[16] = "x";
+    TEST_ASSERT_FALSE(f.resolver.resolve(out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("x", out);
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_TRUE(logHas(logger, "TLS indisponivel"));
 }
 
 void test_aceita_espacos_e_quebra_de_linha() {
@@ -169,6 +198,8 @@ void test_falha_recente_nao_repete() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_primeiro_servico_ok);
+    RUN_TEST(test_memoria_insuficiente_nao_consulta);
+    RUN_TEST(test_tls_indisponivel);
     RUN_TEST(test_aceita_espacos_e_quebra_de_linha);
     RUN_TEST(test_falha_de_conexao_tenta_proximo);
     RUN_TEST(test_http_erro_tenta_proximo);

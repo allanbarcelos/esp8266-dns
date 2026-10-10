@@ -20,7 +20,14 @@ static const char _HTML_HEAD_A[] PROGMEM = R"(<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 )";
 
-static const char _HTML_HEAD_B[] PROGMEM = R"(</head>
+static const char _HTML_HEAD_B[] PROGMEM = R"(<style>
+body,.form-label{color:#f1f3f4}
+.card,.kv-label{color:#e8eaed !important}
+.kv-value{color:#ffffff !important;font-weight:600;font-size:1rem}
+.text-secondary{color:#d7dbe0 !important}
+.card-body .border-bottom{border-color:#3d4248 !important}
+</style>
+</head>
 <body class="bg-dark text-light">
 <div class="container py-3">
 )";
@@ -34,13 +41,14 @@ static const char _HTML_NAV[] PROGMEM = R"(
     <a href="/log"       class="btn btn-sm btn-outline-warning">Logs</a>
     <a href="/cloudflare"class="btn btn-sm btn-outline-primary">Cloudflare</a>
     <a href="/ntfy"      class="btn btn-sm btn-outline-success">Ntfy</a>
+    <a href="/update"    class="btn btn-sm btn-outline-warning">Atualizar</a>
     <a href="/password"  class="btn btn-sm btn-outline-secondary">Senha</a>
   </div>
 </nav>
 )";
 
 static const char _HTML_FOOT_A[] PROGMEM = R"(<hr class="border-secondary mt-4">
-<p class="text-secondary small mb-0">Firmware: )";
+<p class="small mb-0" style="color:#d7dbe0">Firmware: )";
 
 static const char _HTML_FOOT_B[] PROGMEM = R"(</p></div></body></html>)";
 
@@ -70,6 +78,10 @@ public:
         _server.on("/ntfy/save",       HTTP_POST, [this]() { _handleNtfySave(); });
         _server.on("/password",        HTTP_GET,  [this]() { _handlePassword(); });
         _server.on("/password/save",   HTTP_POST, [this]() { _handlePasswordSave(); });
+        _server.on("/update",          HTTP_GET,  [this]() { _handleUpdate(); });
+        _server.on("/update/auto",     HTTP_POST, [this]() { _handleUpdateAuto(); });
+        _server.on("/update/check",    HTTP_POST, [this]() { _handleUpdateCheck(); });
+        _server.on("/update/install",  HTTP_POST, [this]() { _handleUpdateInstall(); });
         _server.begin();
         _log.log("Servidor web iniciado na porta 80");
     }
@@ -154,12 +166,16 @@ private:
 
     // ── Helpers HTML ──────────────────────────────────────────────────────────
 
-    void _pageBegin(bool autoRefresh = false, int code = 200) {
+    void _pageBegin(int refreshSec = 0, int code = 200) {
         _server.setContentLength(CONTENT_LENGTH_UNKNOWN);
         _server.send(code, "text/html", "");
         _server.sendContent_P(_HTML_HEAD_A);
-        if (autoRefresh)
-            _server.sendContent("<meta http-equiv='refresh' content='30'>");
+        if (refreshSec > 0) {
+            char meta[56];
+            snprintf(meta, sizeof(meta),
+                     "<meta http-equiv='refresh' content='%d'>", refreshSec);
+            _server.sendContent(meta);
+        }
         _server.sendContent_P(_HTML_HEAD_B);
         _server.sendContent_P(_HTML_NAV);
     }
@@ -183,10 +199,10 @@ private:
     // Label + valor numa linha com separador (valor sempre escapado)
     void _row(const char* label, const String& value) {
         _server.sendContent(
-            "<div class='d-flex justify-content-between px-3 py-1 border-bottom border-secondary'>"
-            "<span class='text-secondary small'>");
+            "<div class='d-flex justify-content-between align-items-baseline px-3 py-2 border-bottom'>"
+            "<span class='kv-label small'>");
         _server.sendContent(label);
-        _server.sendContent("</span><span class='small text-end ms-2'>");
+        _server.sendContent("</span><span class='kv-value text-end ms-3'>");
         _server.sendContent(escape(value));
         _server.sendContent("</span></div>");
     }
@@ -228,7 +244,7 @@ private:
     }
 
     void _errorPage(const char* msg, const char* backHref) {
-        _pageBegin(false, 400);
+        _pageBegin(0, 400);
         _alert("danger", msg);
         _server.sendContent(
             String("<a href='") + backHref + "' class='btn btn-outline-secondary btn-sm'>Voltar</a>");
@@ -279,7 +295,7 @@ private:
             "<div class='progress bg-secondary' style='height:8px'>"
             "<div class='progress-bar progress-bar-striped progress-bar-animated bg-success' "
             "style='width:" + String(pct) + "%'></div></div>"
-            "<div class='text-secondary small mt-1'>" +
+            "<div class='kv-value mt-1'>" +
             String((unsigned long)_ota.bytesWritten()) + " / " + String(_ota.contentLength()) + " bytes"
             "</div></div>");
     }
@@ -368,13 +384,14 @@ private:
 
     void _handleStatus() {
         if (!_guard()) return;
-        _pageBegin(true); // auto-refresh a cada 30s
+        _pageBegin(30);
 
         _otaProgressBar();
 
         _box("Sistema");
         _row("Uptime",  formatDuration(millis()));
         _row("Reset",   ESP.getResetReason());
+        _row("Causa",   ESP.getResetInfo());
         _row("Chip ID", String(ESP.getChipId(), HEX));
         _row("CPU",     String(ESP.getCpuFreqMHz()) + " MHz");
         _row("SDK",     String(ESP.getSdkVersion()));
@@ -431,7 +448,7 @@ private:
         _csrfField();
 
         // Token: campo vazio = mantém o atual; preenchido = substitui
-        _passwordInput("API Token <span class='text-secondary'>(deixe em branco para manter)</span>",
+        _passwordInput("API Token <span style='color:#d7dbe0'>(deixe em branco para manter)</span>",
                        "token", "placeholder='Novo token' maxlength='47'");
         _input("Zone ID", "zone", _cfg.cf_zone, "maxlength='39'");
         _input("Hostname (exibicao)", "host", _cfg.cf_host, "maxlength='63'");
@@ -496,7 +513,7 @@ private:
         _input("Topico ntfy.sh", "topic", _cfg.ntfy_topic,
                "maxlength='63' pattern='[A-Za-z0-9_\\-]*' placeholder='meu-topico-secreto'");
         _server.sendContent(
-            "<div class='text-secondary small mb-3'>"
+            "<div class='small mb-3' style='color:#d7dbe0'>"
             "Enviado no boot e quando o IP mudar. Deixe em branco para desativar.</div>"
             "<button class='btn btn-success w-100'>Salvar</button></form>");
         _pageEnd();
@@ -546,5 +563,84 @@ private:
         }
         _generateCSRF(); // rotaciona CSRF após mudança de credenciais
         _savedPage("Senha atualizada!", "/");
+    }
+
+    void _go(const char* href) {
+        _server.sendHeader("Location", href);
+        _server.send(303, "text/plain", "");
+    }
+
+    void _handleUpdate() {
+        if (!_guard()) return;
+        _pageBegin(_ota.pending() ? 3 : 0);
+        _otaProgressBar();
+
+        _server.sendContent("<h5 class='text-warning mb-3'>Atualizacao</h5>");
+        _box("Firmware");
+        _row("Versao atual", firmware_version);
+        _row("Automatica", _cfg.ota_auto ? String("ligada") : String("desligada"));
+        if (_ota.availableVersion()[0] != '\0')
+            _row("Disponivel", _ota.availableVersion());
+        if (_ota.detail()[0] != '\0')
+            _row("Situacao", _ota.detail());
+        _boxEnd();
+
+        _server.sendContent("<form action='/update/auto' method='POST' class='mb-3'>");
+        _csrfField();
+        _server.sendContent(
+            "<div class='form-check form-switch mb-2'>"
+            "<input class='form-check-input' type='checkbox' role='switch' "
+            "id='ota_auto' name='ota_auto' value='1'");
+        if (_cfg.ota_auto) _server.sendContent(" checked");
+        _server.sendContent(
+            "><label class='form-check-label' for='ota_auto'>"
+            "Atualizacao automatica</label></div>"
+            "<button class='btn btn-outline-light w-100'>Salvar</button></form>");
+
+        _server.sendContent("<form action='/update/check' method='POST' class='mb-2'>");
+        _csrfField();
+        _server.sendContent(
+            "<button class='btn btn-info w-100'>Verificar agora</button></form>");
+
+        if (_ota.availableVersion()[0] != '\0' && !_ota.inProgress()) {
+            _server.sendContent("<form action='/update/install' method='POST'>");
+            _csrfField();
+            _server.sendContent(
+                "<button class='btn btn-success w-100'>Instalar esta versao</button></form>");
+        }
+        _pageEnd();
+    }
+
+    void _handleUpdateAuto() {
+        if (!_guard()) return;
+        if (!_checkCSRF()) return;
+        _cfg.ota_auto = _server.arg("ota_auto") == "1";
+        _ota.setAutomatic(_cfg.ota_auto);
+        if (!_store.save()) {
+            _errorPage("Falha ao salvar configuracao", "/update");
+            return;
+        }
+        _savedPage(_cfg.ota_auto
+                       ? "Atualizacao automatica ligada"
+                       : "Atualizacao automatica desligada",
+                   "/update");
+    }
+
+    void _handleUpdateCheck() {
+        if (!_guard()) return;
+        if (!_checkCSRF()) return;
+        _ota.requestCheck();
+        _go("/update");
+    }
+
+    void _handleUpdateInstall() {
+        if (!_guard()) return;
+        if (!_checkCSRF()) return;
+        if (_ota.availableVersion()[0] == '\0') {
+            _errorPage("Nenhuma versao nova para instalar", "/update");
+            return;
+        }
+        _ota.requestInstall();
+        _go("/update");
     }
 };

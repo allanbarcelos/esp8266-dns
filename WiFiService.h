@@ -170,7 +170,8 @@ private:
             return;
         }
         if (++_memStrikes >= MEM_STRIKES) {
-            _log.log("Memoria critica detectada");
+            _log.log("Memoria critica detectada (heap %u, frag %u%%)",
+                     ESP.getFreeHeap(), ESP.getHeapFragmentation());
             scheduleRestart(1000);
         }
     }

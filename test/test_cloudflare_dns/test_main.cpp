@@ -203,6 +203,29 @@ void test_falha_ao_iniciar_conexao() {
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
 }
 
+void test_dns_memoria_insuficiente() {
+    Fixture f;
+    MockHTTP::push(200, "1.2.3.4");
+    char ip[16];
+    TEST_ASSERT_TRUE(f.resolver.resolve(ip, sizeof(ip), T));
+    ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;
+    f.dns.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: memoria insuficiente"));
+    TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+}
+
+void test_dns_tls_indisponivel() {
+    Fixture f;
+    MockHTTP::push(200, "1.2.3.4");
+    char ip[16];
+    TEST_ASSERT_TRUE(f.resolver.resolve(ip, sizeof(ip), T));
+    MockTLS::nullOwned = true;
+    f.dns.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: TLS indisponivel"));
+    TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
+}
+
 void test_sucesso_zera_falhas_do_wifi() {
     Fixture f;
     for (int i = 0; i < WiFiService::MAX_FAILURES - 1; i++) f.wifi.notifyFailure();
@@ -231,5 +254,7 @@ int main() {
     RUN_TEST(test_erro_de_conexao_tls);
     RUN_TEST(test_falha_ao_iniciar_conexao);
     RUN_TEST(test_sucesso_zera_falhas_do_wifi);
+    RUN_TEST(test_dns_memoria_insuficiente);
+    RUN_TEST(test_dns_tls_indisponivel);
     return UNITY_END();
 }

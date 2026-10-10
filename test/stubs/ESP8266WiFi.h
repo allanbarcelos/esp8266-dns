@@ -123,9 +123,13 @@ namespace MockTLS {
     inline time_t                    lastTime      = 0;
     inline int                       timeoutCalls  = 0;
     inline unsigned long             lastTimeoutMs = 0;
+    inline int                       bufIn         = 0;
+    inline int                       bufOut        = 0;
+    inline bool                      nullOwned     = false;
     inline void reset() {
         insecureCalls = 0; lastTrustPem = nullptr; lastTime = 0;
         timeoutCalls = 0; lastTimeoutMs = 0;
+        bufIn = 0; bufOut = 0; nullOwned = false;
     }
 }
 
@@ -136,9 +140,10 @@ inline void WiFiClient::setTimeout(unsigned long ms) {
 
 class WiFiClientSecure : public WiFiClient {
 public:
-    WiFiClientSecure() { _owned = &_ctx; }
+    WiFiClientSecure() { _owned = MockTLS::nullOwned ? nullptr : &_ctx; }
     WiFiClient _ctx;
 
+    void setBufferSizes(int in, int out)               { MockTLS::bufIn = in; MockTLS::bufOut = out; }
     void setInsecure()                                 { MockTLS::insecureCalls++; }
     void setTrustAnchors(const BearSSL::X509List* ta)  { MockTLS::lastTrustPem = ta->pem; }
     void setX509Time(time_t t)                         { MockTLS::lastTime = t; }

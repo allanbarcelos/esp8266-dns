@@ -141,6 +141,17 @@ Changes limited to tests, docs or the workflow do not create a release. To force
 
 ---
 
+## 📋 Remote log (future work)
+
+Not in the firmware yet. The local ring (`Logger.h`, 10 lines of 128 characters, Serial and the panel) stays the RAM limit. The full copy goes through [ntfy.sh](https://ntfy.sh), on the topic already configured plus a `-log` suffix.
+
+- One POST carries several lines, on the same 60 s interval as the IP notice, and only when heap and a contiguous block are free for TLS. The ESP keeps talking to that single host.
+- With the new `/config.json` key absent, sending stays off. Devices already in the field keep the local log only.
+- The public ntfy.sh server retains each message for 12 hours. For a permanent archive, `ntfy subscribe` on that topic appends the output to a file.
+- The `Reset:` line right after boot is part of that send and records why the previous cycle died. A crash in the middle of TLS is not published.
+
+---
+
 ## 🔧 Local build
 
 ```bash
