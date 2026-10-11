@@ -110,8 +110,20 @@ jobs:
       - name: Verifica que a checagem de assinatura foi embutida
         run: grep -q "updaterSigningVerifier" build/esp8266-dns.ino.map
 
-      - name: Empacota e valida OTA (sem assinatura)
-        run: python3 .github/scripts/package_ota.py build/firmware.raw.bin dist --map build/esp8266-dns.ino.map
+      # Chave descartável: só para medir o tamanho real de firmware.signed.bin
+      # (gzip + assinatura de 256 B) em todo push/PR, sem o segredo de release.
+      # Sem isso, um binário que cresce até quase encher a reserva passaria
+      # aqui e só falharia no release, com a chave de produção.
+      - name: Gera chave de teste para medir o tamanho assinado
+        run: |
+          openssl genrsa -out "$RUNNER_TEMP/test.key" 2048
+          openssl rsa -in "$RUNNER_TEMP/test.key" -pubout -out "$RUNNER_TEMP/test.pub"
+
+      - name: Empacota e valida OTA (tamanho real, com e sem assinatura)
+        run: |
+          python3 .github/scripts/package_ota.py build/firmware.raw.bin dist \
+            --map build/esp8266-dns.ino.map \
+            --key "$RUNNER_TEMP/test.key" --pubkey "$RUNNER_TEMP/test.pub"
 
       - uses: actions/upload-artifact@v7
         with:
