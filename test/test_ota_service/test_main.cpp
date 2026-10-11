@@ -50,8 +50,17 @@ void test_is_newer() {
 void test_sem_check_antes_do_intervalo() {
     Fixture f;
     f.ota.tick(0);
-    f.ota.tick(T - 1);
+    f.ota.tick(OTAService::FIRST_CHECK - 1);
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+}
+
+void test_primeiro_check_automatico() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"dev"})");
+    f.ota.tick(OTAService::FIRST_CHECK);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_TRUE(contains(MockHTTP::calledURLs[0], "releases/latest"));
+    TEST_ASSERT_FALSE(f.ota.inProgress());
 }
 
 void test_check_apos_intervalo() {
@@ -87,7 +96,7 @@ void test_sem_check_sem_wifi() {
 
 void test_falha_ao_conectar_na_api() {
     Fixture f;
-    MockHTTP::failNextBegin();
+    MockTLS::failConnect = true;
     f.ota.tick(T);
     TEST_ASSERT_TRUE(logHas(logger, "Falha ao verificar versao"));
 }
@@ -203,7 +212,7 @@ void test_arquivo_bate_com_o_eboot() {
 void test_falha_ao_conectar_no_download() {
     Fixture f;
     MockHTTP::push(200, R"({"tag_name":"v999"})");
-    MockTLS::failConnect = true;
+    MockTLS::failOnConnect = 2;
     f.ota.tick(T);
     TEST_ASSERT_TRUE(logHas(logger, "Falha ao iniciar OTA"));
     TEST_ASSERT_FALSE(f.ota.inProgress());
@@ -432,8 +441,8 @@ void test_consulta_bloco_insuficiente() {
 }
 
 void test_consulta_tls_indisponivel() {
-    Fixture f;
     MockTLS::nullOwned = true;
+    Fixture f;
     f.ota.tick(T);
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
     TEST_ASSERT_EQUAL_STRING("Nova tentativa em 10 s", f.ota.detail());
@@ -456,9 +465,8 @@ void test_download_memoria_insuficiente() {
 }
 
 void test_download_tls_indisponivel() {
-    MockTLS::nullOwned = true;
     Fixture f;
-    MockTLS::nullOwned = false;
+    MockTLS::failOnConnect = 2;
     queueUpdate(std::string(64, 'X'));
     f.ota.tick(T);
     TEST_ASSERT_FALSE(f.ota.inProgress());
@@ -813,8 +821,8 @@ void test_consulta_esgota_sem_gravar_pedido() {
     f.ota.setAutomatic(false);
     unsigned long t = 0;
     f.ota.requestCheck();
+    MockTLS::failConnect = true;
     for (uint8_t i = 0; i < OTAService::MAX_TRIES; i++) {
-        MockHTTP::failNextBegin();
         f.ota.tick(t);
         t += OTAService::RETRY_MAX_MS;
         if (i + 1 < OTAService::MAX_TRIES && !f.ota.pending())
@@ -829,6 +837,7 @@ int main() {
     RUN_TEST(test_parse_tag);
     RUN_TEST(test_is_newer);
     RUN_TEST(test_sem_check_antes_do_intervalo);
+    RUN_TEST(test_primeiro_check_automatico);
     RUN_TEST(test_check_apos_intervalo);
     RUN_TEST(test_sem_check_apos_deadline);
     RUN_TEST(test_sem_check_com_restart_pendente);

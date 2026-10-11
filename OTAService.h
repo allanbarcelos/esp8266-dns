@@ -1,11 +1,10 @@
 #pragma once
 #include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
 #include <LittleFS.h>
 #include <cstdarg>
 #include <cstdlib>
+#include <cstring>
 #include <Updater.h>
-#include <ArduinoJson.h>
 #include "Logger.h"
 #include "Version.h"
 #include "FlashLayout.h"
@@ -31,10 +30,12 @@
 //
 // GitHub não negocia MFLN. O buffer TLS de 4 KB usado no Cloudflare
 // não cabe o registro TLS de 16 KB: o download trava ou cai. A sessão
-// com o GitHub usa 16 KB. O download não usa HTTPClient: o Location do
-// asset tem ~1 KB e o GitHub manda vários Set-Cookie; um String por
-// linha em cima dos 16 KB de TLS gerava Exception 29 no contexto SYS.
-// Headers cabem num buffer fixo; 302 fecha a sessão e abre outra no CDN.
+// com o GitHub usa 16 KB. Consulta e download compartilham um TlsClient
+// e HTTP cru: HTTPClient + ArduinoJson + Location/cookies em String, em
+// cima dos 16 KB de TLS, geravam OOM (Exception 29 no contexto SYS).
+// O nome do header cabe em 32 bytes; o Location do asset (~1 KB) é
+// malloc só durante os redirects e libertado antes do Update.begin.
+// 302 fecha a sessão e abre outra no CDN (MFLN 4 KB se o CDN aceitar).
 // Falha transitória retenta com backoff; se a heap não der, grava
 // /ota.pending e reinicia em modo recuperação.
 class OTAService {
@@ -101,7 +102,9 @@ public:
 
         if (!_automatic) return;
         if (now >= DEADLINE) return;
-        if (now - _lastCheck < CHECK_INTERVAL) return;
+        if (_lastCheck == 0) {
+            if (now < FIRST_CHECK) return;
+        } else if (now - _lastCheck < CHECK_INTERVAL) return;
 
         _lastCheck = now;
         _nextRetry = 0;
@@ -152,6 +155,7 @@ public:
         return (int)(_written * 100UL / (size_t)_contentLength);
     }
 
+    static constexpr unsigned long FIRST_CHECK    = 20000UL;    // 1ª consulta após o boot
     static constexpr unsigned long CHECK_INTERVAL = 3600000UL;  // 1 hora
     static constexpr unsigned long DEADLINE       = 82800000UL; // ~23 h
     static constexpr unsigned long STALL_TIMEOUT  = 60000UL;    // sem dados por 60 s
@@ -162,8 +166,15 @@ public:
     static constexpr uint8_t       MAX_REDIRECTS  = 5;
     static constexpr uint16_t      GITHUB_RX      = 16384;
     static constexpr uint16_t      GITHUB_TX      = 512;
-    static constexpr uint32_t      GITHUB_HEAP    = 24000;
+    // Exception(29)/StoreProhibited em hardware real com heap 22648/bloco
+    // 22296: o guard passava, mas a alocação real do BearSSL (dentro do
+    // connect(), depois da resolução DNS) ainda não cabia. 24000/19000 é a
+    // margem que esta placa precisa para não entrar em connect() nesse caso.
+    static constexpr uint32_t      GITHUB_HEAP    = 24000;  // 16 KB TLS + BearSSL + path
     static constexpr uint32_t      GITHUB_BLOCK   = 19000;
+    static constexpr uint32_t      TLS_TAIL       = 2048;   // após o buffer RX
+    static constexpr size_t        OTA_HOST_CAP   = 80;
+    static constexpr size_t        OTA_PATH_CAP   = 1280;
     static constexpr const char*   PENDING_PATH   = "/ota.pending";
 
 private:
@@ -179,9 +190,6 @@ private:
     Report           _report        = Report::None;
     char             _detail[80]    = {};
     char             _available[16] = {};
-    char             _otaHost[80]   = {};
-    char             _otaPath[1536] = {};
-    char             _hdr[1536]     = {};
     TlsClient        _client;
     int              _contentLength = 0;
     size_t           _written       = 0;
@@ -204,10 +212,8 @@ private:
     bool _tlsReady() {
         uint32_t heap  = ESP.getFreeHeap();
         uint32_t block = ESP.getMaxFreeBlockSize();
-        uint32_t needHeap  = _slim ? 20000u : GITHUB_HEAP;
-        uint32_t needBlock = _slim ? 17000u : GITHUB_BLOCK;
         _log.log("OTA heap %u block %u", heap, block);
-        if (heap >= needHeap && block >= needBlock) return true;
+        if (heap >= GITHUB_HEAP && block >= GITHUB_BLOCK) return true;
         _note(Report::Failed, "Memoria insuficiente");
         _log.log("OTA: memoria insuficiente");
         return false;
@@ -219,12 +225,12 @@ private:
     }
 
     void _checkNow(unsigned long now, bool install) {
-        String latest;
-        if (!_checkVersion(latest)) {
+        char latest[16];
+        if (!_checkVersion(latest, sizeof(latest))) {
             if (!_wifi.restartPending()) _scheduleRetry(now, false);
             return;
         }
-        if (!isNewer(latest.c_str(), firmware_version)) {
+        if (!isNewer(latest, firmware_version)) {
             bool restore = _slim;
             _available[0] = '\0';
             _tries = 0;
@@ -237,7 +243,7 @@ private:
             }
             return;
         }
-        strlcpy(_available, latest.c_str(), sizeof(_available));
+        strlcpy(_available, latest, sizeof(_available));
         _note(Report::Available, "Nova versao %s", _available);
         _log.log("Nova versao encontrada: %s", _available);
         if (!install) return;
@@ -245,57 +251,53 @@ private:
             _scheduleRetry(now, true);
     }
 
-    // Consulta a GitHub Releases API para obter o tag_name do último release
-    bool _checkVersion(String& latest) {
+    bool _checkVersion(char* latest, size_t cap) {
+        latest[0] = '\0';
         if (!_tlsReady()) {
             _recoverHeap();
             return false;
         }
 
-        TlsClient client;
-        client.setInsecure();
-        if (!client.prepare(8000, GITHUB_RX, GITHUB_TX)) {
+        static const char host[] = "api.github.com";
+        static const char path[] =
+            "/repos/allanbarcelos/esp8266-dns/releases/latest";
+        if (!_prepareTls(host, true)) {
             _note(Report::Failed, "Cliente TLS indisponivel");
             _log.log("OTA: TLS indisponivel");
             return false;
         }
-        HTTPClient http;
-        http.setTimeout(8000);
-        http.setUserAgent("ESP8266-dns");
-        http.useHTTP10(true);
-
-        if (!http.begin(client, "https://api.github.com/repos/allanbarcelos/esp8266-dns/releases/latest")) {
+        if (!_client.connect(host, 443)) {
             _note(Report::Failed, "Falha ao consultar o GitHub");
             _log.log("Falha ao verificar versao");
+            _client.stop();
             return false;
         }
-        http.addHeader("Accept", "application/vnd.github+json");
-
-        int code = http.GET();
-        if (code != HTTP_CODE_OK) {
+        delay(1);
+        _sendGet(host, path, "Accept: application/vnd.github+json");
+        int code = 0;
+        int contentLength = -1;
+        if (!_readHeaders(code, contentLength, nullptr, 0)) {
+            _note(Report::Failed, "Resposta invalida do GitHub");
+            _log.log("Erro JSON versao: headers");
+            _client.stop();
+            return false;
+        }
+        if (code != 200) {
             _note(Report::Failed, "GitHub HTTP %d", code);
             _log.log("Erro HTTP versao: %d", code);
-            http.end();
+            _client.stop();
             return false;
         }
-
-        // Extrai apenas tag_name sem alocar um JsonDocument grande
-        StaticJsonDocument<JSON_OBJECT_SIZE(1)> filter;
-        filter["tag_name"] = true;
-
-        StaticJsonDocument<JSON_OBJECT_SIZE(1) + 64> doc;
-        DeserializationError err = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
-        http.end();
-
-        if (err) {
+        bool found = _readTagName(latest, cap);
+        _client.stop();
+        delay(1);
+        if (!found) {
             _note(Report::Failed, "Resposta invalida do GitHub");
-            _log.log("Erro JSON versao: %s", err.c_str());
+            _log.log("Erro JSON versao: tag_name");
+            latest[0] = '\0';
             return false;
         }
-
-        latest = doc["tag_name"] | "";
-        latest.trim();
-        if (latest.length() == 0) {
+        if (latest[0] == '\0') {
             _note(Report::Failed, "Versao remota vazia");
             return false;
         }
@@ -311,15 +313,7 @@ private:
             if (a != b) return false;
             n++;
         }
-        return line[n] == ':';
-    }
-
-    static const char* _hdrVal(const char* line) {
-        const char* p = strchr(line, ':');
-        if (!p) return line;
-        p++;
-        while (*p == ' ' || *p == '\t') p++;
-        return p;
+        return line[n] == '\0';
     }
 
     static bool _splitUrl(const char* url, char* host, size_t hostCap,
@@ -334,8 +328,9 @@ private:
         char* colon = strchr(host, ':');
         if (colon) *colon = '\0';
         if (slash) {
-            if (strlen(slash) >= pathCap) return false;
-            strlcpy(path, slash, pathCap);
+            size_t pathLen = strlen(slash);
+            if (pathLen >= pathCap) return false;
+            memmove(path, slash, pathLen + 1);
         } else {
             strlcpy(path, "/", pathCap);
         }
@@ -353,69 +348,143 @@ private:
         uint16_t rx = GITHUB_RX;
         if (tryMfln && _client.probeMaxFragmentLength(host, 443, 4096))
             rx = 4096;
-        return _client.prepare(15000, rx, GITHUB_TX);
-    }
-
-    void _sendGet() {
-        _client.print("GET ");
-        _client.print(_otaPath);
-        _client.print(" HTTP/1.0\r\nHost: ");
-        _client.print(_otaHost);
-        _client.print("\r\nUser-Agent: ESP8266-dns\r\nConnection: close\r\n\r\n");
-    }
-
-    bool _readLine() {
-        size_t n = 0;
-        unsigned long start = millis();
-        while (millis() - start < 15000UL) {
-            if (_client.available() <= 0) {
-                if (!_client.connected() && _client.available() <= 0) {
-                    _hdr[n] = '\0';
-                    return n > 0;
-                }
-                delay(1);
-                continue;
-            }
-            int ch = _client.read();
-            if (ch < 0) {
-                delay(1);
-                continue;
-            }
-            if (ch == '\r') continue;
-            if (ch == '\n') {
-                _hdr[n] = '\0';
-                return true;
-            }
-            if (n + 1 < sizeof(_hdr)) _hdr[n++] = (char)ch;
+        if (!_client.prepare(15000, rx, GITHUB_TX)) return false;
+        if (ESP.getMaxFreeBlockSize() < (uint32_t)rx + TLS_TAIL) {
+            _client.stop();
+            return false;
         }
-        _hdr[n] = '\0';
-        return false;
+        return true;
     }
 
-    bool _readHeaders(int& code, int& contentLength, bool& gotLocation) {
-        code = 0;
-        contentLength = -1;
-        gotLocation = false;
-        bool gotStatus = false;
+    void _sendGet(const char* host, const char* path, const char* extraHeader = nullptr) {
+        _client.print("GET ");
+        _client.print(path);
+        _client.print(" HTTP/1.0\r\nHost: ");
+        _client.print(host);
+        _client.print("\r\nUser-Agent: ESP8266-dns\r\nConnection: close\r\n");
+        if (extraHeader) {
+            _client.print(extraHeader);
+            _client.print("\r\n");
+        }
+        _client.print("\r\n");
+    }
+
+    int _readChar() {
+        unsigned long start = millis();
         for (;;) {
-            if (!_readLine()) return false;
-            if (_hdr[0] == '\0') return gotStatus;
-            if (!gotStatus) {
-                if (strncmp(_hdr, "HTTP/", 5) != 0) return false;
-                const char* sp = strchr(_hdr, ' ');
-                if (!sp) return false;
-                code = atoi(sp + 1);
-                gotStatus = true;
-                continue;
+            if (_client.available() > 0) {
+                int ch = _client.read();
+                if (ch >= 0) return ch;
             }
-            if (_hdrIs(_hdr, "Location") && !gotLocation) {
-                strlcpy(_otaPath, _hdrVal(_hdr), sizeof(_otaPath));
-                gotLocation = true;
-            } else if (_hdrIs(_hdr, "Content-Length")) {
-                contentLength = atoi(_hdrVal(_hdr));
-            }
+            if (!_client.connected() && _client.available() <= 0) return -1;
+            if (millis() - start >= 15000UL) return -1;
             delay(1);
         }
+    }
+
+    bool _readHeaders(int& code, int& contentLength, char* location, size_t locationCap) {
+        code = 0;
+        contentLength = -1;
+        if (location && locationCap) location[0] = '\0';
+
+        char name[32];
+        size_t n = 0;
+        bool gotStatus = false;
+        for (;;) {
+            int ch = _readChar();
+            if (ch < 0) return false;
+            if (ch == '\r') continue;
+            if (!gotStatus) {
+                if (ch == '\n') {
+                    name[n] = '\0';
+                    if (strncmp(name, "HTTP/", 5) != 0) return false;
+                    const char* sp = strchr(name, ' ');
+                    if (!sp || sp[1] < '0' || sp[1] > '9') return false;
+                    code = atoi(sp + 1);
+                    gotStatus = true;
+                    n = 0;
+                    continue;
+                }
+                if (n + 1 < sizeof(name)) name[n++] = (char)ch;
+                continue;
+            }
+            if (ch == '\n') {
+                if (n == 0) return true;
+                n = 0;
+                continue;
+            }
+            if (ch == ':') {
+                name[n] = '\0';
+                bool takeLoc = location && locationCap && location[0] == '\0'
+                               && _hdrIs(name, "Location");
+                bool takeLen = _hdrIs(name, "Content-Length");
+                do {
+                    ch = _readChar();
+                    if (ch < 0) return false;
+                } while (ch == ' ' || ch == '\t');
+                n = 0;
+                while (ch != '\n') {
+                    if (ch != '\r') {
+                        if (takeLoc && n + 1 < locationCap) location[n++] = (char)ch;
+                        else if (takeLen && n + 1 < sizeof(name)) name[n++] = (char)ch;
+                    }
+                    ch = _readChar();
+                    if (ch < 0) return false;
+                }
+                if (takeLoc) location[n] = '\0';
+                if (takeLen) {
+                    name[n] = '\0';
+                    contentLength = atoi(name);
+                }
+                n = 0;
+                delay(1);
+                continue;
+            }
+            if (n + 1 < sizeof(name)) name[n++] = (char)ch;
+        }
+    }
+
+    bool _readTagName(char* tag, size_t cap) {
+        if (!tag || cap == 0) return false;
+        tag[0] = '\0';
+        static const char key[] = "\"tag_name\"";
+        unsigned ki = 0;
+        for (;;) {
+            int ch = _readChar();
+            if (ch < 0) return false;
+            if (ch == (unsigned char)key[ki]) {
+                ki++;
+                if (key[ki] == '\0') break;
+            } else {
+                ki = (ch == (unsigned char)key[0]) ? 1 : 0;
+            }
+        }
+        int ch;
+        do {
+            ch = _readChar();
+            if (ch < 0) return false;
+        } while (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r');
+        if (ch != ':') return false;
+        do {
+            ch = _readChar();
+            if (ch < 0) return false;
+        } while (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r');
+        if (ch != '"') return false;
+        size_t n = 0;
+        for (;;) {
+            ch = _readChar();
+            if (ch < 0) return false;
+            if (ch == '"') break;
+            if (n + 1 < cap) tag[n++] = (char)ch;
+        }
+        tag[n] = '\0';
+        char* s = tag;
+        while (*s == ' ' || *s == '\t') s++;
+        if (s != tag) memmove(tag, s, strlen(s) + 1);
+        size_t len = strlen(tag);
+        while (len && (tag[len - 1] == ' ' || tag[len - 1] == '\t'))
+            tag[--len] = '\0';
+        return true;
     }
 
     bool _startDownload(const char* version, unsigned long now) {
@@ -424,11 +493,22 @@ private:
             return false;
         }
 
-        snprintf(_hdr, sizeof(_hdr),
+        char host[OTA_HOST_CAP];
+        char url[128];
+        char* path = (char*)malloc(OTA_PATH_CAP);
+        if (!path) {
+            _note(Report::Failed, "Memoria insuficiente");
+            _log.log("OTA: memoria insuficiente");
+            _recoverHeap();
+            return false;
+        }
+
+        snprintf(url, sizeof(url),
                  "https://github.com/allanbarcelos/esp8266-dns/releases/download/%s/%s",
                  version, assetName(signingEnabled()));
-        _log.log("URL firmware: %s", _hdr);
-        if (!_splitUrl(_hdr, _otaHost, sizeof(_otaHost), _otaPath, sizeof(_otaPath))) {
+        _log.log("URL firmware: %s", url);
+        if (!_splitUrl(url, host, sizeof(host), path, OTA_PATH_CAP)) {
+            free(path);
             _note(Report::Failed, "URL de download invalida");
             _log.log("OTA: URL invalida");
             return false;
@@ -438,22 +518,23 @@ private:
         int contentLength = -1;
         bool opened = false;
         for (uint8_t hop = 0; hop < MAX_REDIRECTS; hop++) {
-            bool cdn = hop > 0;
-            if (!_prepareTls(_otaHost, cdn)) {
+            if (!_prepareTls(host, hop > 0)) {
+                free(path);
                 _note(Report::Failed, "Cliente TLS indisponivel");
                 _log.log("OTA: TLS indisponivel");
                 return false;
             }
-            if (!_client.connect(_otaHost, 443)) {
+            if (!_client.connect(host, 443)) {
+                free(path);
                 _note(Report::Failed, "Falha ao baixar o firmware");
                 _log.log("Falha ao iniciar OTA");
                 _client.stop();
                 return false;
             }
             delay(1);
-            _sendGet();
-            bool gotLocation = false;
-            if (!_readHeaders(code, contentLength, gotLocation)) {
+            _sendGet(host, path);
+            if (!_readHeaders(code, contentLength, path, OTA_PATH_CAP)) {
+                free(path);
                 _note(Report::Failed, "Resposta OTA incompleta");
                 _log.log("OTA: headers incompletos");
                 _client.stop();
@@ -463,15 +544,15 @@ private:
                 _log.log("OTA redirect %d", code);
                 _client.stop();
                 delay(10);
-                if (!gotLocation) {
+                if (path[0] == '\0') {
+                    free(path);
                     _note(Report::Failed, "Redirect OTA sem Location");
                     _log.log("OTA: redirect sem Location");
                     return false;
                 }
-                if (_otaPath[0] == '/') continue;
-                strlcpy(_hdr, _otaPath, sizeof(_hdr));
-                if (!_splitUrl(_hdr, _otaHost, sizeof(_otaHost),
-                               _otaPath, sizeof(_otaPath))) {
+                if (path[0] == '/') continue;
+                if (!_splitUrl(path, host, sizeof(host), path, OTA_PATH_CAP)) {
+                    free(path);
                     _note(Report::Failed, "Redirect OTA invalido");
                     _log.log("OTA: redirect invalido");
                     return false;
@@ -482,17 +563,20 @@ private:
             break;
         }
         if (!opened) {
+            free(path);
             _note(Report::Failed, "OTA excedeu redirecionamentos");
             _log.log("OTA: redirecionamentos esgotados");
             _client.stop();
             return false;
         }
         if (code != 200) {
+            free(path);
             _note(Report::Failed, "Download HTTP %d", code);
             _log.log("HTTP OTA erro: %d", code);
             _client.stop();
             return false;
         }
+        free(path);
 
         _contentLength = contentLength;
         _unknownLen = _contentLength < 0;
@@ -510,7 +594,7 @@ private:
 
         if (flashSize == 0 || !Update.begin(flashSize)) {
             _note(Report::Failed, "Sem espaco para o firmware");
-            _log.log("Sem espaco para OTA");
+            _log.log("Sem espaco para OTA: %s", Update.getErrorString().c_str());
             _client.stop();
             return false;
         }

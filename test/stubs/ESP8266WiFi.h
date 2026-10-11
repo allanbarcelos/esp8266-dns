@@ -185,12 +185,15 @@ namespace MockTLS {
     inline int                       bufOut        = 0;
     inline bool                      nullOwned     = false;
     inline bool                      failConnect   = false;
+    inline int                       connectCalls  = 0;
+    inline int                       failOnConnect = 0; // 1-based; 0 = off
     inline bool                      mfln          = false;
     inline void reset() {
         insecureCalls = 0; lastTrustPem = nullptr; lastTime = 0;
         timeoutCalls = 0; lastTimeoutMs = 0;
         bufIn = 0; bufOut = 0; nullOwned = false;
-        failConnect = false; mfln = false;
+        failConnect = false; connectCalls = 0; failOnConnect = 0;
+        mfln = false;
     }
 }
 
@@ -211,7 +214,10 @@ public:
     bool probeMaxFragmentLength(const char*, uint16_t, uint16_t) { return MockTLS::mfln; }
 
     int connect(const char* host, uint16_t) override {
+        MockTLS::connectCalls++;
         if (MockTLS::failConnect) return 0;
+        if (MockTLS::failOnConnect > 0 &&
+            MockTLS::connectCalls == MockTLS::failOnConnect) return 0;
         _host = host ? host : "";
         _connected = true;
         _tx.clear();
@@ -283,7 +289,8 @@ private:
         if (_tx.find("User-Agent: ESP8266-dns") != std::string::npos)
             MockHTTP::lastUA = "ESP8266-dns";
 
-        if (!MockHTTP::rawHttp.empty()) {
+        if (!MockHTTP::rawHttp.empty() &&
+            path.find("/releases/latest") == std::string::npos) {
             _rx = std::move(MockHTTP::rawHttp);
             MockHTTP::rawHttp.clear();
             _rxPos = 0;
