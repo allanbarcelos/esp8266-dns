@@ -11,50 +11,67 @@
 #include "NtfyNotifier.h"
 
 // ── PROGMEM ───────────────────────────────────────────────────────────────────
-// Cabeçalho dividido para permitir injeção de <meta refresh> antes de </head>
+// Cabeçalho dividido para permitir injeção de <meta refresh> antes de </head>.
+// O CSS vem embutido: no modo AP não há internet para buscar um framework.
+// Contraste AA no tema escuro; botão verde escuro para o branco passar 4.5:1.
 
-static const char _HTML_HEAD_A[] PROGMEM = R"(<!DOCTYPE html>
-<html lang="pt"><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ESP8266 DNS</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-)";
+static const char _HTML_HEAD_A[] PROGMEM =
+    "<!DOCTYPE html><html lang='pt'><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<title>ESP8266 DNS</title>";
 
-static const char _HTML_HEAD_B[] PROGMEM = R"(<style>
-body,.form-label{color:#f1f3f4}
-.card,.kv-label{color:#e8eaed !important}
-.kv-value{color:#ffffff !important;font-weight:600;font-size:1rem}
-.text-secondary{color:#d7dbe0 !important}
-.card-body .border-bottom{border-color:#3d4248 !important}
-</style>
-</head>
-<body class="bg-dark text-light">
-<div class="container py-3">
-)";
+static const char _HTML_HEAD_B[] PROGMEM =
+    "<style>"
+    ":root{color-scheme:dark;--bg:#0d1117;--cd:#161b22;--ln:#30363d;--fg:#e6edf3;"
+    "--mu:#9da7b3;--ok:#3fb950;--wa:#d29922;--er:#f85149;--in:#58a6ff}"
+    "*{box-sizing:border-box}"
+    "body{margin:0;background:var(--bg);color:var(--fg);"
+    "font:15px/1.5 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}"
+    "header{background:var(--cd);border-bottom:1px solid var(--ln);padding:10px 16px}"
+    "header b{color:var(--ok)}"
+    "nav{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}"
+    "nav a{color:var(--fg);text-decoration:none;padding:3px 10px;"
+    "border:1px solid var(--ln);border-radius:6px;font-size:14px}"
+    "nav a:hover{border-color:var(--ok)}"
+    "main,footer{max-width:640px;margin:auto;padding:16px}"
+    "footer,.m{color:var(--mu);font-size:13px}"
+    "h1{font-size:20px;margin:0 0 16px}"
+    "h2{font-size:16px;margin:20px 0 0}"
+    ".c{background:var(--cd);border:1px solid var(--ln);border-radius:8px;margin-bottom:16px}"
+    ".c h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);"
+    "margin:0;padding:8px 16px;border-bottom:1px solid var(--ln)}"
+    ".r{display:flex;justify-content:space-between;gap:16px;padding:8px 16px;"
+    "border-bottom:1px solid var(--ln)}"
+    ".r:last-child{border:0}.r span{color:var(--mu)}"
+    ".r b{text-align:right;overflow-wrap:anywhere}"
+    "label{display:block;margin-top:12px;font-size:14px}"
+    "input,select{display:block;width:100%;margin-top:4px;padding:8px 10px;"
+    "background:var(--bg);color:var(--fg);border:1px solid var(--ln);border-radius:6px;font:inherit}"
+    ".sw{display:flex;align-items:center;gap:8px}"
+    ".sw input{width:auto;margin:0;accent-color:var(--ok)}"
+    "button,.b{display:block;width:100%;margin-top:16px;padding:10px;border:0;"
+    "border-radius:6px;background:#238636;color:#fff;font:inherit;font-weight:600;"
+    "text-align:center;text-decoration:none;cursor:pointer}"
+    ".b2{background:none;border:1px solid var(--ln);color:var(--fg)}"
+    ":focus-visible{outline:2px solid var(--in);outline-offset:2px}"
+    ".a{background:var(--cd);border-left:4px solid var(--in);border-radius:6px;"
+    "padding:10px 14px;margin-bottom:16px}"
+    ".success{border-color:var(--ok)}.warning{border-color:var(--wa)}"
+    ".danger{border-color:var(--er)}"
+    "progress{display:block;width:100%;accent-color:var(--ok)}"
+    "pre{background:#010409;border:1px solid var(--ln);border-radius:8px;padding:12px;"
+    "font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}"
+    "img{max-width:100%;border-radius:6px;background:#fff}"
+    "figure{margin:0 0 16px;text-align:center}"
+    "</style></head><body><header><b>&#9679; ESP8266 DNS</b>"
+    "<nav aria-label='Menu'><a href='/'>Home</a><a href='/status'>Status</a>"
+    "<a href='/log'>Logs</a><a href='/cloudflare'>Cloudflare</a><a href='/ntfy'>Ntfy</a>"
+    "<a href='/iot'>IoT</a><a href='/update'>Atualizar</a><a href='/password'>Senha</a>"
+    "</nav></header><main>";
 
-static const char _HTML_NAV[] PROGMEM = R"(
-<nav class="navbar navbar-dark bg-black mb-3 rounded px-3 py-2">
-  <span class="navbar-brand text-success fw-bold mb-0">&#9679; ESP8266 DNS</span>
-  <div class="d-flex gap-2 flex-wrap">
-    <a href="/"          class="btn btn-sm btn-outline-light">Home</a>
-    <a href="/status"    class="btn btn-sm btn-outline-info">Status</a>
-    <a href="/log"       class="btn btn-sm btn-outline-warning">Logs</a>
-    <a href="/cloudflare"class="btn btn-sm btn-outline-primary">Cloudflare</a>
-    <a href="/ntfy"      class="btn btn-sm btn-outline-success">Ntfy</a>
-    <a href="/iot"       class="btn btn-sm btn-outline-light">IoT</a>
-    <a href="/update"    class="btn btn-sm btn-outline-warning">Atualizar</a>
-    <a href="/password"  class="btn btn-sm btn-outline-secondary">Senha</a>
-  </div>
-</nav>
-)";
+static const char _HTML_FOOT_A[] PROGMEM = "</main><footer>Firmware: ";
 
-static const char _HTML_FOOT_A[] PROGMEM = R"(<hr class="border-secondary mt-4">
-<p class="small mb-0" style="color:#d7dbe0">Firmware: )";
-
-static const char _HTML_FOOT_B[] PROGMEM = R"(</p></div></body></html>)";
-
-#define _INPUT_CLS "form-control bg-dark text-light border-secondary"
+static const char _HTML_FOOT_B[] PROGMEM = "</footer></body></html>";
 
 static const char _PINOUT_URL[] PROGMEM =
     "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/docs/esp01-pinout.png";
@@ -221,7 +238,6 @@ private:
             _s(meta);
         }
         _p(_HTML_HEAD_B);
-        _p(_HTML_NAV);
     }
 
     void _pageEnd() {
@@ -240,23 +256,27 @@ private:
         if (s.length()) _server.sendContent(s);
     }
 
-    void _box(PGM_P title) {
-        _p(PSTR("<div class='card bg-black border-secondary mb-3'>"
-                "<div class='card-header text-success fw-semibold small py-1'>"));
-        _p(title);
-        _p(PSTR("</div><div class='card-body p-0'>"));
+    void _title(PGM_P text) {
+        _p(PSTR("<h1>"));
+        _p(text);
+        _p(PSTR("</h1>"));
     }
 
-    void _boxEnd() { _p(PSTR("</div></div>")); }
+    void _box(PGM_P title) {
+        _p(PSTR("<section class='c'><h2>"));
+        _p(title);
+        _p(PSTR("</h2>"));
+    }
+
+    void _boxEnd() { _p(PSTR("</section>")); }
 
     // Label + valor numa linha com separador (valor sempre escapado)
     void _row(PGM_P label, const String& value) {
-        _p(PSTR("<div class='d-flex justify-content-between align-items-baseline px-3 py-2 border-bottom'>"
-                "<span class='kv-label small'>"));
+        _p(PSTR("<div class='r'><span>"));
         _p(label);
-        _p(PSTR("</span><span class='kv-value text-end ms-3'>"));
+        _p(PSTR("</span><b>"));
         _s(escape(value));
-        _p(PSTR("</span></div>"));
+        _p(PSTR("</b></div>"));
     }
 
     void _csrfField() {
@@ -266,9 +286,9 @@ private:
     }
 
     void _alertOpen(PGM_P cls) {
-        _p(PSTR("<div class='alert alert-"));
+        _p(PSTR("<div class='a "));
         _p(cls);
-        _p(PSTR(" py-2'>"));
+        _p(PSTR("'>"));
     }
 
     // Texto variável: sempre escapado
@@ -285,36 +305,53 @@ private:
         _p(PSTR("</div>"));
     }
 
+    // O <label> envolve o campo: associação implícita para leitores de tela
     void _labelOpen(PGM_P label) {
-        _p(PSTR("<div class='mb-2'><label class='form-label small'>"));
+        _p(PSTR("<label>"));
         _p(label);
     }
 
     void _input(PGM_P label, PGM_P name, const String& value, PGM_P extra) {
         _labelOpen(label);
-        _p(PSTR("</label><input class='" _INPUT_CLS "' name='"));
+        _p(PSTR("<input name='"));
         _p(name);
         _p(PSTR("' value='"));
         _s(escape(value));
         _p(PSTR("' "));
         _p(extra);
-        _p(PSTR("></div>"));
+        _p(PSTR("></label>"));
     }
 
     void _passwordInput(PGM_P label, PGM_P name, PGM_P extra) {
         _labelOpen(label);
-        _p(PSTR("</label><input type='password' autocomplete='new-password' class='"
-                _INPUT_CLS "' name='"));
+        _p(PSTR("<input type='password' autocomplete='new-password' name='"));
         _p(name);
         _p(PSTR("' "));
         _p(extra);
-        _p(PSTR("></div>"));
+        _p(PSTR("></label>"));
+    }
+
+    // Caixa de seleção (liga/desliga) já marcada ou não
+    void _switch(PGM_P id, PGM_P label, bool on) {
+        _p(PSTR("<label class='sw'><input type='checkbox' role='switch' id='"));
+        _p(id);
+        _p(PSTR("' name='"));
+        _p(id);
+        _p(on ? PSTR("' value='1' checked>") : PSTR("' value='1'>"));
+        _p(label);
+        _p(PSTR("</label>"));
+    }
+
+    void _button(PGM_P text) {
+        _p(PSTR("<button>"));
+        _p(text);
+        _p(PSTR("</button></form>"));
     }
 
     void _backButton(PGM_P backHref) {
-        _p(PSTR("<a href='"));
+        _p(PSTR("<a class='b b2' href='"));
         _p(backHref);
-        _p(PSTR("' class='btn btn-outline-secondary btn-sm'>Voltar</a>"));
+        _p(PSTR("'>Voltar</a>"));
     }
 
     // Página de confirmação com redirect automático
@@ -372,20 +409,15 @@ private:
     void _otaProgressBar() {
         if (!_ota.inProgress()) return;
         String pct(_ota.progressPercent());
-        _p(PSTR("<div class='alert alert-info py-2 mb-3'>"
-                "<div class='d-flex justify-content-between small mb-1'>"
-                "<span>OTA em progresso</span><span>"));
+        _p(PSTR("<div class='a' role='status'>OTA em progresso: <b>"));
         _s(pct);
-        _p(PSTR("%</span></div>"
-                "<div class='progress bg-secondary' style='height:8px'>"
-                "<div class='progress-bar progress-bar-striped progress-bar-animated bg-success' "
-                "style='width:"));
+        _p(PSTR("%</b><progress max='100' value='"));
         _s(pct);
-        _p(PSTR("%'></div></div><div class='kv-value mt-1'>"));
+        _p(PSTR("'></progress><span class='m'>"));
         _s(formatBytes((uint32_t)_ota.bytesWritten()));
         _p(PSTR(" / "));
         _s(formatBytes((uint32_t)_ota.contentLength()));
-        _p(PSTR("</div></div>"));
+        _p(PSTR("</span></div>"));
     }
 
     // ── Handlers ─────────────────────────────────────────────────────────────
@@ -402,13 +434,13 @@ private:
             _input(PSTR("SSID"), PSTR("ssid"), _cfg.ssid, PSTR("required maxlength='32'"));
             _passwordInput(PSTR("Senha do Wi-Fi"), PSTR("pass"), PSTR("maxlength='63'"));
             if (_cfg.webpss.length() == 0) {
-                _p(PSTR("<h6 class='mt-3'>Acesso ao painel</h6>"));
+                _p(PSTR("<h2>Acesso ao painel</h2>"));
                 _input(PSTR("Usuario"), PSTR("user"), _cfg.webusr.length() ? _cfg.webusr : String("admin"),
                        PSTR("required maxlength='32'"));
                 _passwordInput(PSTR("Senha do painel (min. 8)"), PSTR("pass1"), PSTR("required minlength='8'"));
                 _passwordInput(PSTR("Confirmar senha"), PSTR("pass2"), PSTR("required minlength='8'"));
             }
-            _p(PSTR("<button class='btn btn-success w-100'>Conectar</button></form>"));
+            _button(PSTR("Conectar"));
         } else {
             _otaProgressBar();
 
@@ -459,8 +491,8 @@ private:
     void _handleLog() {
         if (!_guard()) return;
         _pageBegin();
-        _p(PSTR("<h5 class='text-warning mb-3'>Log do sistema</h5>"
-                            "<pre class='bg-black text-success p-3 rounded small'>"));
+        _title(PSTR("Log do sistema"));
+        _p(PSTR("<pre>"));
         uint8_t cnt   = _log.count();
         uint8_t start = _log.startIndex();
         for (uint8_t i = 0; i < cnt; i++) {
@@ -474,6 +506,7 @@ private:
     void _handleStatus() {
         if (!_guard()) return;
         _pageBegin(30);
+        _title(PSTR("Status"));
 
         _otaProgressBar();
 
@@ -527,7 +560,7 @@ private:
     void _handleCloudflare() {
         if (!_guard()) return;
         _pageBegin();
-        _p(PSTR("<h5 class='text-info mb-3'>Cloudflare DDNS</h5>"));
+        _title(PSTR("Cloudflare DDNS"));
 
         if (_cfg.cf_token[0])
             _alert(PSTR("success"), "Token configurado: " + maskSecret(_cfg.cf_token));
@@ -538,24 +571,22 @@ private:
         _csrfField();
 
         // Token: campo vazio = mantém o atual; preenchido = substitui
-        _passwordInput(PSTR("API Token <span style='color:#d7dbe0'>(deixe em branco para manter)</span>"),
+        _passwordInput(PSTR("API Token <span class='m'>(deixe em branco para manter)</span>"),
                        PSTR("token"), PSTR("placeholder='Novo token' maxlength='47'"));
         _input(PSTR("Zone ID"), PSTR("zone"), _cfg.cf_zone, PSTR("maxlength='39'"));
         _input(PSTR("Hostname (exibicao)"), PSTR("host"), _cfg.cf_host, PSTR("maxlength='63'"));
-        _p(PSTR("<label class='form-label small'>Record IDs</label>"));
-
         for (uint8_t i = 0; i < MAX_RECORDS; i++) {
             String val = (i < _cfg.cf_record_count) ? String(_cfg.cf_records[i]) : String();
-            _p(PSTR("<input class='" _INPUT_CLS " mb-1' maxlength='39' name='record"));
-            _s(String(i));
-            _p(PSTR("' placeholder='Record ID "));
+            _p(PSTR("<label>Record ID "));
             _s(String(i + 1));
+            _p(PSTR("<input maxlength='39' name='record"));
+            _s(String(i));
             _p(PSTR("' value='"));
             _s(escape(val));
-            _p(PSTR("'>"));
+            _p(PSTR("'></label>"));
         }
 
-        _p(PSTR("<button class='btn btn-success w-100 mt-2'>Salvar</button></form>"));
+        _button(PSTR("Salvar"));
         _pageEnd();
     }
 
@@ -595,7 +626,7 @@ private:
     void _handleNtfy() {
         if (!_guard()) return;
         _pageBegin();
-        _p(PSTR("<h5 class='text-success mb-3'>Notificacoes ntfy</h5>"));
+        _title(PSTR("Notificacoes ntfy"));
 
         if (_cfg.ntfy_topic[0])
             _alert(PSTR("success"), String("Topico: ") + _cfg.ntfy_topic);
@@ -606,9 +637,9 @@ private:
         _csrfField();
         _input(PSTR("Topico ntfy.sh"), PSTR("topic"), _cfg.ntfy_topic,
                PSTR("maxlength='63' pattern='[A-Za-z0-9_\\-]*' placeholder='meu-topico-secreto'"));
-        _p(PSTR("<div class='small mb-3' style='color:#d7dbe0'>"
-            "Enviado no boot e quando o IP mudar. Deixe em branco para desativar.</div>"
-            "<button class='btn btn-success w-100'>Salvar</button></form>"));
+        _p(PSTR("<p class='m'>Enviado no boot e quando o IP mudar. "
+                "Deixe em branco para desativar.</p>"));
+        _button(PSTR("Salvar"));
         _pageEnd();
     }
 
@@ -633,7 +664,7 @@ private:
     void _handlePassword() {
         if (!_guard(true)) return;
         _pageBegin();
-        _p(PSTR("<h5 class='text-info mb-3'>Senha do painel</h5>"));
+        _title(PSTR("Senha do painel"));
         if (_cfg.webpss.length() == 0)
             _alertP(PSTR("warning"), PSTR("Defina uma senha para liberar o painel"));
         _p(PSTR("<form action='/password/save' method='POST'>"));
@@ -642,7 +673,7 @@ private:
                PSTR("required maxlength='32'"));
         _passwordInput(PSTR("Nova senha (min. 8)"), PSTR("pass1"), PSTR("required minlength='8' maxlength='64'"));
         _passwordInput(PSTR("Confirmar senha"), PSTR("pass2"), PSTR("required minlength='8' maxlength='64'"));
-        _p(PSTR("<button class='btn btn-primary w-100'>Salvar</button></form>"));
+        _button(PSTR("Salvar"));
         _pageEnd();
     }
 
@@ -668,7 +699,7 @@ private:
         _pageBegin(_ota.pending() ? 3 : 0);
         _otaProgressBar();
 
-        _p(PSTR("<h5 class='text-warning mb-3'>Atualizacao</h5>"));
+        _title(PSTR("Atualizacao"));
         _box(PSTR("Firmware"));
         _row(PSTR("Versao atual"), firmware_version);
         _row(PSTR("Automatica"), _cfg.ota_auto ? String("ligada") : String("desligada"));
@@ -678,24 +709,19 @@ private:
             _row(PSTR("Situacao"), _ota.detail());
         _boxEnd();
 
-        _p(PSTR("<form action='/update/auto' method='POST' class='mb-3'>"));
+        _p(PSTR("<form action='/update/auto' method='POST'>"));
         _csrfField();
-        _p(PSTR("<div class='form-check form-switch mb-2'>"
-            "<input class='form-check-input' type='checkbox' role='switch' "
-            "id='ota_auto' name='ota_auto' value='1'"));
-        if (_cfg.ota_auto) _p(PSTR(" checked"));
-        _p(PSTR("><label class='form-check-label' for='ota_auto'>"
-            "Atualizacao automatica</label></div>"
-            "<button class='btn btn-outline-light w-100'>Salvar</button></form>"));
+        _switch(PSTR("ota_auto"), PSTR("Atualizacao automatica"), _cfg.ota_auto);
+        _p(PSTR("<button class='b2'>Salvar</button></form>"));
 
-        _p(PSTR("<form action='/update/check' method='POST' class='mb-2'>"));
+        _p(PSTR("<form action='/update/check' method='POST'>"));
         _csrfField();
-        _p(PSTR("<button class='btn btn-info w-100'>Verificar agora</button></form>"));
+        _button(PSTR("Verificar agora"));
 
         if (_ota.availableVersion()[0] != '\0' && !_ota.inProgress()) {
             _p(PSTR("<form action='/update/install' method='POST'>"));
             _csrfField();
-            _p(PSTR("<button class='btn btn-success w-100'>Instalar esta versao</button></form>"));
+            _button(PSTR("Instalar esta versao"));
         }
         _pageEnd();
     }
@@ -734,13 +760,12 @@ private:
     }
 
     void _deviceMark() {
-        _p(PSTR("<div class='text-center mb-3'><img src='"));
+        // Imagem externa: sem internet (modo AP) ela some e o texto fica
+        _p(PSTR("<figure><img src='"));
         _p(_DEVICE_URL);
-        _p(PSTR("' alt='ESP-01' class='img-fluid rounded' style='max-width:220px'>"
-            "<div class='small mt-1' style='color:#d7dbe0'>"
-            "Firmware para o modulo ESP-01</div>"
-            "<div class='small' style='color:#d7dbe0'>"
-            "Foto: SparkFun, CC BY 2.0</div></div>"));
+        _p(PSTR("' alt='ESP-01' width='220' onerror='this.remove()'>"
+                "<figcaption class='m'>Firmware para o modulo ESP-01<br>"
+                "Foto: SparkFun, CC BY 2.0</figcaption></figure>"));
     }
 
     void _sendKindList(bool sensors) {
@@ -788,13 +813,16 @@ private:
         _p(PSTR("</option>"));
     }
 
-    void _selectOpen(PGM_P id) {
-        _p(PSTR("<select class='" _INPUT_CLS "' id='"));
+    void _selectOpen(PGM_P label, PGM_P id) {
+        _labelOpen(label);
+        _p(PSTR("<select id='"));
         _p(id);
         _p(PSTR("' name='"));
         _p(id);
         _p(PSTR("' onchange='iotSync()'>"));
     }
+
+    void _selectEnd() { _p(PSTR("</select></label>")); }
 
     void _divOpen(PGM_P id, bool show) {
         _p(PSTR("<div id='"));
@@ -803,12 +831,12 @@ private:
     }
 
     // name vai para %s: tem de estar em RAM (snprintf_P só lê o formato da flash).
-    // min -55 e max 100000 passam de 128 caracteres e cortavam o '>'.
-    void _number(const char* name, int value, int min, int max) {
-        char buf[160];
+    // Pior caso (threshold_hi, int mínimo, -55, 100000) dá 93 bytes.
+    void _number(PGM_P label, const char* name, int value, int min, int max) {
+        _labelOpen(label);
+        char buf[112];
         snprintf_P(buf, sizeof(buf),
-                   PSTR("<input class='" _INPUT_CLS "' "
-                        "type='number' name='%s' value='%d' min='%d' max='%d'>"),
+                   PSTR("<input type='number' name='%s' value='%d' min='%d' max='%d'></label>"),
                    name, value, min, max);
         _s(buf);
     }
@@ -816,12 +844,11 @@ private:
     void _handleIot() {
         if (!_guard()) return;
         _pageBegin(IoTService::allowedPin(_cfg.iot_sensor_pin) ? 5 : 0);
-        _p(PSTR("<h5 class='text-info mb-3'>IoT</h5>"));
-        _p(PSTR("<img src='"));
+        _title(PSTR("IoT"));
+        _p(PSTR("<figure><img src='"));
         _p(_PINOUT_URL);
-        _p(PSTR("' alt='Pinos do ESP-01' class='img-fluid bg-white rounded mb-3' "
-            "style='max-width:100%'>"));
-        _p(PSTR("<p class='small mb-3' style='color:#d7dbe0'>"
+        _p(PSTR("' alt='Pinos do ESP-01' onerror='this.remove()'></figure>"));
+        _p(PSTR("<p class='m'>"
             "GPIO0 e GPIO2 ficam em alto no boot. O sensor e o modulo usam pinos "
             "diferentes. Digital, PIR, porta, chuva, chama, gas, solo, luz, som, "
             "boia e botao ligam por nivel, ou alternam a cada pulso. O comando "
@@ -852,99 +879,79 @@ private:
 
         _p(PSTR("<form action='/iot/save' method='POST'>"));
         _csrfField();
-        _p(PSTR("<label class='form-label small'>Pino do sensor</label>"));
-        _selectOpen(PSTR("sensor"));
+        _selectOpen(PSTR("Pino do sensor"), PSTR("sensor"));
         _pinOptions(_cfg.iot_sensor_pin);
-        _p(PSTR("</select>"));
-        _p(PSTR("<label class='form-label small mt-2'>Pino do modulo</label>"));
-        _selectOpen(PSTR("module"));
+        _selectEnd();
+        _selectOpen(PSTR("Pino do modulo"), PSTR("module"));
         _pinOptions(_cfg.iot_module_pin);
-        _p(PSTR("</select>"));
+        _selectEnd();
 
-        _p(PSTR("<label class='form-label small mt-2'>Comando</label>"));
-        _selectOpen(PSTR("manual"));
+        _selectOpen(PSTR("Comando"), PSTR("manual"));
         _choice(PSTR("0"), PSTR("Automatico"), _cfg.iot_manual == IoTService::MANUAL_AUTO);
         _choice(PSTR("1"), PSTR("Ligado"), _cfg.iot_manual == IoTService::MANUAL_ON);
         _choice(PSTR("2"), PSTR("Desligado"), _cfg.iot_manual == IoTService::MANUAL_OFF);
-        _p(PSTR("</select>"));
+        _selectEnd();
 
-        _p(PSTR("<label class='form-label small mt-2'>Tipo do sensor</label>"));
-        _selectOpen(PSTR("sensor_type"));
+        _selectOpen(PSTR("Tipo do sensor"), PSTR("sensor_type"));
         _typeOptions(true, _cfg.iot_sensor_type);
-        _p(PSTR("</select>"));
+        _selectEnd();
 
         _divOpen(PSTR("iot_digital"), !numeric);
-        _p(PSTR("<label class='form-label small mt-2'>Ligar o modulo quando o sensor estiver</label>"));
-        _selectOpen(PSTR("sensor_high"));
+        _selectOpen(PSTR("Ligar o modulo quando o sensor estiver"), PSTR("sensor_high"));
         _levelOptions(_cfg.iot_sensor_high);
-        _p(PSTR("</select>"));
-        _p(PSTR("<label class='form-label small mt-2'>Ao pulso</label>"));
-        _selectOpen(PSTR("toggle"));
+        _selectEnd();
+        _selectOpen(PSTR("Ao pulso"), PSTR("toggle"));
         _choice(PSTR("0"), PSTR("Seguir o nivel"), !_cfg.iot_toggle);
         _choice(PSTR("1"), PSTR("Alternar"), _cfg.iot_toggle);
-        _p(PSTR("</select></div>"));
+        _selectEnd();
+        _p(PSTR("</div>"));
 
         _divOpen(PSTR("iot_value"), numeric);
         _divOpen(PSTR("iot_metric"), dht);
-        _p(PSTR("<label class='form-label small mt-2'>Grandeza</label>"));
-        _selectOpen(PSTR("metric"));
+        _selectOpen(PSTR("Grandeza"), PSTR("metric"));
         _choice(PSTR("0"), PSTR("Umidade"), _cfg.iot_metric == 0);
         _choice(PSTR("1"), PSTR("Temperatura"), _cfg.iot_metric == 1);
-        _p(PSTR("</select></div>"));
-        _p(PSTR("<label class='form-label small mt-2'>Ligar quando o valor estiver</label>"));
-        _selectOpen(PSTR("above"));
+        _selectEnd();
+        _p(PSTR("</div>"));
+        _selectOpen(PSTR("Ligar quando o valor estiver"), PSTR("above"));
         _choice(PSTR("0"), PSTR("Abaixo de"), !_cfg.iot_above);
         _choice(PSTR("1"), PSTR("Acima de"), _cfg.iot_above);
-        _p(PSTR("</select>"));
-        _p(PSTR("<label class='form-label small mt-2'>Limite</label>"));
-        _number("threshold", _cfg.iot_threshold, -55, 100000);
-        _p(PSTR("<label class='form-label small mt-2'>Margem</label>"));
-        _number("margin", _cfg.iot_margin, 0, 50);
+        _selectEnd();
+        _number(PSTR("Limite"), "threshold", _cfg.iot_threshold, -55, 100000);
+        _number(PSTR("Margem"), "margin", _cfg.iot_margin, 0, 50);
         _p(PSTR("</div>"));
 
-        _p(PSTR("<label class='form-label small mt-2'>Tipo do modulo</label>"));
-        _selectOpen(PSTR("module_type"));
+        _selectOpen(PSTR("Tipo do modulo"), PSTR("module_type"));
         _typeOptions(false, _cfg.iot_module_type);
-        _p(PSTR("</select>"));
+        _selectEnd();
 
         _divOpen(PSTR("iot_level"), level);
-        _p(PSTR("<label class='form-label small mt-2'>Nivel do pino que liga o modulo</label>"));
-        _selectOpen(PSTR("module_high"));
+        _selectOpen(PSTR("Nivel do pino que liga o modulo"), PSTR("module_high"));
         _levelOptions(_cfg.iot_module_high);
-        _p(PSTR("</select></div>"));
+        _selectEnd();
+        _p(PSTR("</div>"));
 
         _divOpen(PSTR("iot_servo"), servo);
-        _p(PSTR("<label class='form-label small mt-2'>Angulo ao ligar</label>"));
-        _number("angle_on", _cfg.iot_angle_on, 0, 180);
-        _p(PSTR("<label class='form-label small mt-2'>Angulo ao soltar</label>"));
-        _number("angle_off", _cfg.iot_angle_off, 0, 180);
+        _number(PSTR("Angulo ao ligar"), "angle_on", _cfg.iot_angle_on, 0, 180);
+        _number(PSTR("Angulo ao soltar"), "angle_off", _cfg.iot_angle_off, 0, 180);
         _p(PSTR("</div>"));
 
         _divOpen(PSTR("iot_pwm"), pwm);
-        _p(PSTR("<label class='form-label small mt-2'>Potencia ao ligar (%)</label>"));
-        _number("duty_on", _cfg.iot_duty_on, 0, 100);
-        _p(PSTR("<label class='form-label small mt-2'>Potencia ao soltar (%)</label>"));
-        _number("duty_off", _cfg.iot_duty_off, 0, 100);
+        _number(PSTR("Potencia ao ligar (%)"), "duty_on", _cfg.iot_duty_on, 0, 100);
+        _number(PSTR("Potencia ao soltar (%)"), "duty_off", _cfg.iot_duty_off, 0, 100);
         _p(PSTR("</div>"));
 
         _divOpen(PSTR("iot_span"), pwm && numeric);
-        _p(PSTR("<label class='form-label small mt-2'>Curva da potencia</label>"));
-        _selectOpen(PSTR("linear"));
+        _selectOpen(PSTR("Curva da potencia"), PSTR("linear"));
         _choice(PSTR("0"), PSTR("Dois patamares"), !_cfg.iot_linear);
         _choice(PSTR("1"), PSTR("Proporcional"), _cfg.iot_linear);
-        _p(PSTR("</select>"));
-        _p(PSTR("<label class='form-label small mt-2'>Limite alto</label>"));
-        _number("threshold_hi", _cfg.iot_threshold_hi, -55, 100000);
+        _selectEnd();
+        _number(PSTR("Limite alto"), "threshold_hi", _cfg.iot_threshold_hi, -55, 100000);
         _p(PSTR("</div>"));
 
-        _p(PSTR("<div class='form-check form-switch my-3'>"
-            "<input class='form-check-input' type='checkbox' role='switch' "
-            "id='iot_notify' name='iot_notify' value='1'"));
-        if (_cfg.iot_notify) _p(PSTR(" checked"));
-        _p(PSTR("><label class='form-check-label' for='iot_notify'>"
-            "Enviar leitura ao ntfy</label></div>"
-            "<button class='btn btn-info w-100'>Salvar</button></form>"
-            "<script>function iotSync(){var sk=["));
+        _switch(PSTR("iot_notify"), PSTR("Enviar leitura ao ntfy"), _cfg.iot_notify);
+        _button(PSTR("Salvar"));
+        _p(PSTR("<script>function iotSync(){var sk=["));
         _sendKindList(true);
         _p(PSTR("];var mk=["));
         _sendKindList(false);

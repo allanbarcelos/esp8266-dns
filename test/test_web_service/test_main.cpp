@@ -195,6 +195,11 @@ void test_root_modo_configuracao_primeiro_acesso() {
     TEST_ASSERT_TRUE(contains(f.out(), "name='ssid' value=''"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='pass'"));
     TEST_ASSERT_TRUE(contains(f.out(), "</html>"));
+    // Modo AP não tem internet: estilo embutido, nenhum recurso obrigatório de fora
+    TEST_ASSERT_TRUE(contains(f.out(), "<style>"));
+    TEST_ASSERT_FALSE(contains(f.out(), "<link"));
+    TEST_ASSERT_FALSE(contains(f.out(), "<script src"));
+    TEST_ASSERT_TRUE(contains(f.out(), "onerror='this.remove()'"));
 }
 
 void test_root_modo_configuracao_preserva_usuario() {
@@ -306,8 +311,8 @@ void test_status_conectado() {
     f.get("/status");
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "http-equiv='refresh' content='30'"));
-    TEST_ASSERT_TRUE(contains(f.out(), "Heap livre</span><span class='kv-value text-end ms-3'>48.8 KB"));
-    TEST_ASSERT_TRUE(contains(f.out(), "Maior bloco</span><span class='kv-value text-end ms-3'>39.1 KB"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Heap livre</span><b>48.8 KB</b>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Maior bloco</span><b>39.1 KB</b>"));
     TEST_ASSERT_TRUE(contains(f.out(), "Flash"));
     TEST_ASSERT_TRUE(contains(f.out(), ">1 MB<"));
     TEST_ASSERT_TRUE(contains(f.out(), ">293 KB<"));
@@ -320,8 +325,9 @@ void test_status_conectado() {
     TEST_ASSERT_TRUE(contains(f.out(), "192.168.1.1"));
     TEST_ASSERT_TRUE(contains(f.out(), "AA:BB:CC:DD:EE:FF"));
     TEST_ASSERT_TRUE(contains(f.out(), "Fatal &lt;exception&gt;"));
-    TEST_ASSERT_TRUE(contains(f.out(), "kv-value"));
-    TEST_ASSERT_TRUE(contains(f.out(), "color:#ffffff"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<section class='c'><h2>Memoria</h2>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<style>"));
+    TEST_ASSERT_FALSE(contains(f.out(), "<link"));
     TEST_ASSERT_FALSE(contains(f.out(), "Temp"));
 }
 
@@ -487,7 +493,8 @@ void test_update_pagina_inicial() {
     TEST_ASSERT_TRUE(contains(f.out(), " checked"));
     TEST_ASSERT_TRUE(contains(f.out(), "ligada"));
     TEST_ASSERT_TRUE(contains(f.out(), "Verificar agora"));
-    TEST_ASSERT_TRUE(contains(f.out(), "color:#ffffff"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<style>"));
+    TEST_ASSERT_FALSE(contains(f.out(), "<link"));
     TEST_ASSERT_FALSE(contains(f.out(), "http-equiv='refresh'"));
     TEST_ASSERT_FALSE(contains(f.out(), "Instalar esta versao"));
 }
@@ -589,7 +596,7 @@ void test_iot_pagina_inicial() {
     TEST_ASSERT_TRUE(contains(f.out(), "value='-1' selected>Nenhum"));
     TEST_ASSERT_TRUE(contains(f.out(), "value='1' selected>Alto"));
     TEST_ASSERT_TRUE(contains(f.out(), "value='0' selected>Baixo"));
-    TEST_ASSERT_TRUE(contains(f.out(), "value='1'><label"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='1'>Enviar leitura ao ntfy</label>"));
     TEST_ASSERT_FALSE(contains(f.out(), "http-equiv='refresh'"));
     TEST_ASSERT_FALSE(contains(f.out(), "Cadastre o topico"));
 }
