@@ -57,6 +57,10 @@ inline size_t mock_strlcpy(char* dst, const char* src, size_t size) {
 #define PROGMEM
 #define pgm_read_ptr(p)  (*(p))
 #define strcpy_P(d, s)   strcpy((d), (s))
+#define PGM_P            const char*
+#define PSTR(s)          (s)
+#define vsnprintf_P      vsnprintf
+#define snprintf_P       snprintf
 
 #define HEX 16
 #define DEC 10

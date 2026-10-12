@@ -50,19 +50,19 @@ public:
 
         ota.setAutomatic(config.ota_auto);
         ota.begin();
-        logger.log("OTA: reserva %u KB, livre %u KB",
+        logger.log(PSTR("OTA: reserva %u KB, livre %u KB"),
                    FlashLayout::OTA_RESERVE / 1024u,
                    ESP.getFreeSketchSpace() / 1024u);
         if (ota.slim()) {
-            logger.log("OTA: modo recuperacao");
+            logger.log(PSTR("OTA: modo recuperacao"));
         } else {
             web.begin();
             iot.begin();
         }
 
         // getResetReason sobrevive ao reboot e diz por que o boot anterior morreu.
-        logger.log("Reset: %s", ESP.getResetReason().c_str());
-        logger.log("Sistema inicializado %s", firmware_version);
+        logger.log(PSTR("Reset: %s"), ESP.getResetReason().c_str());
+        logger.log(PSTR("Sistema inicializado %s"), firmware_version);
     }
 
     void tick() {

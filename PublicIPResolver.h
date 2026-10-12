@@ -56,7 +56,7 @@ public:
         if (_failed && now - _failedAt < CACHE_TTL)
             return false;
         if (!_clock.synced()) {
-            _log.log("IP: relogio nao sincronizado");
+            _log.log(PSTR("IP: relogio nao sincronizado"));
             return false;
         }
 
@@ -66,7 +66,7 @@ public:
         _failedAt = now;
 
         if (!memoryOk()) {
-            _log.log("IP: memoria insuficiente");
+            _log.log(PSTR("IP: memoria insuficiente"));
             return false;
         }
 
@@ -83,7 +83,7 @@ public:
             yield();
         }
 
-        _log.log("Todos os servicos de IP falharam");
+        _log.log(PSTR("Todos os servicos de IP falharam"));
         return false;
     }
 
@@ -118,14 +118,14 @@ private:
         client.setTrustAnchors(&trust);
         client.setX509Time(_clock.now());
         if (!client.prepare(CONNECT_TIMEOUT)) {
-            _log.log("IP: TLS indisponivel");
+            _log.log(PSTR("IP: TLS indisponivel"));
             return false;
         }
 
         HTTPClient http;
         http.setTimeout(CONNECT_TIMEOUT);
         if (!http.begin(client, url)) {
-            _log.log("IP: falha ao conectar %s", url);
+            _log.log(PSTR("IP: falha ao conectar %s"), url);
             return false;
         }
         http.addHeader("User-Agent", "ESP8266");
@@ -137,16 +137,16 @@ private:
         if (code != HTTP_CODE_OK) {
             // code <= 0: o TCP/TLS não completou (o core reporta -1).
             if (code <= 0)
-                _log.log("IP: %s sem conexao (%d)", url, code);
+                _log.log(PSTR("IP: %s sem conexao (%d)"), url, code);
             else
-                _log.log("IP: %s HTTP %d", url, code);
+                _log.log(PSTR("IP: %s HTTP %d"), url, code);
             return false;
         }
 
         body.trim();
         IPAddress ip;
         if (!ip.fromString(body)) {
-            _log.log("IP: resposta invalida de %s", url);
+            _log.log(PSTR("IP: resposta invalida de %s"), url);
             return false;
         }
 

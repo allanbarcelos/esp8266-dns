@@ -66,13 +66,13 @@ private:
 
     bool _post(const char* body) {
         if (!PublicIPResolver::memoryOk()) {
-            _log.log("ntfy: memoria insuficiente");
+            _log.log(PSTR("ntfy: memoria insuficiente"));
             return false;
         }
         TlsClient client;
         client.setInsecure(); // o conteúdo (IP público) não é sigiloso
         if (!client.prepare(5000)) {
-            _log.log("ntfy: TLS indisponivel");
+            _log.log(PSTR("ntfy: TLS indisponivel"));
             return false;
         }
         HTTPClient http;
@@ -82,7 +82,7 @@ private:
         url += _cfg.ntfy_topic;
 
         if (!http.begin(client, url)) {
-            _log.log("ntfy: falha ao conectar");
+            _log.log(PSTR("ntfy: falha ao conectar"));
             return false;
         }
 
@@ -91,10 +91,10 @@ private:
         http.end();
 
         if (code >= 200 && code < 300) {
-            _log.log("ntfy enviado (%d)", code);
+            _log.log(PSTR("ntfy enviado (%d)"), code);
             return true;
         }
-        _log.log("ntfy erro: %d", code);
+        _log.log(PSTR("ntfy erro: %d"), code);
         return false;
     }
 };

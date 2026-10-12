@@ -13,22 +13,22 @@ public:
 
     bool begin() {
         if (!LittleFS.begin()) {
-            _log.log("Falha ao montar LittleFS");
+            _log.log(PSTR("Falha ao montar LittleFS"));
             return false;
         }
-        _log.log("LittleFS inicializado");
+        _log.log(PSTR("LittleFS inicializado"));
         return true;
     }
 
     bool load() {
         if (!LittleFS.exists(PATH)) {
-            _log.log("config.json nao encontrado");
+            _log.log(PSTR("config.json nao encontrado"));
             return false;
         }
 
         File f = LittleFS.open(PATH, "r");
         if (!f) {
-            _log.log("Erro ao abrir config.json");
+            _log.log(PSTR("Erro ao abrir config.json"));
             return false;
         }
 
@@ -37,7 +37,7 @@ public:
         f.close();
 
         if (err) {
-            _log.log("Erro JSON: %s", err.c_str());
+            _log.log(PSTR("Erro JSON: %s"), err.c_str());
             return false;
         }
 
@@ -79,7 +79,7 @@ public:
         }
         _cfg.cf_record_count = count;
 
-        _log.log("Configuracao carregada");
+        _log.log(PSTR("Configuracao carregada"));
         return true;
     }
 
@@ -123,25 +123,25 @@ public:
         }
 
         if (doc.overflowed()) {
-            _log.log("Config excede capacidade JSON");
+            _log.log(PSTR("Config excede capacidade JSON"));
             return false;
         }
 
         File f = LittleFS.open(TMP_PATH, "w");
         if (!f) {
-            _log.log("Erro ao salvar config");
+            _log.log(PSTR("Erro ao salvar config"));
             return false;
         }
         serializeJson(doc, f);
         f.close();
 
         if (!LittleFS.rename(TMP_PATH, PATH)) {
-            _log.log("Erro ao substituir config.json");
+            _log.log(PSTR("Erro ao substituir config.json"));
             LittleFS.remove(TMP_PATH);
             return false;
         }
 
-        _log.log("Configuracao salva");
+        _log.log(PSTR("Configuracao salva"));
         return true;
     }
 

@@ -11,15 +11,17 @@ public:
         memset(_buf, 0, sizeof(_buf));
     }
 
-    void log(const char* fmt, ...) {
+    // fmt fica na flash (PSTR): no ESP8266 strings literais comuns ocupam
+    // RAM, e a heap é o que o TLS do OTA precisa. vsnprintf_P lê também RAM.
+    void log(PGM_P fmt, ...) {
         char msg[LOG_LINE_SIZE];
         va_list args;
         va_start(args, fmt);
-        vsnprintf(msg, sizeof(msg), fmt, args);
+        vsnprintf_P(msg, sizeof(msg), fmt, args);
         va_end(args);
 
-        snprintf(_buf[_head], LOG_LINE_SIZE, "[%lus] %.*s",
-                 millis() / 1000, LOG_LINE_SIZE - 10, msg);
+        snprintf_P(_buf[_head], LOG_LINE_SIZE, PSTR("[%lus] %.*s"),
+                   millis() / 1000, LOG_LINE_SIZE - 10, msg);
         Serial.println(_buf[_head]);
 
         if (++_head >= LOG_BUFFER_SIZE) {

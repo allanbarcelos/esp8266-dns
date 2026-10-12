@@ -52,19 +52,19 @@ private:
     void _update(unsigned long now) {
         char ip[16];
         if (!_resolver.resolve(ip, sizeof(ip), now)) {
-            _log.log("Falha ao obter IP publico");
+            _log.log(PSTR("Falha ao obter IP publico"));
             return;
         }
         strlcpy(_cfg.publicIP, ip, sizeof(_cfg.publicIP));
 
         if (strcmp(ip, _syncedIP) == 0) return;
 
-        _log.log("Atualizando DNS para %s", ip);
+        _log.log(PSTR("Atualizando DNS para %s"), ip);
         if (_patchRecords(ip)) {
             strlcpy(_syncedIP, ip, sizeof(_syncedIP));
             _cfg.lastDnsUpdate = millis();
             _wifi.notifySuccess();
-            _log.log("DNS atualizado!");
+            _log.log(PSTR("DNS atualizado!"));
         }
     }
 
@@ -88,21 +88,21 @@ private:
         url += record;
 
         if (!PublicIPResolver::memoryOk()) {
-            _log.log("DNS: memoria insuficiente");
+            _log.log(PSTR("DNS: memoria insuficiente"));
             return false;
         }
         TlsClient client;
         client.setTrustAnchors(&trust);
         client.setX509Time(_clock.now());
         if (!client.prepare(5000)) {
-            _log.log("DNS: TLS indisponivel");
+            _log.log(PSTR("DNS: TLS indisponivel"));
             return false;
         }
 
         HTTPClient http;
         http.setTimeout(5000);
         if (!http.begin(client, url)) {
-            _log.log("DNS: falha ao conectar");
+            _log.log(PSTR("DNS: falha ao conectar"));
             return false;
         }
         http.addHeader("Authorization", String("Bearer ") + _cfg.cf_token);
@@ -117,7 +117,7 @@ private:
         http.end();
 
         if (code <= 0) {
-            _log.log("DNS erro de conexao: %d", code);
+            _log.log(PSTR("DNS erro de conexao: %d"), code);
             return false;
         }
 
@@ -131,14 +131,14 @@ private:
         StaticJsonDocument<SHAPE + 160> doc; // + texto da mensagem de erro
         DeserializationError err = deserializeJson(doc, resp, DeserializationOption::Filter(filter));
         if (err || doc["success"].isNull()) {
-            _log.log("DNS resposta invalida (HTTP %d)", code);
+            _log.log(PSTR("DNS resposta invalida (HTTP %d)"), code);
             return false;
         }
 
         if (!(doc["success"] | false)) {
             int         ec  = doc["errors"][0]["code"]    | 0;
             const char* msg = doc["errors"][0]["message"] | "Erro desconhecido";
-            _log.log("DNS erro %d: %s", ec, msg);
+            _log.log(PSTR("DNS erro %d: %s"), ec, msg);
             return false;
         }
         return true;

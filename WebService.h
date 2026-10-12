@@ -56,6 +56,16 @@ static const char _HTML_FOOT_B[] PROGMEM = R"(</p></div></body></html>)";
 
 #define _INPUT_CLS "form-control bg-dark text-light border-secondary"
 
+static const char _PINOUT_URL[] PROGMEM =
+    "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/docs/esp01-pinout.png";
+static const char _DEVICE_URL[] PROGMEM =
+    "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/docs/esp-01.jpg";
+
+// Texto fixo das páginas fica na flash (PSTR/PROGMEM) e sai por
+// sendContent_P: literal comum ocupa RAM no ESP8266, e a heap livre é o
+// que o TLS do OTA precisa. Parâmetro PGM_P aceita flash ou RAM (as
+// leituras _P funcionam nas duas); nunca passe PGM_P para String(),
+// strcmp ou printf sem _P — no aparelho isso gera Exception.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class WebService {
@@ -87,7 +97,7 @@ public:
         _server.on("/update/check",    HTTP_POST, [this]() { _handleUpdateCheck(); });
         _server.on("/update/install",  HTTP_POST, [this]() { _handleUpdateInstall(); });
         _server.begin();
-        _log.log("Servidor web iniciado na porta 80");
+        _log.log(PSTR("Servidor web iniciado na porta 80"));
     }
 
     void tick() { _server.handleClient(); }
@@ -206,8 +216,8 @@ private:
         _server.sendContent_P(_HTML_HEAD_A);
         if (refreshSec > 0) {
             char meta[56];
-            snprintf(meta, sizeof(meta),
-                     "<meta http-equiv='refresh' content='%d'>", refreshSec);
+            snprintf_P(meta, sizeof(meta),
+                       PSTR("<meta http-equiv='refresh' content='%d'>"), refreshSec);
             _server.sendContent(meta);
         }
         _server.sendContent_P(_HTML_HEAD_B);
@@ -220,68 +230,100 @@ private:
         _server.sendContent_P(_HTML_FOOT_B);
     }
 
-    void _box(const char* title) {
-        _server.sendContent(
-            "<div class='card bg-black border-secondary mb-3'>"
-            "<div class='card-header text-success fw-semibold small py-1'>");
-        _server.sendContent(title);
-        _server.sendContent("</div><div class='card-body p-0'>");
+    void _p(PGM_P s) { _server.sendContent_P(s); }
+
+    void _box(PGM_P title) {
+        _p(PSTR("<div class='card bg-black border-secondary mb-3'>"
+                "<div class='card-header text-success fw-semibold small py-1'>"));
+        _p(title);
+        _p(PSTR("</div><div class='card-body p-0'>"));
     }
 
-    void _boxEnd() { _server.sendContent("</div></div>"); }
+    void _boxEnd() { _p(PSTR("</div></div>")); }
 
     // Label + valor numa linha com separador (valor sempre escapado)
-    void _row(const char* label, const String& value) {
-        _server.sendContent(
-            "<div class='d-flex justify-content-between align-items-baseline px-3 py-2 border-bottom'>"
-            "<span class='kv-label small'>");
-        _server.sendContent(label);
-        _server.sendContent("</span><span class='kv-value text-end ms-3'>");
+    void _row(PGM_P label, const String& value) {
+        _p(PSTR("<div class='d-flex justify-content-between align-items-baseline px-3 py-2 border-bottom'>"
+                "<span class='kv-label small'>"));
+        _p(label);
+        _p(PSTR("</span><span class='kv-value text-end ms-3'>"));
         _server.sendContent(escape(value));
-        _server.sendContent("</span></div>");
+        _p(PSTR("</span></div>"));
     }
 
     void _csrfField() {
-        _server.sendContent(
-            String("<input type='hidden' name='_csrf' value='") + _csrfToken + "'>");
+        _p(PSTR("<input type='hidden' name='_csrf' value='"));
+        _server.sendContent(_csrfToken);
+        _p(PSTR("'>"));
     }
 
-    void _alert(const char* cls, const String& msg) {
-        _server.sendContent(String("<div class='alert alert-") + cls + " py-2'>");
+    void _alertOpen(PGM_P cls) {
+        _p(PSTR("<div class='alert alert-"));
+        _p(cls);
+        _p(PSTR(" py-2'>"));
+    }
+
+    // Texto variável: sempre escapado
+    void _alert(PGM_P cls, const String& msg) {
+        _alertOpen(cls);
         _server.sendContent(escape(msg));
-        _server.sendContent("</div>");
+        _p(PSTR("</div>"));
     }
 
-    void _input(const char* label, const char* name, const String& value,
-                const char* extra = "") {
-        _server.sendContent(
-            String("<div class='mb-2'><label class='form-label small'>") + label +
-            "</label><input class='" _INPUT_CLS "' name='" + name +
-            "' value='" + escape(value) + "' " + extra + "></div>");
+    // Texto fixo do firmware (PSTR, sem caracteres especiais de HTML)
+    void _alertP(PGM_P cls, PGM_P msg) {
+        _alertOpen(cls);
+        _p(msg);
+        _p(PSTR("</div>"));
     }
 
-    void _passwordInput(const char* label, const char* name, const char* extra = "") {
-        _server.sendContent(
-            String("<div class='mb-2'><label class='form-label small'>") + label +
-            "</label><input type='password' autocomplete='new-password' class='"
-            _INPUT_CLS "' name='" + name + "' " + extra + "></div>");
+    void _labelOpen(PGM_P label) {
+        _p(PSTR("<div class='mb-2'><label class='form-label small'>"));
+        _p(label);
+    }
+
+    void _input(PGM_P label, PGM_P name, const String& value, PGM_P extra) {
+        _labelOpen(label);
+        _p(PSTR("</label><input class='" _INPUT_CLS "' name='"));
+        _p(name);
+        _p(PSTR("' value='"));
+        _server.sendContent(escape(value));
+        _p(PSTR("' "));
+        _p(extra);
+        _p(PSTR("></div>"));
+    }
+
+    void _passwordInput(PGM_P label, PGM_P name, PGM_P extra) {
+        _labelOpen(label);
+        _p(PSTR("</label><input type='password' autocomplete='new-password' class='"
+                _INPUT_CLS "' name='"));
+        _p(name);
+        _p(PSTR("' "));
+        _p(extra);
+        _p(PSTR("></div>"));
+    }
+
+    void _backButton(PGM_P backHref) {
+        _p(PSTR("<a href='"));
+        _p(backHref);
+        _p(PSTR("' class='btn btn-outline-secondary btn-sm'>Voltar</a>"));
     }
 
     // Página de confirmação com redirect automático
-    void _savedPage(const char* msg, const char* backHref) {
+    void _savedPage(PGM_P msg, PGM_P backHref) {
         _pageBegin();
-        _alert("success", msg);
-        _server.sendContent(
-            String("<meta http-equiv='refresh' content='2;url=") + backHref + "'>"
-            "<a href='" + backHref + "' class='btn btn-outline-secondary btn-sm'>Voltar</a>");
+        _alertP(PSTR("success"), msg);
+        _p(PSTR("<meta http-equiv='refresh' content='2;url="));
+        _p(backHref);
+        _p(PSTR("'>"));
+        _backButton(backHref);
         _pageEnd();
     }
 
-    void _errorPage(const char* msg, const char* backHref) {
+    void _errorPage(PGM_P msg, PGM_P backHref) {
         _pageBegin(0, 400);
-        _alert("danger", msg);
-        _server.sendContent(
-            String("<a href='") + backHref + "' class='btn btn-outline-secondary btn-sm'>Voltar</a>");
+        _alertP(PSTR("danger"), msg);
+        _backButton(backHref);
         _pageEnd();
     }
 
@@ -290,7 +332,7 @@ private:
         String v = _server.arg(name);
         v.trim();
         if (v.length() >= size) {
-            _errorPage("Valor muito longo", backHref);
+            _errorPage(PSTR("Valor muito longo"), backHref);
             return false;
         }
         strlcpy(dst, v.c_str(), size);
@@ -303,15 +345,15 @@ private:
         String pass1 = _server.arg("pass1");
         user.trim();
         if (user.length() == 0 || user.length() > 32) {
-            _errorPage("Usuario invalido", backHref);
+            _errorPage(PSTR("Usuario invalido"), backHref);
             return false;
         }
         if (pass1 != _server.arg("pass2")) {
-            _errorPage("As senhas nao coincidem", backHref);
+            _errorPage(PSTR("As senhas nao coincidem"), backHref);
             return false;
         }
         if (pass1.length() < MIN_PANEL_PASSWORD_LEN || pass1.length() > 64) {
-            _errorPage("A senha deve ter de 8 a 64 caracteres", backHref);
+            _errorPage(PSTR("A senha deve ter de 8 a 64 caracteres"), backHref);
             return false;
         }
         _cfg.webusr = user;
@@ -321,18 +363,21 @@ private:
 
     void _otaProgressBar() {
         if (!_ota.inProgress()) return;
-        int pct = _ota.progressPercent();
-        _server.sendContent(
-            "<div class='alert alert-info py-2 mb-3'>"
-            "<div class='d-flex justify-content-between small mb-1'>"
-            "<span>OTA em progresso</span><span>" + String(pct) + "%</span></div>"
-            "<div class='progress bg-secondary' style='height:8px'>"
-            "<div class='progress-bar progress-bar-striped progress-bar-animated bg-success' "
-            "style='width:" + String(pct) + "%'></div></div>"
-            "<div class='kv-value mt-1'>" +
-            formatBytes((uint32_t)_ota.bytesWritten()) + " / " +
-            formatBytes((uint32_t)_ota.contentLength()) +
-            "</div></div>");
+        String pct(_ota.progressPercent());
+        _p(PSTR("<div class='alert alert-info py-2 mb-3'>"
+                "<div class='d-flex justify-content-between small mb-1'>"
+                "<span>OTA em progresso</span><span>"));
+        _server.sendContent(pct);
+        _p(PSTR("%</span></div>"
+                "<div class='progress bg-secondary' style='height:8px'>"
+                "<div class='progress-bar progress-bar-striped progress-bar-animated bg-success' "
+                "style='width:"));
+        _server.sendContent(pct);
+        _p(PSTR("%'></div></div><div class='kv-value mt-1'>"));
+        _server.sendContent(formatBytes((uint32_t)_ota.bytesWritten()));
+        _p(PSTR(" / "));
+        _server.sendContent(formatBytes((uint32_t)_ota.contentLength()));
+        _p(PSTR("</div></div>"));
     }
 
     // ── Handlers ─────────────────────────────────────────────────────────────
@@ -343,32 +388,32 @@ private:
         _deviceMark();
 
         if (_wifi.inConfigMode()) {
-            _alert("warning", "Modo de configuracao - conecte ao Wi-Fi");
-            _server.sendContent("<form action='/save' method='POST'>");
+            _alertP(PSTR("warning"), PSTR("Modo de configuracao - conecte ao Wi-Fi"));
+            _p(PSTR("<form action='/save' method='POST'>"));
             _csrfField();
-            _input("SSID", "ssid", _cfg.ssid, "required maxlength='32'");
-            _passwordInput("Senha do Wi-Fi", "pass", "maxlength='63'");
+            _input(PSTR("SSID"), PSTR("ssid"), _cfg.ssid, PSTR("required maxlength='32'"));
+            _passwordInput(PSTR("Senha do Wi-Fi"), PSTR("pass"), PSTR("maxlength='63'"));
             if (_cfg.webpss.length() == 0) {
-                _server.sendContent("<h6 class='mt-3'>Acesso ao painel</h6>");
-                _input("Usuario", "user", _cfg.webusr.length() ? _cfg.webusr : String("admin"),
-                       "required maxlength='32'");
-                _passwordInput("Senha do painel (min. 8)", "pass1", "required minlength='8'");
-                _passwordInput("Confirmar senha", "pass2", "required minlength='8'");
+                _p(PSTR("<h6 class='mt-3'>Acesso ao painel</h6>"));
+                _input(PSTR("Usuario"), PSTR("user"), _cfg.webusr.length() ? _cfg.webusr : String("admin"),
+                       PSTR("required maxlength='32'"));
+                _passwordInput(PSTR("Senha do painel (min. 8)"), PSTR("pass1"), PSTR("required minlength='8'"));
+                _passwordInput(PSTR("Confirmar senha"), PSTR("pass2"), PSTR("required minlength='8'"));
             }
-            _server.sendContent("<button class='btn btn-success w-100'>Conectar</button></form>");
+            _p(PSTR("<button class='btn btn-success w-100'>Conectar</button></form>"));
         } else {
             _otaProgressBar();
 
-            _box("Rede");
-            _row("SSID",       WiFi.SSID());
-            _row("IP Local",   WiFi.localIP().toString());
-            _row("IP Publico", _cfg.publicIP[0] ? String(_cfg.publicIP) : String("-"));
-            _row("RSSI",       String(WiFi.RSSI()) + " dBm");
+            _box(PSTR("Rede"));
+            _row(PSTR("SSID"),       WiFi.SSID());
+            _row(PSTR("IP Local"),   WiFi.localIP().toString());
+            _row(PSTR("IP Publico"), _cfg.publicIP[0] ? String(_cfg.publicIP) : String("-"));
+            _row(PSTR("RSSI"),       String(WiFi.RSSI()) + " dBm");
             _boxEnd();
 
-            _box("DNS Cloudflare");
-            _row("Host", _cfg.cf_host[0] ? String(_cfg.cf_host) : String("-"));
-            _row("Ultima atualizacao", _cfg.lastDnsUpdate == 0
+            _box(PSTR("DNS Cloudflare"));
+            _row(PSTR("Host"), _cfg.cf_host[0] ? String(_cfg.cf_host) : String("-"));
+            _row(PSTR("Ultima atualizacao"), _cfg.lastDnsUpdate == 0
                     ? String("nunca")
                     : formatDuration(millis() - _cfg.lastDnsUpdate) + " atras");
             _boxEnd();
@@ -384,11 +429,11 @@ private:
         String ssid = _server.arg("ssid");
         String pass = _server.arg("pass");
         if (ssid.length() == 0 || ssid.length() > 32) {
-            _errorPage("SSID invalido", "/");
+            _errorPage(PSTR("SSID invalido"), PSTR("/"));
             return;
         }
         if (pass.length() > 63 || (pass.length() > 0 && pass.length() < 8)) {
-            _errorPage("Senha do Wi-Fi deve ter de 8 a 63 caracteres", "/");
+            _errorPage(PSTR("Senha do Wi-Fi deve ter de 8 a 63 caracteres"), PSTR("/"));
             return;
         }
         if (_cfg.webpss.length() == 0 && !_readPanelCredentials("/")) return;
@@ -396,25 +441,25 @@ private:
         _cfg.ssid = ssid;
         _cfg.pass = pass;
         if (!_store.save()) {
-            _errorPage("Falha ao salvar configuracao", "/");
+            _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/"));
             return;
         }
-        _savedPage("Wi-Fi configurado! Reiniciando...", "/");
+        _savedPage(PSTR("Wi-Fi configurado! Reiniciando..."), PSTR("/"));
         _wifi.scheduleRestart(2000);
     }
 
     void _handleLog() {
         if (!_guard()) return;
         _pageBegin();
-        _server.sendContent("<h5 class='text-warning mb-3'>Log do sistema</h5>"
-                            "<pre class='bg-black text-success p-3 rounded small'>");
+        _p(PSTR("<h5 class='text-warning mb-3'>Log do sistema</h5>"
+                            "<pre class='bg-black text-success p-3 rounded small'>"));
         uint8_t cnt   = _log.count();
         uint8_t start = _log.startIndex();
         for (uint8_t i = 0; i < cnt; i++) {
             _server.sendContent(escape(_log.entry(start + i)));
-            _server.sendContent("\n");
+            _p(PSTR("\n"));
         }
-        _server.sendContent("</pre>");
+        _p(PSTR("</pre>"));
         _pageEnd();
     }
 
@@ -424,48 +469,48 @@ private:
 
         _otaProgressBar();
 
-        _box("Sistema");
-        _row("Uptime",  formatDuration(millis()));
-        _row("Reset",   ESP.getResetReason());
-        _row("Causa",   ESP.getResetInfo());
-        _row("Chip ID", String(ESP.getChipId(), HEX));
-        _row("CPU",     String(ESP.getCpuFreqMHz()) + " MHz");
-        _row("SDK",     String(ESP.getSdkVersion()));
+        _box(PSTR("Sistema"));
+        _row(PSTR("Uptime"),  formatDuration(millis()));
+        _row(PSTR("Reset"),   ESP.getResetReason());
+        _row(PSTR("Causa"),   ESP.getResetInfo());
+        _row(PSTR("Chip ID"), String(ESP.getChipId(), HEX));
+        _row(PSTR("CPU"),     String(ESP.getCpuFreqMHz()) + " MHz");
+        _row(PSTR("SDK"),     String(ESP.getSdkVersion()));
         _boxEnd();
 
-        _box("Memoria");
-        _row("Heap livre",   formatBytes(ESP.getFreeHeap()));
-        _row("Maior bloco",  formatBytes(ESP.getMaxFreeBlockSize()));
-        _row("Fragmentacao", String(ESP.getHeapFragmentation()) + "%");
+        _box(PSTR("Memoria"));
+        _row(PSTR("Heap livre"),   formatBytes(ESP.getFreeHeap()));
+        _row(PSTR("Maior bloco"),  formatBytes(ESP.getMaxFreeBlockSize()));
+        _row(PSTR("Fragmentacao"), String(ESP.getHeapFragmentation()) + "%");
         _boxEnd();
 
-        _box("Flash");
-        _row("Total",      formatBytes(ESP.getFlashChipSize()));
-        _row("Sketch",     formatBytes(ESP.getSketchSize()));
-        _row("Reserva OTA", formatBytes(FlashLayout::OTA_RESERVE));
-        _row("Livre",      formatBytes(ESP.getFreeSketchSpace()));
+        _box(PSTR("Flash"));
+        _row(PSTR("Total"),      formatBytes(ESP.getFlashChipSize()));
+        _row(PSTR("Sketch"),     formatBytes(ESP.getSketchSize()));
+        _row(PSTR("Reserva OTA"), formatBytes(FlashLayout::OTA_RESERVE));
+        _row(PSTR("Livre"),      formatBytes(ESP.getFreeSketchSpace()));
         _boxEnd();
 
-        _box("LittleFS");
+        _box(PSTR("LittleFS"));
         FSInfo fs;
         LittleFS.info(fs);
-        _row("Total", formatBytes((uint32_t)fs.totalBytes));
-        _row("Usado", formatBytes((uint32_t)fs.usedBytes));
+        _row(PSTR("Total"), formatBytes((uint32_t)fs.totalBytes));
+        _row(PSTR("Usado"), formatBytes((uint32_t)fs.usedBytes));
         Dir dir = LittleFS.openDir("/");
         int fc = 0;
         while (dir.next()) fc++;
-        _row("Arquivos", String(fc));
+        _row(PSTR("Arquivos"), String(fc));
         _boxEnd();
 
-        _box("Wi-Fi");
+        _box(PSTR("Wi-Fi"));
         bool con = WiFi.isConnected();
-        _row("SSID",    con ? WiFi.SSID()                 : String("-"));
-        _row("IP",      con ? WiFi.localIP().toString()   : String("-"));
-        _row("Gateway", con ? WiFi.gatewayIP().toString() : String("-"));
-        _row("Mascara", con ? WiFi.subnetMask().toString(): String("-"));
-        _row("DNS",     con ? WiFi.dnsIP().toString()     : String("-"));
-        _row("MAC",     WiFi.macAddress());
-        _row("RSSI",    String(WiFi.RSSI()) + " dBm");
+        _row(PSTR("SSID"),    con ? WiFi.SSID()                 : String("-"));
+        _row(PSTR("IP"),      con ? WiFi.localIP().toString()   : String("-"));
+        _row(PSTR("Gateway"), con ? WiFi.gatewayIP().toString() : String("-"));
+        _row(PSTR("Mascara"), con ? WiFi.subnetMask().toString(): String("-"));
+        _row(PSTR("DNS"),     con ? WiFi.dnsIP().toString()     : String("-"));
+        _row(PSTR("MAC"),     WiFi.macAddress());
+        _row(PSTR("RSSI"),    String(WiFi.RSSI()) + " dBm");
         _boxEnd();
 
         _pageEnd();
@@ -474,31 +519,35 @@ private:
     void _handleCloudflare() {
         if (!_guard()) return;
         _pageBegin();
-        _server.sendContent("<h5 class='text-info mb-3'>Cloudflare DDNS</h5>");
+        _p(PSTR("<h5 class='text-info mb-3'>Cloudflare DDNS</h5>"));
 
         if (_cfg.cf_token[0])
-            _alert("success", "Token configurado: " + maskSecret(_cfg.cf_token));
+            _alert(PSTR("success"), "Token configurado: " + maskSecret(_cfg.cf_token));
         else
-            _alert("warning", "Token nao configurado");
+            _alertP(PSTR("warning"), PSTR("Token nao configurado"));
 
-        _server.sendContent("<form action='/cloudflare/save' method='POST'>");
+        _p(PSTR("<form action='/cloudflare/save' method='POST'>"));
         _csrfField();
 
         // Token: campo vazio = mantém o atual; preenchido = substitui
-        _passwordInput("API Token <span style='color:#d7dbe0'>(deixe em branco para manter)</span>",
-                       "token", "placeholder='Novo token' maxlength='47'");
-        _input("Zone ID", "zone", _cfg.cf_zone, "maxlength='39'");
-        _input("Hostname (exibicao)", "host", _cfg.cf_host, "maxlength='63'");
-        _server.sendContent("<label class='form-label small'>Record IDs</label>");
+        _passwordInput(PSTR("API Token <span style='color:#d7dbe0'>(deixe em branco para manter)</span>"),
+                       PSTR("token"), PSTR("placeholder='Novo token' maxlength='47'"));
+        _input(PSTR("Zone ID"), PSTR("zone"), _cfg.cf_zone, PSTR("maxlength='39'"));
+        _input(PSTR("Hostname (exibicao)"), PSTR("host"), _cfg.cf_host, PSTR("maxlength='63'"));
+        _p(PSTR("<label class='form-label small'>Record IDs</label>"));
 
         for (uint8_t i = 0; i < MAX_RECORDS; i++) {
             String val = (i < _cfg.cf_record_count) ? String(_cfg.cf_records[i]) : String();
-            _server.sendContent(
-                "<input class='" _INPUT_CLS " mb-1' maxlength='39' name='record" + String(i) +
-                "' placeholder='Record ID " + String(i + 1) + "' value='" + escape(val) + "'>");
+            _p(PSTR("<input class='" _INPUT_CLS " mb-1' maxlength='39' name='record"));
+            _server.sendContent(String(i));
+            _p(PSTR("' placeholder='Record ID "));
+            _server.sendContent(String(i + 1));
+            _p(PSTR("' value='"));
+            _server.sendContent(escape(val));
+            _p(PSTR("'>"));
         }
 
-        _server.sendContent("<button class='btn btn-success w-100 mt-2'>Salvar</button></form>");
+        _p(PSTR("<button class='btn btn-success w-100 mt-2'>Salvar</button></form>"));
         _pageEnd();
     }
 
@@ -529,30 +578,29 @@ private:
         _cfg.cf_record_count = count;
 
         if (!_store.save()) {
-            _errorPage("Falha ao salvar configuracao", "/cloudflare");
+            _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/cloudflare"));
             return;
         }
-        _savedPage("Cloudflare configurado!", "/cloudflare");
+        _savedPage(PSTR("Cloudflare configurado!"), PSTR("/cloudflare"));
     }
 
     void _handleNtfy() {
         if (!_guard()) return;
         _pageBegin();
-        _server.sendContent("<h5 class='text-success mb-3'>Notificacoes ntfy</h5>");
+        _p(PSTR("<h5 class='text-success mb-3'>Notificacoes ntfy</h5>"));
 
         if (_cfg.ntfy_topic[0])
-            _alert("success", String("Topico: ") + _cfg.ntfy_topic);
+            _alert(PSTR("success"), String("Topico: ") + _cfg.ntfy_topic);
         else
-            _alert("warning", "Topico nao configurado - notificacoes desativadas");
+            _alertP(PSTR("warning"), PSTR("Topico nao configurado - notificacoes desativadas"));
 
-        _server.sendContent("<form action='/ntfy/save' method='POST'>");
+        _p(PSTR("<form action='/ntfy/save' method='POST'>"));
         _csrfField();
-        _input("Topico ntfy.sh", "topic", _cfg.ntfy_topic,
-               "maxlength='63' pattern='[A-Za-z0-9_\\-]*' placeholder='meu-topico-secreto'");
-        _server.sendContent(
-            "<div class='small mb-3' style='color:#d7dbe0'>"
+        _input(PSTR("Topico ntfy.sh"), PSTR("topic"), _cfg.ntfy_topic,
+               PSTR("maxlength='63' pattern='[A-Za-z0-9_\\-]*' placeholder='meu-topico-secreto'"));
+        _p(PSTR("<div class='small mb-3' style='color:#d7dbe0'>"
             "Enviado no boot e quando o IP mudar. Deixe em branco para desativar.</div>"
-            "<button class='btn btn-success w-100'>Salvar</button></form>");
+            "<button class='btn btn-success w-100'>Salvar</button></form>"));
         _pageEnd();
     }
 
@@ -563,30 +611,30 @@ private:
         String topic = _server.arg("topic");
         topic.trim();
         if (topic.length() > 0 && !NtfyNotifier::isValidTopic(topic)) {
-            _errorPage("Topico invalido (use letras, numeros, _ ou -)", "/ntfy");
+            _errorPage(PSTR("Topico invalido (use letras, numeros, _ ou -)"), PSTR("/ntfy"));
             return;
         }
         strlcpy(_cfg.ntfy_topic, topic.c_str(), sizeof(_cfg.ntfy_topic));
         if (!_store.save()) {
-            _errorPage("Falha ao salvar configuracao", "/ntfy");
+            _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/ntfy"));
             return;
         }
-        _savedPage("Configuracao ntfy salva!", "/ntfy");
+        _savedPage(PSTR("Configuracao ntfy salva!"), PSTR("/ntfy"));
     }
 
     void _handlePassword() {
         if (!_guard(true)) return;
         _pageBegin();
-        _server.sendContent("<h5 class='text-info mb-3'>Senha do painel</h5>");
+        _p(PSTR("<h5 class='text-info mb-3'>Senha do painel</h5>"));
         if (_cfg.webpss.length() == 0)
-            _alert("warning", "Defina uma senha para liberar o painel");
-        _server.sendContent("<form action='/password/save' method='POST'>");
+            _alertP(PSTR("warning"), PSTR("Defina uma senha para liberar o painel"));
+        _p(PSTR("<form action='/password/save' method='POST'>"));
         _csrfField();
-        _input("Usuario", "user", _cfg.webusr.length() ? _cfg.webusr : String("admin"),
-               "required maxlength='32'");
-        _passwordInput("Nova senha (min. 8)", "pass1", "required minlength='8' maxlength='64'");
-        _passwordInput("Confirmar senha", "pass2", "required minlength='8' maxlength='64'");
-        _server.sendContent("<button class='btn btn-primary w-100'>Salvar</button></form>");
+        _input(PSTR("Usuario"), PSTR("user"), _cfg.webusr.length() ? _cfg.webusr : String("admin"),
+               PSTR("required maxlength='32'"));
+        _passwordInput(PSTR("Nova senha (min. 8)"), PSTR("pass1"), PSTR("required minlength='8' maxlength='64'"));
+        _passwordInput(PSTR("Confirmar senha"), PSTR("pass2"), PSTR("required minlength='8' maxlength='64'"));
+        _p(PSTR("<button class='btn btn-primary w-100'>Salvar</button></form>"));
         _pageEnd();
     }
 
@@ -595,11 +643,11 @@ private:
         if (!_checkCSRF()) return;
         if (!_readPanelCredentials("/password")) return;
         if (!_store.save()) {
-            _errorPage("Falha ao salvar configuracao", "/password");
+            _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/password"));
             return;
         }
         _generateCSRF(); // rotaciona CSRF após mudança de credenciais
-        _savedPage("Senha atualizada!", "/");
+        _savedPage(PSTR("Senha atualizada!"), PSTR("/"));
     }
 
     void _go(const char* href) {
@@ -612,38 +660,34 @@ private:
         _pageBegin(_ota.pending() ? 3 : 0);
         _otaProgressBar();
 
-        _server.sendContent("<h5 class='text-warning mb-3'>Atualizacao</h5>");
-        _box("Firmware");
-        _row("Versao atual", firmware_version);
-        _row("Automatica", _cfg.ota_auto ? String("ligada") : String("desligada"));
+        _p(PSTR("<h5 class='text-warning mb-3'>Atualizacao</h5>"));
+        _box(PSTR("Firmware"));
+        _row(PSTR("Versao atual"), firmware_version);
+        _row(PSTR("Automatica"), _cfg.ota_auto ? String("ligada") : String("desligada"));
         if (_ota.availableVersion()[0] != '\0')
-            _row("Disponivel", _ota.availableVersion());
+            _row(PSTR("Disponivel"), _ota.availableVersion());
         if (_ota.detail()[0] != '\0')
-            _row("Situacao", _ota.detail());
+            _row(PSTR("Situacao"), _ota.detail());
         _boxEnd();
 
-        _server.sendContent("<form action='/update/auto' method='POST' class='mb-3'>");
+        _p(PSTR("<form action='/update/auto' method='POST' class='mb-3'>"));
         _csrfField();
-        _server.sendContent(
-            "<div class='form-check form-switch mb-2'>"
+        _p(PSTR("<div class='form-check form-switch mb-2'>"
             "<input class='form-check-input' type='checkbox' role='switch' "
-            "id='ota_auto' name='ota_auto' value='1'");
-        if (_cfg.ota_auto) _server.sendContent(" checked");
-        _server.sendContent(
-            "><label class='form-check-label' for='ota_auto'>"
+            "id='ota_auto' name='ota_auto' value='1'"));
+        if (_cfg.ota_auto) _p(PSTR(" checked"));
+        _p(PSTR("><label class='form-check-label' for='ota_auto'>"
             "Atualizacao automatica</label></div>"
-            "<button class='btn btn-outline-light w-100'>Salvar</button></form>");
+            "<button class='btn btn-outline-light w-100'>Salvar</button></form>"));
 
-        _server.sendContent("<form action='/update/check' method='POST' class='mb-2'>");
+        _p(PSTR("<form action='/update/check' method='POST' class='mb-2'>"));
         _csrfField();
-        _server.sendContent(
-            "<button class='btn btn-info w-100'>Verificar agora</button></form>");
+        _p(PSTR("<button class='btn btn-info w-100'>Verificar agora</button></form>"));
 
         if (_ota.availableVersion()[0] != '\0' && !_ota.inProgress()) {
-            _server.sendContent("<form action='/update/install' method='POST'>");
+            _p(PSTR("<form action='/update/install' method='POST'>"));
             _csrfField();
-            _server.sendContent(
-                "<button class='btn btn-success w-100'>Instalar esta versao</button></form>");
+            _p(PSTR("<button class='btn btn-success w-100'>Instalar esta versao</button></form>"));
         }
         _pageEnd();
     }
@@ -654,13 +698,13 @@ private:
         _cfg.ota_auto = _server.arg("ota_auto") == "1";
         _ota.setAutomatic(_cfg.ota_auto);
         if (!_store.save()) {
-            _errorPage("Falha ao salvar configuracao", "/update");
+            _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/update"));
             return;
         }
         _savedPage(_cfg.ota_auto
-                       ? "Atualizacao automatica ligada"
-                       : "Atualizacao automatica desligada",
-                   "/update");
+                       ? PSTR("Atualizacao automatica ligada")
+                       : PSTR("Atualizacao automatica desligada"),
+                   PSTR("/update"));
     }
 
     void _handleUpdateCheck() {
@@ -674,33 +718,27 @@ private:
         if (!_guard()) return;
         if (!_checkCSRF()) return;
         if (_ota.availableVersion()[0] == '\0') {
-            _errorPage("Nenhuma versao nova para instalar", "/update");
+            _errorPage(PSTR("Nenhuma versao nova para instalar"), PSTR("/update"));
             return;
         }
         _ota.requestInstall();
         _go("/update");
     }
 
-    static constexpr const char* _PINOUT_URL =
-        "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/docs/esp01-pinout.png";
-    static constexpr const char* _DEVICE_URL =
-        "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/docs/esp-01.jpg";
-
     void _deviceMark() {
-        _server.sendContent("<div class='text-center mb-3'><img src='");
-        _server.sendContent(_DEVICE_URL);
-        _server.sendContent(
-            "' alt='ESP-01' class='img-fluid rounded' style='max-width:220px'>"
+        _p(PSTR("<div class='text-center mb-3'><img src='"));
+        _p(_DEVICE_URL);
+        _p(PSTR("' alt='ESP-01' class='img-fluid rounded' style='max-width:220px'>"
             "<div class='small mt-1' style='color:#d7dbe0'>"
             "Firmware para o modulo ESP-01</div>"
             "<div class='small' style='color:#d7dbe0'>"
-            "Foto: SparkFun, CC BY 2.0</div></div>");
+            "Foto: SparkFun, CC BY 2.0</div></div>"));
     }
 
     void _sendKindList(bool sensors) {
         uint8_t n = sensors ? IoTService::SENSOR_COUNT : IoTService::MODULE_COUNT;
         for (uint8_t i = 0; i < n; i++) {
-            if (i) _server.sendContent(",");
+            if (i) _p(PSTR(","));
             char buf[4];
             snprintf(buf, sizeof(buf), "%u",
                      sensors ? IoTService::sensorKind(i) : IoTService::moduleKind(i));
@@ -725,66 +763,57 @@ private:
         static const char* labels[] = {
             "Nenhum", "GPIO2", "GPIO0", "TX (GPIO1)", "RX (GPIO3)"
         };
-        for (int i = 0; i < 5; i++) {
-            _server.sendContent("<option value='");
-            _server.sendContent(values[i]);
-            _server.sendContent(current == pins[i] ? "' selected>" : "'>");
-            _server.sendContent(labels[i]);
-            _server.sendContent("</option>");
-        }
+        for (int i = 0; i < 5; i++)
+            _choice(values[i], labels[i], current == pins[i]);
     }
 
     void _levelOptions(bool high) {
-        _server.sendContent("<option value='1'");
-        _server.sendContent(high ? " selected>" : ">");
-        _server.sendContent("Alto</option><option value='0'");
-        _server.sendContent(high ? ">" : " selected>");
-        _server.sendContent("Baixo</option>");
+        _choice(PSTR("1"), PSTR("Alto"), high);
+        _choice(PSTR("0"), PSTR("Baixo"), !high);
     }
 
-    void _choice(const char* value, const char* label, bool on) {
-        _server.sendContent("<option value='");
-        _server.sendContent(value);
-        _server.sendContent(on ? "' selected>" : "'>");
-        _server.sendContent(label);
-        _server.sendContent("</option>");
+    void _choice(PGM_P value, PGM_P label, bool on) {
+        _p(PSTR("<option value='"));
+        _p(value);
+        _p(on ? PSTR("' selected>") : PSTR("'>"));
+        _p(label);
+        _p(PSTR("</option>"));
     }
 
-    void _selectOpen(const char* id) {
-        _server.sendContent("<select class='" _INPUT_CLS "' id='");
-        _server.sendContent(id);
-        _server.sendContent("' name='");
-        _server.sendContent(id);
-        _server.sendContent("' onchange='iotSync()'>");
+    void _selectOpen(PGM_P id) {
+        _p(PSTR("<select class='" _INPUT_CLS "' id='"));
+        _p(id);
+        _p(PSTR("' name='"));
+        _p(id);
+        _p(PSTR("' onchange='iotSync()'>"));
     }
 
-    void _divOpen(const char* id, bool show) {
-        _server.sendContent("<div id='");
-        _server.sendContent(id);
-        _server.sendContent(show ? "'>" : "' style='display:none'>");
+    void _divOpen(PGM_P id, bool show) {
+        _p(PSTR("<div id='"));
+        _p(id);
+        _p(show ? PSTR("'>") : PSTR("' style='display:none'>"));
     }
 
+    // name vai para %s: tem de estar em RAM (snprintf_P só lê o formato da flash).
     // min -55 e max 100000 passam de 128 caracteres e cortavam o '>'.
     void _number(const char* name, int value, int min, int max) {
         char buf[160];
-        snprintf(buf, sizeof(buf),
-                 "<input class='form-control bg-dark text-light border-secondary' "
-                 "type='number' name='%s' value='%d' min='%d' max='%d'>",
-                 name, value, min, max);
+        snprintf_P(buf, sizeof(buf),
+                   PSTR("<input class='" _INPUT_CLS "' "
+                        "type='number' name='%s' value='%d' min='%d' max='%d'>"),
+                   name, value, min, max);
         _server.sendContent(buf);
     }
 
     void _handleIot() {
         if (!_guard()) return;
         _pageBegin(IoTService::allowedPin(_cfg.iot_sensor_pin) ? 5 : 0);
-        _server.sendContent("<h5 class='text-info mb-3'>IoT</h5>");
-        _server.sendContent("<img src='");
-        _server.sendContent(_PINOUT_URL);
-        _server.sendContent(
-            "' alt='Pinos do ESP-01' class='img-fluid bg-white rounded mb-3' "
-            "style='max-width:100%'>");
-        _server.sendContent(
-            "<p class='small mb-3' style='color:#d7dbe0'>"
+        _p(PSTR("<h5 class='text-info mb-3'>IoT</h5>"));
+        _p(PSTR("<img src='"));
+        _p(_PINOUT_URL);
+        _p(PSTR("' alt='Pinos do ESP-01' class='img-fluid bg-white rounded mb-3' "
+            "style='max-width:100%'>"));
+        _p(PSTR("<p class='small mb-3' style='color:#d7dbe0'>"
             "GPIO0 e GPIO2 ficam em alto no boot. O sensor e o modulo usam pinos "
             "diferentes. Digital, PIR, porta, chuva, chama, gas, solo, luz, som, "
             "boia e botao ligam por nivel, ou alternam a cada pulso. O comando "
@@ -794,15 +823,15 @@ private:
             "nivel. O servo vai para um angulo. Ventilador e motor usam PWM de 0 "
             "a 100, em dois patamares ou proporcional entre o limite e o limite "
             "alto. DHT e DS18B20 pedem pull-up. A leitura segue no topico ntfy ja "
-            "cadastrado, com o prefixo [sensor]. O IP sai como [ip].</p>");
+            "cadastrado, com o prefixo [sensor]. O IP sai como [ip].</p>"));
 
-        _box("Agora");
-        _row("Sensor", _iot.sensorText());
-        _row("Modulo", _iot.moduleText());
+        _box(PSTR("Agora"));
+        _row(PSTR("Sensor"), _iot.sensorText());
+        _row(PSTR("Modulo"), _iot.moduleText());
         _boxEnd();
 
         if (_cfg.iot_notify && _cfg.ntfy_topic[0] == '\0')
-            _alert("warning", "Cadastre o topico ntfy para enviar a leitura");
+            _alertP(PSTR("warning"), PSTR("Cadastre o topico ntfy para enviar a leitura"));
 
         uint8_t sensorKind = IoTService::sensorKind(_cfg.iot_sensor_type);
         uint8_t moduleKind = IoTService::moduleKind(_cfg.iot_module_type);
@@ -813,110 +842,106 @@ private:
         bool servo = moduleKind == IoTService::MKIND_SERVO;
         bool pwm = moduleKind == IoTService::MKIND_PWM;
 
-        _server.sendContent("<form action='/iot/save' method='POST'>");
+        _p(PSTR("<form action='/iot/save' method='POST'>"));
         _csrfField();
-        _server.sendContent("<label class='form-label small'>Pino do sensor</label>");
-        _selectOpen("sensor");
+        _p(PSTR("<label class='form-label small'>Pino do sensor</label>"));
+        _selectOpen(PSTR("sensor"));
         _pinOptions(_cfg.iot_sensor_pin);
-        _server.sendContent("</select>");
-        _server.sendContent("<label class='form-label small mt-2'>Pino do modulo</label>");
-        _selectOpen("module");
+        _p(PSTR("</select>"));
+        _p(PSTR("<label class='form-label small mt-2'>Pino do modulo</label>"));
+        _selectOpen(PSTR("module"));
         _pinOptions(_cfg.iot_module_pin);
-        _server.sendContent("</select>");
+        _p(PSTR("</select>"));
 
-        _server.sendContent("<label class='form-label small mt-2'>Comando</label>");
-        _selectOpen("manual");
-        _choice("0", "Automatico", _cfg.iot_manual == IoTService::MANUAL_AUTO);
-        _choice("1", "Ligado", _cfg.iot_manual == IoTService::MANUAL_ON);
-        _choice("2", "Desligado", _cfg.iot_manual == IoTService::MANUAL_OFF);
-        _server.sendContent("</select>");
+        _p(PSTR("<label class='form-label small mt-2'>Comando</label>"));
+        _selectOpen(PSTR("manual"));
+        _choice(PSTR("0"), PSTR("Automatico"), _cfg.iot_manual == IoTService::MANUAL_AUTO);
+        _choice(PSTR("1"), PSTR("Ligado"), _cfg.iot_manual == IoTService::MANUAL_ON);
+        _choice(PSTR("2"), PSTR("Desligado"), _cfg.iot_manual == IoTService::MANUAL_OFF);
+        _p(PSTR("</select>"));
 
-        _server.sendContent("<label class='form-label small mt-2'>Tipo do sensor</label>");
-        _selectOpen("sensor_type");
+        _p(PSTR("<label class='form-label small mt-2'>Tipo do sensor</label>"));
+        _selectOpen(PSTR("sensor_type"));
         _typeOptions(true, _cfg.iot_sensor_type);
-        _server.sendContent("</select>");
+        _p(PSTR("</select>"));
 
-        _divOpen("iot_digital", !numeric);
-        _server.sendContent(
-            "<label class='form-label small mt-2'>Ligar o modulo quando o sensor estiver</label>");
-        _selectOpen("sensor_high");
+        _divOpen(PSTR("iot_digital"), !numeric);
+        _p(PSTR("<label class='form-label small mt-2'>Ligar o modulo quando o sensor estiver</label>"));
+        _selectOpen(PSTR("sensor_high"));
         _levelOptions(_cfg.iot_sensor_high);
-        _server.sendContent("</select>");
-        _server.sendContent("<label class='form-label small mt-2'>Ao pulso</label>");
-        _selectOpen("toggle");
-        _choice("0", "Seguir o nivel", !_cfg.iot_toggle);
-        _choice("1", "Alternar", _cfg.iot_toggle);
-        _server.sendContent("</select></div>");
+        _p(PSTR("</select>"));
+        _p(PSTR("<label class='form-label small mt-2'>Ao pulso</label>"));
+        _selectOpen(PSTR("toggle"));
+        _choice(PSTR("0"), PSTR("Seguir o nivel"), !_cfg.iot_toggle);
+        _choice(PSTR("1"), PSTR("Alternar"), _cfg.iot_toggle);
+        _p(PSTR("</select></div>"));
 
-        _divOpen("iot_value", numeric);
-        _divOpen("iot_metric", dht);
-        _server.sendContent("<label class='form-label small mt-2'>Grandeza</label>");
-        _selectOpen("metric");
-        _choice("0", "Umidade", _cfg.iot_metric == 0);
-        _choice("1", "Temperatura", _cfg.iot_metric == 1);
-        _server.sendContent("</select></div>");
-        _server.sendContent("<label class='form-label small mt-2'>Ligar quando o valor estiver</label>");
-        _selectOpen("above");
-        _choice("0", "Abaixo de", !_cfg.iot_above);
-        _choice("1", "Acima de", _cfg.iot_above);
-        _server.sendContent("</select>");
-        _server.sendContent("<label class='form-label small mt-2'>Limite</label>");
+        _divOpen(PSTR("iot_value"), numeric);
+        _divOpen(PSTR("iot_metric"), dht);
+        _p(PSTR("<label class='form-label small mt-2'>Grandeza</label>"));
+        _selectOpen(PSTR("metric"));
+        _choice(PSTR("0"), PSTR("Umidade"), _cfg.iot_metric == 0);
+        _choice(PSTR("1"), PSTR("Temperatura"), _cfg.iot_metric == 1);
+        _p(PSTR("</select></div>"));
+        _p(PSTR("<label class='form-label small mt-2'>Ligar quando o valor estiver</label>"));
+        _selectOpen(PSTR("above"));
+        _choice(PSTR("0"), PSTR("Abaixo de"), !_cfg.iot_above);
+        _choice(PSTR("1"), PSTR("Acima de"), _cfg.iot_above);
+        _p(PSTR("</select>"));
+        _p(PSTR("<label class='form-label small mt-2'>Limite</label>"));
         _number("threshold", _cfg.iot_threshold, -55, 100000);
-        _server.sendContent("<label class='form-label small mt-2'>Margem</label>");
+        _p(PSTR("<label class='form-label small mt-2'>Margem</label>"));
         _number("margin", _cfg.iot_margin, 0, 50);
-        _server.sendContent("</div>");
+        _p(PSTR("</div>"));
 
-        _server.sendContent("<label class='form-label small mt-2'>Tipo do modulo</label>");
-        _selectOpen("module_type");
+        _p(PSTR("<label class='form-label small mt-2'>Tipo do modulo</label>"));
+        _selectOpen(PSTR("module_type"));
         _typeOptions(false, _cfg.iot_module_type);
-        _server.sendContent("</select>");
+        _p(PSTR("</select>"));
 
-        _divOpen("iot_level", level);
-        _server.sendContent(
-            "<label class='form-label small mt-2'>Nivel do pino que liga o modulo</label>");
-        _selectOpen("module_high");
+        _divOpen(PSTR("iot_level"), level);
+        _p(PSTR("<label class='form-label small mt-2'>Nivel do pino que liga o modulo</label>"));
+        _selectOpen(PSTR("module_high"));
         _levelOptions(_cfg.iot_module_high);
-        _server.sendContent("</select></div>");
+        _p(PSTR("</select></div>"));
 
-        _divOpen("iot_servo", servo);
-        _server.sendContent("<label class='form-label small mt-2'>Angulo ao ligar</label>");
+        _divOpen(PSTR("iot_servo"), servo);
+        _p(PSTR("<label class='form-label small mt-2'>Angulo ao ligar</label>"));
         _number("angle_on", _cfg.iot_angle_on, 0, 180);
-        _server.sendContent("<label class='form-label small mt-2'>Angulo ao soltar</label>");
+        _p(PSTR("<label class='form-label small mt-2'>Angulo ao soltar</label>"));
         _number("angle_off", _cfg.iot_angle_off, 0, 180);
-        _server.sendContent("</div>");
+        _p(PSTR("</div>"));
 
-        _divOpen("iot_pwm", pwm);
-        _server.sendContent("<label class='form-label small mt-2'>Potencia ao ligar (%)</label>");
+        _divOpen(PSTR("iot_pwm"), pwm);
+        _p(PSTR("<label class='form-label small mt-2'>Potencia ao ligar (%)</label>"));
         _number("duty_on", _cfg.iot_duty_on, 0, 100);
-        _server.sendContent("<label class='form-label small mt-2'>Potencia ao soltar (%)</label>");
+        _p(PSTR("<label class='form-label small mt-2'>Potencia ao soltar (%)</label>"));
         _number("duty_off", _cfg.iot_duty_off, 0, 100);
-        _server.sendContent("</div>");
+        _p(PSTR("</div>"));
 
-        _divOpen("iot_span", pwm && numeric);
-        _server.sendContent("<label class='form-label small mt-2'>Curva da potencia</label>");
-        _selectOpen("linear");
-        _choice("0", "Dois patamares", !_cfg.iot_linear);
-        _choice("1", "Proporcional", _cfg.iot_linear);
-        _server.sendContent("</select>");
-        _server.sendContent("<label class='form-label small mt-2'>Limite alto</label>");
+        _divOpen(PSTR("iot_span"), pwm && numeric);
+        _p(PSTR("<label class='form-label small mt-2'>Curva da potencia</label>"));
+        _selectOpen(PSTR("linear"));
+        _choice(PSTR("0"), PSTR("Dois patamares"), !_cfg.iot_linear);
+        _choice(PSTR("1"), PSTR("Proporcional"), _cfg.iot_linear);
+        _p(PSTR("</select>"));
+        _p(PSTR("<label class='form-label small mt-2'>Limite alto</label>"));
         _number("threshold_hi", _cfg.iot_threshold_hi, -55, 100000);
-        _server.sendContent("</div>");
+        _p(PSTR("</div>"));
 
-        _server.sendContent(
-            "<div class='form-check form-switch my-3'>"
+        _p(PSTR("<div class='form-check form-switch my-3'>"
             "<input class='form-check-input' type='checkbox' role='switch' "
-            "id='iot_notify' name='iot_notify' value='1'");
-        if (_cfg.iot_notify) _server.sendContent(" checked");
-        _server.sendContent(
-            "><label class='form-check-label' for='iot_notify'>"
+            "id='iot_notify' name='iot_notify' value='1'"));
+        if (_cfg.iot_notify) _p(PSTR(" checked"));
+        _p(PSTR("><label class='form-check-label' for='iot_notify'>"
             "Enviar leitura ao ntfy</label></div>"
             "<button class='btn btn-info w-100'>Salvar</button></form>"
-            "<script>function iotSync(){var sk=[");
+            "<script>function iotSync(){var sk=["));
         _sendKindList(true);
-        _server.sendContent("];var mk=[");
+        _p(PSTR("];var mk=["));
         _sendKindList(false);
         char js[900];
-        snprintf(js, sizeof(js),
+        snprintf_P(js, sizeof(js), PSTR(
             "];var s=+document.getElementById('sensor_type').value;"
             "var m=+document.getElementById('module_type').value;"
             "if(!(s>=0&&s<sk.length))s=0;"
@@ -930,7 +955,7 @@ private:
             "document.getElementById('iot_servo').style.display=mk[m]==%u?'':'none';"
             "document.getElementById('iot_pwm').style.display=pwm?'':'none';"
             "document.getElementById('iot_span').style.display=(pwm&&num)?'':'none';"
-            "}iotSync();</script>",
+            "}iotSync();</script>"),
             IoTService::KIND_DIGITAL, IoTService::MKIND_PWM,
             IoTService::KIND_DHT11, IoTService::KIND_DHT22,
             IoTService::MKIND_LEVEL, IoTService::MKIND_SERVO);
@@ -949,15 +974,15 @@ private:
         String sensorArg = _server.arg("sensor");
         String moduleArg = _server.arg("module");
         if (!IoTService::parsePin(sensorArg, sensor)) {
-            _errorPage("Pino invalido", "/iot");
+            _errorPage(PSTR("Pino invalido"), PSTR("/iot"));
             return;
         }
         if (!IoTService::parsePin(moduleArg, module)) {
-            _errorPage("Pino invalido", "/iot");
+            _errorPage(PSTR("Pino invalido"), PSTR("/iot"));
             return;
         }
         if (sensor != -1 && sensor == module) {
-            _errorPage("Sensor e modulo precisam de pinos diferentes", "/iot");
+            _errorPage(PSTR("Sensor e modulo precisam de pinos diferentes"), PSTR("/iot"));
             return;
         }
 
@@ -966,7 +991,7 @@ private:
         if (sensorTypeArg.length() > 0 &&
             !IoTService::parseU8(sensorTypeArg, 0,
                                  IoTService::SENSOR_COUNT - 1, sensorType)) {
-            _errorPage("Valor invalido", "/iot");
+            _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
             return;
         }
         uint8_t moduleType = IoTService::MODULE_LEVEL;
@@ -974,14 +999,14 @@ private:
         if (moduleTypeArg.length() > 0 &&
             !IoTService::parseU8(moduleTypeArg, 0,
                                  IoTService::MODULE_COUNT - 1, moduleType)) {
-            _errorPage("Valor invalido", "/iot");
+            _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
             return;
         }
         uint8_t metric = 0;
         String metricArg = _server.arg("metric");
         if (metricArg.length() > 0 &&
             !IoTService::parseU8(metricArg, 0, 1, metric)) {
-            _errorPage("Valor invalido", "/iot");
+            _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
             return;
         }
 
@@ -990,13 +1015,13 @@ private:
         if (IoTService::sensorKind(sensorType) != IoTService::KIND_DIGITAL) {
             String thresholdArg = _server.arg("threshold");
             if (!IoTService::parseI16(thresholdArg, -55, 100000, threshold)) {
-                _errorPage("Valor invalido", "/iot");
+                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
                 return;
             }
             String marginArg = _server.arg("margin");
             if (marginArg.length() > 0 &&
                 !IoTService::parseU8(marginArg, 0, 50, margin)) {
-                _errorPage("Valor invalido", "/iot");
+                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
                 return;
             }
         }
@@ -1007,11 +1032,11 @@ private:
             String angleOnArg = _server.arg("angle_on");
             String angleOffArg = _server.arg("angle_off");
             if (!IoTService::parseU8(angleOnArg, 0, 180, angleOn)) {
-                _errorPage("Valor invalido", "/iot");
+                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
                 return;
             }
             if (!IoTService::parseU8(angleOffArg, 0, 180, angleOff)) {
-                _errorPage("Valor invalido", "/iot");
+                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
                 return;
             }
         }
@@ -1019,7 +1044,7 @@ private:
         String manualArg = _server.arg("manual");
         if (manualArg.length() > 0 &&
             !IoTService::parseU8(manualArg, 0, IoTService::MANUAL_OFF, manual)) {
-            _errorPage("Valor invalido", "/iot");
+            _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
             return;
         }
         bool toggle = false;
@@ -1027,7 +1052,7 @@ private:
         if (toggleArg.length() > 0) {
             uint8_t toggleBit = 0;
             if (!IoTService::parseU8(toggleArg, 0, 1, toggleBit)) {
-                _errorPage("Valor invalido", "/iot");
+                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
                 return;
             }
             toggle = toggleBit == 1;
@@ -1037,7 +1062,7 @@ private:
         if (linearArg.length() > 0) {
             uint8_t linearBit = 0;
             if (!IoTService::parseU8(linearArg, 0, 1, linearBit)) {
-                _errorPage("Valor invalido", "/iot");
+                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
                 return;
             }
             linear = linearBit == 1;
@@ -1053,11 +1078,11 @@ private:
         if (linear) {
             String hiArg = _server.arg("threshold_hi");
             if (!IoTService::parseI16(hiArg, -55, 100000, thresholdHi)) {
-                _errorPage("Valor invalido", "/iot");
+                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
                 return;
             }
             if (thresholdHi <= threshold) {
-                _errorPage("Valor invalido", "/iot");
+                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
                 return;
             }
         }
@@ -1068,11 +1093,11 @@ private:
             String dutyOnArg = _server.arg("duty_on");
             String dutyOffArg = _server.arg("duty_off");
             if (!IoTService::parseU8(dutyOnArg, 0, 100, dutyOn)) {
-                _errorPage("Valor invalido", "/iot");
+                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
                 return;
             }
             if (!IoTService::parseU8(dutyOffArg, 0, 100, dutyOff)) {
-                _errorPage("Valor invalido", "/iot");
+                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
                 return;
             }
         }
@@ -1097,10 +1122,10 @@ private:
         _cfg.iot_linear       = linear;
         _cfg.iot_threshold_hi = thresholdHi;
         if (!_store.save()) {
-            _errorPage("Falha ao salvar configuracao", "/iot");
+            _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/iot"));
             return;
         }
         _iot.begin();
-        _savedPage("IoT configurado", "/iot");
+        _savedPage(PSTR("IoT configurado"), PSTR("/iot"));
     }
 };

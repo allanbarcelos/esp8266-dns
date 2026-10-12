@@ -19,7 +19,7 @@ public:
         WiFi.setAutoReconnect(true);
         WiFi.begin(_cfg.ssid.c_str(), _cfg.pass.c_str());
 
-        _log.log("Conectando ao Wi-Fi: %s", _cfg.ssid.c_str());
+        _log.log(PSTR("Conectando ao Wi-Fi: %s"), _cfg.ssid.c_str());
 
         uint8_t attempts = 20;
         while (WiFi.status() != WL_CONNECTED && attempts--) {
@@ -28,11 +28,11 @@ public:
         }
 
         if (WiFi.status() == WL_CONNECTED) {
-            _log.log("Conectado! IP: %s", WiFi.localIP().toString().c_str());
+            _log.log(PSTR("Conectado! IP: %s"), WiFi.localIP().toString().c_str());
         } else {
             // AP + STA: o painel fica acessível e a estação segue tentando
             // conectar em segundo plano (autoReconnect).
-            _log.log("Falha na conexao");
+            _log.log(PSTR("Falha na conexao"));
             _startConfigMode(WIFI_AP_STA);
         }
     }
@@ -41,19 +41,19 @@ public:
         // onEvent() no core 3.1.2 só aceita ponteiro de função (sem captura).
         // Os handlers específicos por evento aceitam std::function e capturam this.
         _evtGotIP = WiFi.onStationModeGotIP([this](const WiFiEventStationModeGotIP&) {
-            _log.log("Wi-Fi conectado: %s", WiFi.localIP().toString().c_str());
+            _log.log(PSTR("Wi-Fi conectado: %s"), WiFi.localIP().toString().c_str());
             notifySuccess();
             if (_configMode) {
                 WiFi.mode(WIFI_STA);
                 _keepRadioAwake();
                 _configMode = false;
-                _log.log("Modo AP desligado");
+                _log.log(PSTR("Modo AP desligado"));
             }
         });
 
         _evtDisconnected = WiFi.onStationModeDisconnected(
             [this](const WiFiEventStationModeDisconnected&) {
-                _log.log("Wi-Fi desconectado");
+                _log.log(PSTR("Wi-Fi desconectado"));
             }
         );
     }
@@ -71,7 +71,7 @@ public:
         if (now - _lastStatusCheck >= STATUS_INTERVAL) {
             _lastStatusCheck = now;
             if (WiFi.status() != WL_CONNECTED) {
-                _log.log("Wi-Fi desconectado");
+                _log.log(PSTR("Wi-Fi desconectado"));
                 _startReconnect(now);
             }
         }
@@ -87,7 +87,7 @@ public:
                 _checkMemory();
             }
             if (now > DAILY_RESTART) {
-                _log.log("Reinicio diario agendado");
+                _log.log(PSTR("Reinicio diario agendado"));
                 scheduleRestart(1000);
             }
         }
@@ -99,7 +99,7 @@ public:
 
     void scheduleRestart(unsigned long delayMs = 1000) {
         if (_restartPending) return;
-        _log.log("Reinicio agendado em %lu ms", delayMs);
+        _log.log(PSTR("Reinicio agendado em %lu ms"), delayMs);
         _restartPending = true;
         _restartAt = millis() + delayMs;
     }
@@ -108,7 +108,7 @@ public:
 
     void notifyFailure() {
         if (++_failCount >= MAX_FAILURES) {
-            _log.log("Falhas repetidas de Wi-Fi, reiniciando");
+            _log.log(PSTR("Falhas repetidas de Wi-Fi, reiniciando"));
             scheduleRestart(1000);
         }
     }
@@ -157,7 +157,7 @@ private:
         _keepRadioAwake();
         WiFi.softAP(AP_SSID, AP_PASSWORD);
         _configMode = true;
-        _log.log("Modo AP iniciado: %s", AP_SSID);
+        _log.log(PSTR("Modo AP iniciado: %s"), AP_SSID);
     }
 
     // Só reinicia se a memória ficar crítica em verificações consecutivas;
@@ -170,7 +170,7 @@ private:
             return;
         }
         if (++_memStrikes >= MEM_STRIKES) {
-            _log.log("Memoria critica detectada (heap %u, frag %u%%)",
+            _log.log(PSTR("Memoria critica detectada (heap %u, frag %u%%)"),
                      ESP.getFreeHeap(), ESP.getHeapFragmentation());
             scheduleRestart(1000);
         }
@@ -182,13 +182,13 @@ private:
         WiFi.disconnect();
         _reconnecting = true;
         _reconnectAt = now + RECONNECT_DELAY;
-        _log.log("Iniciando reconexao Wi-Fi");
+        _log.log(PSTR("Iniciando reconexao Wi-Fi"));
     }
 
     void _processReconnect(unsigned long now) {
         if (!_reconnecting) return;
         if ((long)(now - _reconnectAt) < 0) return;
-        _log.log("Tentando reconectar Wi-Fi");
+        _log.log(PSTR("Tentando reconectar Wi-Fi"));
         WiFi.mode(WIFI_STA);
         _keepRadioAwake();
         WiFi.begin(_cfg.ssid.c_str(), _cfg.pass.c_str());

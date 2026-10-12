@@ -172,15 +172,15 @@ public:
             if (moduleKind(_runModuleType) == MKIND_SERVO) {
                 _servoOk = _servo.attach((int)_runModule) != 0;
                 if (_servoOk) _writeModule(driveOn);
-                else _log.log("IoT: servo indisponivel");
-                _log.log("IoT: sensor GPIO%d servo GPIO%d", _runSensor, _runModule);
+                else _log.log(PSTR("IoT: servo indisponivel"));
+                _log.log(PSTR("IoT: sensor GPIO%d servo GPIO%d"), _runSensor, _runModule);
             } else {
                 pinMode((uint8_t)_runModule, OUTPUT);
                 _writeModule(driveOn);
-                _log.log("IoT: sensor GPIO%d modulo GPIO%d", _runSensor, _runModule);
+                _log.log(PSTR("IoT: sensor GPIO%d modulo GPIO%d"), _runSensor, _runModule);
             }
         } else {
-            _log.log("IoT: sensor GPIO%d", _runSensor);
+            _log.log(PSTR("IoT: sensor GPIO%d"), _runSensor);
         }
     }
 
@@ -514,17 +514,17 @@ private:
             _moduleSuffix(suffix, sizeof(suffix));
             snprintf(_pending, sizeof(_pending), "[sensor] GPIO%d %s%s",
                      _runSensor, name, suffix);
-            _log.log("%s", _pending);
+            _log.log(PSTR("%s"), _pending);
         } else {
             _pending[0] = '\0';
-            _log.log("IoT: GPIO%d %s", _runSensor, name);
+            _log.log(PSTR("IoT: GPIO%d %s"), _runSensor, name);
         }
     }
 
     void _fail() {
         if (_failing) return;
         _failing = true;
-        _log.log("IoT: leitura falhou");
+        _log.log(PSTR("IoT: leitura falhou"));
     }
 
     void _fmtTenths(char* b, size_t n, int v) const {
@@ -582,14 +582,14 @@ private:
         _haveLevel = true;
         if (!_runNotify) {
             _pending[0] = '\0';
-            if (changed) _log.log("IoT: GPIO%d %s", _runSensor, _sensorLine);
+            if (changed) _log.log(PSTR("IoT: GPIO%d %s"), _runSensor, _sensorLine);
             return;
         }
         char suffix[24];
         _moduleSuffix(suffix, sizeof(suffix));
         snprintf(_pending, sizeof(_pending), "[sensor] GPIO%d %s%s",
                  _runSensor, _sensorLine, suffix);
-        if (changed) _log.log("%s", _pending);
+        if (changed) _log.log(PSTR("%s"), _pending);
     }
 
     bool _waitLevel(int level, unsigned long timeoutUs) {
