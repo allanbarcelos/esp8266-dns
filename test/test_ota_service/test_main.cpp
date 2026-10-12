@@ -684,6 +684,48 @@ void test_rejeicao_em_recuperacao_restaura_painel() {
     TEST_ASSERT_FALSE(LittleFS.exists("/ota.pending"));
     TEST_ASSERT_TRUE(f.wifi.restartPending());
     TEST_ASSERT_TRUE(logHas(logger, "recuperacao encerrada, restaurando painel"));
+    TEST_ASSERT_EQUAL_STRING("v129", MockFS::files["/ota.rejected"].c_str());
+}
+
+// Sem heap no painel a consulta vai para recuperação: a marca precisa
+// sobreviver ao reinício, senão o aparelho baixa a mesma imagem de novo.
+void test_rejeicao_sobrevive_ao_reinicio() {
+    MockFS::put("/ota.rejected", "v999");
+    MockFS::put("/ota.pending", "check 1");
+    Fixture f;
+    f.ota.begin();
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    f.ota.tick(0);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_FALSE(f.ota.slim());
+    TEST_ASSERT_FALSE(LittleFS.exists("/ota.pending"));
+    TEST_ASSERT_TRUE(f.wifi.restartPending());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: v999 ja foi rejeitada"));
+    TEST_ASSERT_TRUE(logHas(logger, "recuperacao concluida, restaurando painel"));
+}
+
+void test_versao_nova_ignora_rejeicao_antiga() {
+    MockFS::put("/ota.rejected", "v998");
+    Fixture f;
+    f.ota.begin();
+    queueUpdate(std::string(64, 'X'));
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+}
+
+void test_rejeicao_sem_fs_continua_na_ram() {
+    Fixture f;
+    Update._endOk = false;
+    MockFS::failWriteOpen = true;
+    queueUpdate(std::string(100, 'X'));
+    f.ota.tick(T);
+    f.ota.tick(T + 1);
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: nao gravou versao rejeitada"));
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    f.ota.tick(2 * T + 1);
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: v999 ja foi rejeitada"));
 }
 
 void test_pedido_pendente_vazio() {
@@ -946,6 +988,9 @@ int main() {
     RUN_TEST(test_travamento_gasta_um_boot);
     RUN_TEST(test_imagem_rejeitada_nao_e_baixada_de_novo);
     RUN_TEST(test_rejeicao_em_recuperacao_restaura_painel);
+    RUN_TEST(test_rejeicao_sobrevive_ao_reinicio);
+    RUN_TEST(test_versao_nova_ignora_rejeicao_antiga);
+    RUN_TEST(test_rejeicao_sem_fs_continua_na_ram);
     RUN_TEST(test_pedido_pendente_vazio);
     RUN_TEST(test_pedido_pendente_esgotado);
     RUN_TEST(test_pedido_pendente_nao_abre);

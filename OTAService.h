@@ -40,7 +40,9 @@
 // /ota.pending e reinicia em modo recuperação. O contador do pedido sobe
 // já ao retomá-lo: um travamento (OOM no TLS) também gasta um boot.
 // Imagem rejeitada por Update.end() não melhora com nova tentativa: a
-// versão fica marcada e só uma instalação manual a baixa de novo.
+// versão fica marcada em /ota.rejected (sobrevive ao reinício: sem
+// heap no painel, a consulta roda em recuperação) e só uma instalação
+// manual a baixa de novo.
 class OTAService {
 public:
     OTAService(Logger& log, WiFiService& wifi) : _log(log), _wifi(wifi) {}
@@ -52,7 +54,10 @@ public:
         return _inProgress || _wantCheck || _wantInstall || _nextRetry != 0;
     }
 
-    void begin() { _loadPending(); }
+    void begin() {
+        _loadRejected();
+        _loadPending();
+    }
 
     // A consulta bloqueia o loop (TLS). O POST só arma o pedido; o tick executa.
     void requestCheck() {
@@ -179,6 +184,7 @@ public:
     static constexpr size_t        OTA_HOST_CAP   = 80;
     static constexpr size_t        OTA_PATH_CAP   = 1280;
     static constexpr const char*   PENDING_PATH   = "/ota.pending";
+    static constexpr const char*   REJECTED_PATH  = "/ota.rejected";
 
 private:
     Logger&      _log;
@@ -252,8 +258,16 @@ private:
         _log.log("Nova versao encontrada: %s", _available);
         if (!install) return;
         if (strcmp(_available, _rejected) == 0) {
+            bool restore = _slim;
+            _tries = 0;
+            _retryDelay = 0;
+            _clearPending();
             _note(Report::Failed, "%s rejeitada; aguardando outra versao", _available);
             _log.log("OTA: %s ja foi rejeitada", _available);
+            if (restore) {
+                _log.log("OTA: recuperacao concluida, restaurando painel");
+                _wifi.scheduleRestart(1500);
+            }
             return;
         }
         if (!_startDownload(_available, now) && !_wifi.restartPending())
@@ -673,6 +687,7 @@ private:
             _note(Report::Failed, "Imagem rejeitada: %s", Update.getErrorString().c_str());
             _log.log("Erro OTA: %s", Update.getErrorString().c_str());
             strlcpy(_rejected, _available, sizeof(_rejected));
+            _saveRejected();
             bool restore = _slim;
             _tries = 0;
             _retryDelay = 0;
@@ -748,6 +763,24 @@ private:
         f.write((const uint8_t*)line, strlen(line));
         f.close();
         return true;
+    }
+
+    void _saveRejected() {
+        File f = LittleFS.open(REJECTED_PATH, "w");
+        if (!f) {
+            _log.log("OTA: nao gravou versao rejeitada");
+            return;
+        }
+        f.write((const uint8_t*)_rejected, strlen(_rejected));
+        f.close();
+    }
+
+    void _loadRejected() {
+        File f = LittleFS.open(REJECTED_PATH, "r");
+        if (!f) return;
+        size_t n = f.readBytes(_rejected, sizeof(_rejected) - 1);
+        f.close();
+        _rejected[n] = ' ';
     }
 
     void _clearPending() {
