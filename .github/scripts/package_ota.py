@@ -47,6 +47,36 @@ def fail(msg: str) -> None:
     sys.exit(1)
 
 
+def align_gzip(gz: bytes) -> bytes:
+    """Deixa o gzip com tamanho múltiplo de 4 via campo FNAME do cabeçalho.
+
+    Updater::end() do core 3.1.2 lê o payload em blocos de 128 B com
+    flashRead(uint32_t*), que recusa tamanho não múltiplo de 4 e o Updater
+    ignora o erro: o último bloco fica com bytes do anterior, o hash não
+    bate e toda imagem assinada é rejeitada. Os 4 bytes finais (ISIZE, lido
+    pelo eboot) e o deflate não mudam; o uzlib do eboot pula o FNAME.
+    """
+    pad = -len(gz) % 4
+    if pad == 0:
+        return gz
+    if gz[3] != 0:
+        fail("gzip com flags inesperadas; não dá para alinhar com FNAME")
+    name = b"f" * ((pad if pad >= 2 else pad + 4) - 1) + b"\0"
+    return gz[:3] + b"\x08" + gz[4:10] + name + gz[10:]
+
+
+def device_view(payload: bytes) -> bytes:
+    """O que Updater::end() do core 3.1.2 realmente passa ao SHA-256."""
+    out = bytearray()
+    buff = bytearray(128)
+    for off in range(0, len(payload), 128):
+        n = min(128, len(payload) - off)
+        if n % 4 == 0:  # flashRead(uint32_t*) só lê tamanhos alinhados
+            buff[:n] = payload[off:off + n]
+        out += buff[:n]
+    return bytes(out)
+
+
 def sign(payload: bytes, key: str) -> bytes:
     sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", key],
                          input=payload, capture_output=True, check=True).stdout
@@ -65,6 +95,8 @@ def verify(signed: bytes, pubkey: str) -> bytes:
                             "-signature", sig_path], input=payload, capture_output=True)
     if r.returncode != 0:
         fail("assinatura não confere com public.key: " + r.stderr.decode())
+    if device_view(payload) != payload:
+        fail("o Updater do aparelho calcularia outro hash: payload não alinhado a 4 B")
     return payload
 
 
@@ -149,7 +181,9 @@ def main() -> None:
     if raw[0] != 0xE9:
         fail("binário de entrada não é uma imagem ESP8266")
 
-    gz = gzip.compress(raw, compresslevel=9, mtime=0)
+    gz = align_gzip(gzip.compress(raw, compresslevel=9, mtime=0))
+    if len(gz) % 4:
+        fail("firmware.bin: gzip não ficou alinhado a 4 B")
     check_gzip(gz, raw, "firmware.bin")
     if eboot_isize(gz, "firmware.bin") != len(raw):
         fail("firmware.bin: o eboot leria um tamanho diferente do firmware")

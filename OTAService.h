@@ -37,7 +37,10 @@
 // malloc só durante os redirects e libertado antes do Update.begin.
 // 302 fecha a sessão e abre outra no CDN (MFLN 4 KB se o CDN aceitar).
 // Falha transitória retenta com backoff; se a heap não der, grava
-// /ota.pending e reinicia em modo recuperação.
+// /ota.pending e reinicia em modo recuperação. O contador do pedido sobe
+// já ao retomá-lo: um travamento (OOM no TLS) também gasta um boot.
+// Imagem rejeitada por Update.end() não melhora com nova tentativa: a
+// versão fica marcada e só uma instalação manual a baixa de novo.
 class OTAService {
 public:
     OTAService(Logger& log, WiFiService& wifi) : _log(log), _wifi(wifi) {}
@@ -190,6 +193,7 @@ private:
     Report           _report        = Report::None;
     char             _detail[80]    = {};
     char             _available[16] = {};
+    char             _rejected[16]  = {};
     TlsClient        _client;
     int              _contentLength = 0;
     size_t           _written       = 0;
@@ -247,6 +251,11 @@ private:
         _note(Report::Available, "Nova versao %s", _available);
         _log.log("Nova versao encontrada: %s", _available);
         if (!install) return;
+        if (strcmp(_available, _rejected) == 0) {
+            _note(Report::Failed, "%s rejeitada; aguardando outra versao", _available);
+            _log.log("OTA: %s ja foi rejeitada", _available);
+            return;
+        }
         if (!_startDownload(_available, now) && !_wifi.restartPending())
             _scheduleRetry(now, true);
     }
@@ -663,6 +672,15 @@ private:
         } else {
             _note(Report::Failed, "Imagem rejeitada: %s", Update.getErrorString().c_str());
             _log.log("Erro OTA: %s", Update.getErrorString().c_str());
+            strlcpy(_rejected, _available, sizeof(_rejected));
+            bool restore = _slim;
+            _tries = 0;
+            _retryDelay = 0;
+            _clearPending();
+            if (restore) {
+                _log.log("OTA: recuperacao encerrada, restaurando painel");
+                _wifi.scheduleRestart(1500);
+            }
         }
         _finish();
     }
@@ -717,16 +735,16 @@ private:
             _wifi.scheduleRestart(1500);
             return;
         }
-        if (!_savePending(boots)) _log.log("OTA: nao gravou pedido de recuperacao");
+        if (!_savePending(_available, boots)) _log.log("OTA: nao gravou pedido de recuperacao");
         else _log.log("OTA: recuperacao no proximo boot");
         _wifi.scheduleRestart(1500);
     }
 
-    bool _savePending(uint8_t boots) {
+    bool _savePending(const char* tag, uint8_t boots) {
         File f = LittleFS.open(PENDING_PATH, "w");
         if (!f) return false;
         char line[24];
-        snprintf(line, sizeof(line), "%s %u", _available, (unsigned)boots);
+        snprintf(line, sizeof(line), "%s %u", tag, (unsigned)boots);
         f.write((const uint8_t*)line, strlen(line));
         f.close();
         return true;
@@ -765,6 +783,9 @@ private:
         }
         _pendingBoots = (uint8_t)boots;
         _slim = true;
+        // Antes de tentar: se este boot travar, o próximo já conta mais um.
+        // Sem gravar, a recuperação segue com o contador do último pedido.
+        (void)_savePending(tag, (uint8_t)(boots + 1));
         if (isCheck) {
             _available[0] = '\0';
             _wantCheck = true;

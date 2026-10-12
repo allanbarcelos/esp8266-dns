@@ -575,6 +575,7 @@ void test_carrega_pedido_consulta() {
     TEST_ASSERT_TRUE(f.ota.pending());
     TEST_ASSERT_EQUAL_STRING("", f.ota.availableVersion());
     TEST_ASSERT_TRUE(logHas(logger, "OTA: retomando consulta"));
+    TEST_ASSERT_EQUAL_STRING("check 2", MockFS::files["/ota.pending"].c_str());
 }
 
 void test_recuperacao_consulta_instala() {
@@ -607,6 +608,7 @@ void test_carrega_pedido_pendente() {
     TEST_ASSERT_TRUE(f.ota.busy());
     TEST_ASSERT_EQUAL_STRING("v129", f.ota.availableVersion());
     TEST_ASSERT_TRUE(logHas(logger, "OTA: retomando v129"));
+    TEST_ASSERT_EQUAL_STRING("v129 2", MockFS::files["/ota.pending"].c_str());
 }
 
 void test_pedido_pendente_invalido() {
@@ -624,6 +626,64 @@ void test_pedido_pendente_sem_contador() {
     f.ota.begin();
     TEST_ASSERT_TRUE(f.ota.slim());
     TEST_ASSERT_EQUAL_STRING("v42", f.ota.availableVersion());
+    TEST_ASSERT_EQUAL_STRING("v42 1", MockFS::files["/ota.pending"].c_str());
+}
+
+// Travou (OOM) no último boot permitido sem chegar a _persistAndReboot:
+// o boot seguinte tem de desistir, não retomar com o mesmo contador.
+void test_travamento_gasta_um_boot() {
+    MockFS::put("/ota.pending", "v129 3");
+    {
+        Fixture crashed;
+        crashed.ota.begin();
+        TEST_ASSERT_TRUE(crashed.ota.slim());
+    }
+    logger = Logger();
+    Fixture f;
+    f.ota.begin();
+    TEST_ASSERT_FALSE(f.ota.slim());
+    TEST_ASSERT_FALSE(LittleFS.exists("/ota.pending"));
+    TEST_ASSERT_TRUE(logHas(logger, "recuperacao esgotada"));
+}
+
+void test_imagem_rejeitada_nao_e_baixada_de_novo() {
+    Fixture f;
+    Update._endOk = false;
+    queueUpdate(std::string(100, 'X'));
+    f.ota.tick(T);
+    f.ota.tick(T + 1);
+    TEST_ASSERT_TRUE(logHas(logger, "Erro OTA"));
+    size_t calls = MockHTTP::calledURLs.size();
+
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    f.ota.tick(2 * T + 1);
+    TEST_ASSERT_EQUAL((int)calls + 1, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_FALSE(f.ota.pending());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: v999 ja foi rejeitada"));
+    TEST_ASSERT_EQUAL_STRING("v999 rejeitada; aguardando outra versao", f.ota.detail());
+
+    // Manual continua possível
+    Update._endOk = true;
+    MockHTTP::push(200, std::string(64, 'X'));
+    f.ota.requestInstall();
+    f.ota.tick(2 * T + 2);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+}
+
+void test_rejeicao_em_recuperacao_restaura_painel() {
+    MockFS::put("/ota.pending", "v129 1");
+    Fixture f;
+    f.ota.begin();
+    Update._endOk = false;
+    MockHTTP::push(200, std::string(128, 'X'));
+    f.ota.tick(0);
+    f.ota.tick(1);
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_FALSE(f.ota.slim());
+    TEST_ASSERT_FALSE(LittleFS.exists("/ota.pending"));
+    TEST_ASSERT_TRUE(f.wifi.restartPending());
+    TEST_ASSERT_TRUE(logHas(logger, "recuperacao encerrada, restaurando painel"));
 }
 
 void test_pedido_pendente_vazio() {
@@ -883,6 +943,9 @@ int main() {
     RUN_TEST(test_carrega_pedido_pendente);
     RUN_TEST(test_pedido_pendente_invalido);
     RUN_TEST(test_pedido_pendente_sem_contador);
+    RUN_TEST(test_travamento_gasta_um_boot);
+    RUN_TEST(test_imagem_rejeitada_nao_e_baixada_de_novo);
+    RUN_TEST(test_rejeicao_em_recuperacao_restaura_painel);
     RUN_TEST(test_pedido_pendente_vazio);
     RUN_TEST(test_pedido_pendente_esgotado);
     RUN_TEST(test_pedido_pendente_nao_abre);
