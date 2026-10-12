@@ -9,6 +9,7 @@
 #include "OTAService.h"
 #include "IoTService.h"
 #include "NtfyNotifier.h"
+#include "Assets.h"
 
 // ── PROGMEM ───────────────────────────────────────────────────────────────────
 // Cabeçalho dividido para permitir injeção de <meta refresh> antes de </head>.
@@ -61,7 +62,7 @@ static const char _HTML_HEAD_B[] PROGMEM =
     "progress{display:block;width:100%;accent-color:var(--ok)}"
     "pre{background:#010409;border:1px solid var(--ln);border-radius:8px;padding:12px;"
     "font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}"
-    "img{max-width:100%;border-radius:6px;background:#fff}"
+    "img{max-width:100%;height:auto;border-radius:6px}"
     "figure{margin:0 0 16px;text-align:center}"
     "</style></head><body><header><b>&#9679; ESP8266 DNS</b>"
     "<nav aria-label='Menu'><a href='/'>Home</a><a href='/status'>Status</a>"
@@ -73,10 +74,6 @@ static const char _HTML_FOOT_A[] PROGMEM = "</main><footer>Firmware: ";
 
 static const char _HTML_FOOT_B[] PROGMEM = "</footer></body></html>";
 
-static const char _PINOUT_URL[] PROGMEM =
-    "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/docs/esp01-pinout.png";
-static const char _DEVICE_URL[] PROGMEM =
-    "https://raw.githubusercontent.com/allanbarcelos/esp8266-dns/main/docs/esp-01.jpg";
 
 // Texto fixo das páginas fica na flash (PSTR/PROGMEM) e sai por
 // sendContent_P: literal comum ocupa RAM no ESP8266, e a heap livre é o
@@ -113,6 +110,13 @@ public:
         _server.on("/update/auto",     HTTP_POST, [this]() { _handleUpdateAuto(); });
         _server.on("/update/check",    HTTP_POST, [this]() { _handleUpdateCheck(); });
         _server.on("/update/install",  HTTP_POST, [this]() { _handleUpdateInstall(); });
+        // Imagens embutidas (Assets.h): públicas, sem dado do aparelho
+        _server.on("/esp01.webp",      HTTP_GET,  [this]() {
+            _asset("image/webp", ASSET_PHOTO, sizeof(ASSET_PHOTO), false);
+        });
+        _server.on("/pinout.svg",      HTTP_GET,  [this]() {
+            _asset("image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ), true);
+        });
         _server.begin();
         _log.log(PSTR("Servidor web iniciado na porta 80"));
     }
@@ -689,6 +693,14 @@ private:
         _savedPage(PSTR("Senha atualizada!"), PSTR("/"));
     }
 
+    // Sai direto da flash; o cache evita reenviar a cada página. O tipo vai
+    // em RAM: send_P faz String(content_type), que não lê da flash.
+    void _asset(const char* type, const uint8_t* data, size_t len, bool gz) {
+        _server.sendHeader("Cache-Control", "max-age=604800");
+        if (gz) _server.sendHeader("Content-Encoding", "gzip");
+        _server.send_P(200, type, reinterpret_cast<PGM_P>(data), len);
+    }
+
     void _go(const char* href) {
         _server.sendHeader("Location", href);
         _server.send(303, "text/plain", "");
@@ -760,10 +772,7 @@ private:
     }
 
     void _deviceMark() {
-        // Imagem externa: sem internet (modo AP) ela some e o texto fica
-        _p(PSTR("<figure><img src='"));
-        _p(_DEVICE_URL);
-        _p(PSTR("' alt='ESP-01' width='220' onerror='this.remove()'>"
+        _p(PSTR("<figure><img src='/esp01.webp' alt='ESP-01' width='220' height='209'>"
                 "<figcaption class='m'>Firmware para o modulo ESP-01<br>"
                 "Foto: SparkFun, CC BY 2.0</figcaption></figure>"));
     }
@@ -845,9 +854,9 @@ private:
         if (!_guard()) return;
         _pageBegin(IoTService::allowedPin(_cfg.iot_sensor_pin) ? 5 : 0);
         _title(PSTR("IoT"));
-        _p(PSTR("<figure><img src='"));
-        _p(_PINOUT_URL);
-        _p(PSTR("' alt='Pinos do ESP-01' onerror='this.remove()'></figure>"));
+        _p(PSTR("<figure><img src='/pinout.svg' width='1040' height='700' "
+                "alt='Pinos do ESP-01, vista de cima: GPIO0, RX (GPIO3), GPIO2, GND; "
+                "VCC 3,3 V, RST, CH_PD, TX (GPIO1)'></figure>"));
         _p(PSTR("<p class='m'>"
             "GPIO0 e GPIO2 ficam em alto no boot. O sensor e o modulo usam pinos "
             "diferentes. Digital, PIR, porta, chuva, chama, gas, solo, luz, som, "

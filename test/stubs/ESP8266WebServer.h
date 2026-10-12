@@ -30,6 +30,9 @@ public:
     }
     // Como no core: em resposta chunked, pedaço vazio é o terminador
     // ("0\r\n\r\n") e o que vier depois não chega ao navegador.
+    void send_P(int c, const char* type, const char* data, size_t len) {
+        code = c; contentType = type; out.assign(data, len);
+    }
     void sendContent(const String& s)   { _chunk(s._s); }
     void sendContent(const char* s)     { _chunk(s); }
     void sendContent_P(const char* s)   { _chunk(s); }

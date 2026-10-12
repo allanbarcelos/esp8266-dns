@@ -84,7 +84,7 @@ void test_format_bytes() {
 void test_begin_registra_rotas_e_gera_csrf_aleatorio() {
     Fixture f;
     TEST_ASSERT_TRUE(f.srv.started);
-    TEST_ASSERT_EQUAL(16, (int)f.srv.routes.size());
+    TEST_ASSERT_EQUAL(18, (int)f.srv.routes.size());
     TEST_ASSERT_EQUAL(16, (int)std::strlen(f.web.csrfToken()));
 
     std::string first = f.web.csrfToken();
@@ -152,7 +152,7 @@ void test_root_modo_estacao() {
     TEST_ASSERT_TRUE(contains(f.out(), "nunca"));
     TEST_ASSERT_TRUE(contains(f.out(), "Firmware: dev"));
     TEST_ASSERT_FALSE(contains(f.out(), "OTA em progresso"));
-    TEST_ASSERT_TRUE(contains(f.out(), "docs/esp-01.jpg"));
+    TEST_ASSERT_TRUE(contains(f.out(), "/esp01.webp"));
     TEST_ASSERT_TRUE(contains(f.out(), "alt='ESP-01'"));
     TEST_ASSERT_TRUE(contains(f.out(), "Firmware para o modulo ESP-01"));
 }
@@ -185,7 +185,7 @@ void test_root_modo_configuracao_primeiro_acesso() {
     f.enterConfigMode();
     f.get("/");
     TEST_ASSERT_EQUAL(200, f.srv.code);
-    TEST_ASSERT_TRUE(contains(f.out(), "docs/esp-01.jpg"));
+    TEST_ASSERT_TRUE(contains(f.out(), "/esp01.webp"));
     TEST_ASSERT_TRUE(contains(f.out(), "Firmware para o modulo ESP-01"));
     TEST_ASSERT_TRUE(contains(f.out(), "Modo de configuracao"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='pass1'"));      // define senha do painel
@@ -199,7 +199,7 @@ void test_root_modo_configuracao_primeiro_acesso() {
     TEST_ASSERT_TRUE(contains(f.out(), "<style>"));
     TEST_ASSERT_FALSE(contains(f.out(), "<link"));
     TEST_ASSERT_FALSE(contains(f.out(), "<script src"));
-    TEST_ASSERT_TRUE(contains(f.out(), "onerror='this.remove()'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "https://"));
 }
 
 void test_root_modo_configuracao_preserva_usuario() {
@@ -289,6 +289,32 @@ void test_save_wifi_falha_ao_gravar() {
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "Falha ao salvar"));
     TEST_ASSERT_FALSE(f.wifi.restartPending());
+}
+
+// ── Imagens embutidas ────────────────────────────────────────────────────────
+
+void test_imagem_do_aparelho_embutida() {
+    cfg.webpss = "";   // pública: carrega antes de haver senha
+    Fixture f;
+    TEST_ASSERT_TRUE(f.get("/esp01.webp"));
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("image/webp", f.srv.contentType.c_str());
+    TEST_ASSERT_EQUAL(sizeof(ASSET_PHOTO), f.out().size());
+    TEST_ASSERT_EQUAL(0, f.out().compare(0, 4, "RIFF"));
+    TEST_ASSERT_EQUAL(0, f.out().compare(8, 4, "WEBP"));
+    TEST_ASSERT_EQUAL_STRING("max-age=604800", f.srv.headers["Cache-Control"].c_str());
+    TEST_ASSERT_EQUAL(0u, f.srv.headers.count("Content-Encoding"));
+}
+
+void test_pinos_embutidos_em_svg_gzip() {
+    Fixture f;
+    TEST_ASSERT_TRUE(f.get("/pinout.svg"));
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("image/svg+xml", f.srv.contentType.c_str());
+    TEST_ASSERT_EQUAL_STRING("gzip", f.srv.headers["Content-Encoding"].c_str());
+    TEST_ASSERT_EQUAL(sizeof(ASSET_PINOUT_GZ), f.out().size());
+    TEST_ASSERT_EQUAL_HEX8(0x1f, (uint8_t)f.out()[0]);   // assinatura gzip
+    TEST_ASSERT_EQUAL_HEX8(0x8b, (uint8_t)f.out()[1]);
 }
 
 // ── /log ─────────────────────────────────────────────────────────────────────
@@ -589,7 +615,7 @@ void test_iot_pagina_inicial() {
     Fixture f;
     f.get("/iot");
     TEST_ASSERT_EQUAL(200, f.srv.code);
-    TEST_ASSERT_TRUE(contains(f.out(), "docs/esp01-pinout.png"));
+    TEST_ASSERT_TRUE(contains(f.out(), "/pinout.svg"));
     TEST_ASSERT_TRUE(contains(f.out(), "[sensor]"));
     TEST_ASSERT_TRUE(contains(f.out(), "[ip]"));
     TEST_ASSERT_TRUE(contains(f.out(), "nenhum"));
@@ -937,6 +963,8 @@ int main() {
     RUN_TEST(test_save_wifi_validacoes);
     RUN_TEST(test_save_wifi_primeiro_acesso_exige_senha_do_painel);
     RUN_TEST(test_save_wifi_falha_ao_gravar);
+    RUN_TEST(test_imagem_do_aparelho_embutida);
+    RUN_TEST(test_pinos_embutidos_em_svg_gzip);
     RUN_TEST(test_log_escapa_conteudo);
     RUN_TEST(test_status_conectado);
     RUN_TEST(test_status_desconectado_e_ota);
