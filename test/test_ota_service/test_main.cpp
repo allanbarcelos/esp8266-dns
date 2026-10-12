@@ -957,14 +957,53 @@ void test_bloco_encolhe_apos_buffers_tls() {
     TEST_ASSERT_TRUE(logHas(logger, "OTA: TLS indisponivel"));
 }
 
-void test_leitura_expira_sem_dados() {
+// A espera pela resposta não bloqueia: o tick volta na hora, o painel não
+// consegue sobrepor pedidos e o prazo vence num tick posterior.
+void test_leitura_nao_bloqueia_e_expira_sem_dados() {
     Fixture f;
+    f.ota.setAutomatic(false);
     MockHTTP::push(200, R"({"name":"sem tag")");
     MockHTTP::keepOpen = true;
+    f.ota.requestCheck();
     unsigned long before = millis();
     f.ota.tick(T);
-    TEST_ASSERT_TRUE(millis() - before >= 15000UL);
+    TEST_ASSERT_EQUAL(before, millis());           // nenhum delay
+    TEST_ASSERT_TRUE(f.ota.pending());
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_FALSE(logHas(logger, "Erro JSON"));
+
+    f.ota.requestCheck();                          // sessão aberta: ignora
+    TEST_ASSERT_EQUAL(OTAService::Report::Checking, f.ota.report());
+    f.ota.tick(T + OTAService::READ_TIMEOUT - 1);
+    TEST_ASSERT_FALSE(logHas(logger, "Erro JSON"));
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+
+    f.ota.tick(T + OTAService::READ_TIMEOUT);
     TEST_ASSERT_TRUE(logHas(logger, "Erro JSON versao: tag_name"));
+    TEST_ASSERT_EQUAL_STRING("Nova tentativa em 10 s", f.ota.detail());
+}
+
+// Dados chegando aos poucos: cada tick consome o que veio e continua
+void test_resposta_em_partes_entre_ticks() {
+    Fixture f;
+    queueUpdate(std::string(64, 'X'));
+    MockHTTP::keepOpen = true;
+    f.ota.tick(T);                       // consulta e cabeçalhos do download
+    TEST_ASSERT_TRUE(f.ota.inProgress()); // o mock entrega tudo de uma vez
+
+    setUp();
+    Fixture g;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::rawHttp = "HTTP/1.0 302 F\r\nLocation: /cdn\r\n";
+    MockHTTP::keepOpen = true;           // cabeçalho do redirect incompleto
+    g.ota.tick(T);
+    TEST_ASSERT_FALSE(g.ota.inProgress());
+    TEST_ASSERT_TRUE(g.ota.busy());
+    g.ota.requestInstall();              // sessão aberta: ignora
+    TEST_ASSERT_EQUAL(OTAService::Report::Available, g.ota.report());
+    MockHTTP::keepOpen = false;          // servidor fecha sem a linha vazia
+    g.ota.tick(T + 1);
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: headers incompletos"));
 }
 
 void test_header_sem_dois_pontos_e_ignorado() {
@@ -1216,7 +1255,8 @@ int main() {
     RUN_TEST(test_redirect_host_longo);
     RUN_TEST(test_consulta_headers_incompletos);
     RUN_TEST(test_bloco_encolhe_apos_buffers_tls);
-    RUN_TEST(test_leitura_expira_sem_dados);
+    RUN_TEST(test_leitura_nao_bloqueia_e_expira_sem_dados);
+    RUN_TEST(test_resposta_em_partes_entre_ticks);
     RUN_TEST(test_header_sem_dois_pontos_e_ignorado);
     RUN_TEST(test_tag_com_espacos_no_fim);
     RUN_TEST(test_download_sem_memoria_para_o_caminho);

@@ -20,21 +20,9 @@ public:
         WiFi.begin(_cfg.ssid.c_str(), _cfg.pass.c_str());
 
         _log.log(PSTR("Conectando ao Wi-Fi: %s"), _cfg.ssid.c_str());
-
-        uint8_t attempts = 20;
-        while (WiFi.status() != WL_CONNECTED && attempts--) {
-            yield();
-            delay(500);
-        }
-
-        if (WiFi.status() == WL_CONNECTED) {
-            _log.log(PSTR("Conectado! IP: %s"), WiFi.localIP().toString().c_str());
-        } else {
-            // AP + STA: o painel fica acessível e a estação segue tentando
-            // conectar em segundo plano (autoReconnect).
-            _log.log(PSTR("Falha na conexao"));
-            _startConfigMode(WIFI_AP_STA);
-        }
+        // Sem esperar aqui: o tick() acompanha a associação e o loop segue.
+        _connecting = true;
+        _connectSince = millis();
     }
 
     void registerEvents() {
@@ -66,6 +54,10 @@ public:
     // IP, DNS, ntfy), que tenta de novo no ciclo seguinte. Reiniciar porque
     // um host externo não responde derrubaria aparelhos com a rede saudável.
     void tick(unsigned long now) {
+        if (_connecting) {
+            _tickConnect(now);
+            return;
+        }
         if (_configMode) return;
 
         if (now - _lastStatusCheck >= STATUS_INTERVAL) {
@@ -120,6 +112,7 @@ public:
     // Sinaliza que há OTA em progresso (inibe watchdogs de memória e uptime)
     void setOTAInProgress(bool v) { _otaInProgress = v; }
 
+    static constexpr unsigned long CONNECT_TIMEOUT    = 10000UL;
     static constexpr unsigned long STATUS_INTERVAL    = 15000UL;
     static constexpr unsigned long MEM_CHECK_INTERVAL = 10000UL;
     static constexpr unsigned long DAILY_RESTART      = 86400000UL;
@@ -135,6 +128,8 @@ private:
 
     uint8_t       _failCount         = 0;
     bool          _configMode        = false;
+    bool          _connecting        = false;
+    unsigned long _connectSince      = 0;
     bool          _reconnecting      = false;
     unsigned long _reconnectAt       = 0;
     bool          _restartPending    = false;
@@ -151,6 +146,21 @@ private:
     // o rádio dorme entre os beacons e a resposta do handshake se perde:
     // o connect estoura o timeout mesmo com a associação de pé.
     void _keepRadioAwake() { WiFi.setSleepMode(WIFI_NONE_SLEEP); }
+
+    // Primeira associação após o boot: espera até CONNECT_TIMEOUT sem
+    // bloquear. Sem conexão, AP + STA: o painel fica acessível e a estação
+    // segue tentando em segundo plano (autoReconnect).
+    void _tickConnect(unsigned long now) {
+        if (WiFi.status() == WL_CONNECTED) {
+            _connecting = false;
+            _log.log(PSTR("Conectado! IP: %s"), WiFi.localIP().toString().c_str());
+            return;
+        }
+        if (now - _connectSince < CONNECT_TIMEOUT) return;
+        _connecting = false;
+        _log.log(PSTR("Falha na conexao"));
+        _startConfigMode(WIFI_AP_STA);
+    }
 
     void _startConfigMode(WiFiMode_t mode) {
         WiFi.mode(mode);

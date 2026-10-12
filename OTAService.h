@@ -52,7 +52,7 @@ public:
     bool slim()      const { return _slim; }
     bool busy()      const {
         // _nextRetry só fica != 0 junto com _wantCheck/_wantInstall
-        return _inProgress || _wantCheck || _wantInstall;
+        return _active() || _wantCheck || _wantInstall;
     }
 
     void begin() {
@@ -60,9 +60,9 @@ public:
         _loadPending();
     }
 
-    // A consulta bloqueia o loop (TLS). O POST só arma o pedido; o tick executa.
+    // O POST só arma o pedido; o tick executa.
     void requestCheck() {
-        if (_inProgress || _wantCheck) return;
+        if (_active() || _wantCheck) return;
         _wantInstall = false;
         _nextRetry = 0;
         _wantCheck = true;
@@ -70,7 +70,7 @@ public:
     }
 
     void requestInstall() {
-        if (_inProgress || _available[0] == '\0') return;
+        if (_active() || _available[0] == '\0') return;
         _wantCheck = false;
         _nextRetry = 0;
         _wantInstall = true;
@@ -89,6 +89,10 @@ public:
             _streamChunk(now);
             return;
         }
+        if (_net != NET_IDLE) {
+            _pumpNet(now);
+            return;
+        }
         if (_wifi.restartPending()) return;
         if (!_wifi.isConnected()) return;
 
@@ -97,8 +101,7 @@ public:
         if (_wantInstall) {
             _wantInstall = false;
             _nextRetry = 0;
-            if (!_startDownload(_available, now) && !_wifi.restartPending())
-                _scheduleRetry(now, true);
+            _download(_available, now);
             return;
         }
         if (_wantCheck) {
@@ -168,6 +171,7 @@ public:
     static constexpr unsigned long CHECK_INTERVAL = 3600000UL;  // 1 hora
     static constexpr unsigned long DEADLINE       = 82800000UL; // ~23 h
     static constexpr unsigned long STALL_TIMEOUT  = 60000UL;    // sem dados por 60 s
+    static constexpr unsigned long READ_TIMEOUT   = 15000UL;    // resposta HTTP parada
     static constexpr unsigned long RETRY_MS       = 10000UL;
     static constexpr unsigned long RETRY_MAX_MS   = 20000UL;
     static constexpr uint8_t       MAX_TRIES      = 4;
@@ -235,13 +239,262 @@ private:
         _persistAndReboot();
     }
 
+    // ── Rede sem bloquear ─────────────────────────────────────────────────────
+    // O connect() do TLS ainda bloqueia (BearSSL não tem handshake
+    // assíncrono), mas a espera pela resposta não: cada tick consome só os
+    // bytes que já chegaram e devolve o loop (painel, IoT). A resposta é
+    // lida por parsers incrementais; READ_TIMEOUT sem dados encerra.
+
+    // Cabeçalho HTTP byte a byte. location, quando não nulo, tem cap > 0.
+    struct HeaderParser {
+        enum Stage : uint8_t { STATUS, NAME, VALUE_WS, VALUE };
+        Stage  stage;
+        char   name[32];
+        size_t n;
+        bool   takeLoc;
+        bool   takeLen;
+        int    code;
+        int    contentLength;
+        char*  location;
+        size_t locationCap;
+
+        void begin(char* loc, size_t cap) {
+            stage = STATUS;
+            n = 0;
+            code = 0;
+            contentLength = -1;
+            location = loc;
+            locationCap = cap;
+            if (location) location[0] = '\0';
+        }
+
+        // 1: cabeçalho completo; 0: precisa de mais; -1: resposta inválida
+        int feed(char ch) {
+            if (stage == VALUE_WS) {
+                if (ch == ' ' || ch == '\t') return 0;
+                stage = VALUE;
+                n = 0;
+            }
+            if (stage == VALUE) {
+                if (ch == '\n') {
+                    if (takeLoc) location[n] = '\0';
+                    if (takeLen) {
+                        name[n] = '\0';
+                        contentLength = atoi(name);
+                    }
+                    n = 0;
+                    stage = NAME;
+                    return 0;
+                }
+                if (ch == '\r') return 0;
+                if (takeLoc && n + 1 < locationCap) location[n++] = ch;
+                else if (takeLen && n + 1 < sizeof(name)) name[n++] = ch;
+                return 0;
+            }
+            if (ch == '\r') return 0;
+            if (stage == STATUS) {
+                if (ch == '\n') {
+                    name[n] = '\0';
+                    if (strncmp(name, "HTTP/", 5) != 0) return -1;
+                    const char* sp = strchr(name, ' ');
+                    if (!sp || sp[1] < '0' || sp[1] > '9') return -1;
+                    code = atoi(sp + 1);
+                    stage = NAME;
+                    n = 0;
+                    return 0;
+                }
+                if (n + 1 < sizeof(name)) name[n++] = ch;
+                return 0;
+            }
+            if (ch == '\n') {               // NAME
+                if (n == 0) return 1;
+                n = 0;
+                return 0;
+            }
+            if (ch == ':') {
+                name[n] = '\0';
+                takeLoc = location && location[0] == '\0' && _hdrIs(name, "Location");
+                takeLen = _hdrIs(name, "Content-Length");
+                stage = VALUE_WS;
+                return 0;
+            }
+            if (n + 1 < sizeof(name)) name[n++] = ch;
+            return 0;
+        }
+    };
+
+    // "tag_name": "<valor>" byte a byte, sem guardar o JSON
+    struct TagParser {
+        enum Stage : uint8_t { KEY, BEFORE_COLON, BEFORE_VALUE, VALUE };
+        Stage    stage;
+        unsigned ki;
+        char*    tag;
+        size_t   cap;
+        size_t   n;
+
+        void begin(char* t, size_t c) {
+            stage = KEY;
+            ki = 0;
+            tag = t;
+            cap = c;
+            n = 0;
+            tag[0] = '\0';
+        }
+
+        static bool space(char ch) {
+            return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r';
+        }
+
+        // 1: tag lida; 0: precisa de mais; -1: JSON inválido
+        int feed(char ch) {
+            static const char key[] = "\"tag_name\"";
+            if (stage == KEY) {
+                if (ch == key[ki]) {
+                    if (key[++ki] == '\0') stage = BEFORE_COLON;
+                } else {
+                    ki = (ch == key[0]) ? 1 : 0;
+                }
+                return 0;
+            }
+            if (stage == BEFORE_COLON) {
+                if (space(ch)) return 0;
+                if (ch != ':') return -1;
+                stage = BEFORE_VALUE;
+                return 0;
+            }
+            if (stage == BEFORE_VALUE) {
+                if (space(ch)) return 0;
+                if (ch != '"') return -1;
+                stage = VALUE;
+                return 0;
+            }
+            if (ch != '"') {                // VALUE
+                if (n + 1 < cap) tag[n++] = ch;
+                return 0;
+            }
+            tag[n] = '\0';
+            char* s = tag;
+            while (*s == ' ' || *s == '\t') s++;
+            if (s != tag) memmove(tag, s, strlen(s) + 1);
+            size_t len = strlen(tag);
+            while (len && (tag[len - 1] == ' ' || tag[len - 1] == '\t'))
+                tag[--len] = '\0';
+            return 1;
+        }
+    };
+
+    enum Net : uint8_t { NET_IDLE, NET_CHECK_HDR, NET_CHECK_BODY, NET_DL_HDR };
+
+    Net           _net          = NET_IDLE;
+    unsigned long _netLast      = 0;
+    HeaderParser  _hdrP         = {};
+    TagParser     _tagP         = {};
+    char          _latest[16]   = {};
+    bool          _checkInstall = false;
+    char          _host[OTA_HOST_CAP] = {};
+    char*         _path         = nullptr; // malloc só durante os redirects
+    uint8_t       _hop          = 0;
+
+    // Download ou sessão TLS em andamento
+    bool _active() const { return _inProgress || _net != NET_IDLE; }
+
+    // Lê o que já chegou. 1/-1: o parser da etapa concluiu ou falhou;
+    // -1 também para conexão fechada ou READ_TIMEOUT sem dados; 0: aguarda.
+    int _pump(unsigned long now) {
+        while (_client.available() > 0) {
+            char ch = (char)_client.read();
+            _netLast = now;
+            int r = _net == NET_CHECK_BODY ? _tagP.feed(ch) : _hdrP.feed(ch);
+            if (r != 0) return r;
+        }
+        if (!_client.connected()) return -1;
+        if (now - _netLast >= READ_TIMEOUT) return -1;
+        return 0;
+    }
+
+    void _pumpNet(unsigned long now) {
+        int r = _pump(now);
+        if (r == 0) return;
+        if (_net == NET_CHECK_HDR) _onCheckHeaders(now, r);
+        else if (_net == NET_CHECK_BODY) _onCheckBody(now, r);
+        else _onDownloadHeaders(now, r);
+    }
+
+    // ── consulta da versão ────────────────────────────────────────────────────
+
     void _checkNow(unsigned long now, bool install) {
-        char latest[16];
-        if (!_checkVersion(latest, sizeof(latest))) {
-            if (!_wifi.restartPending()) _scheduleRetry(now, false);
+        _checkInstall = install;
+        _latest[0] = '\0';
+        if (!_tlsReady()) {
+            _recoverHeap();
+            _checkFailed(now);
             return;
         }
-        if (!isNewer(latest, firmware_version)) {
+        static const char host[] = "api.github.com";
+        static const char path[] =
+            "/repos/allanbarcelos/esp8266-dns/releases/latest";
+        if (!_prepareTls(host, true)) {
+            _note(Report::Failed, PSTR("Cliente TLS indisponivel"));
+            _log.log(PSTR("OTA: TLS indisponivel"));
+            _checkFailed(now);
+            return;
+        }
+        if (!_client.connect(host, 443)) {
+            _note(Report::Failed, PSTR("Falha ao consultar o GitHub"));
+            _log.log(PSTR("Falha ao verificar versao"));
+            _checkFailed(now);
+            return;
+        }
+        _sendGet(host, path, "Accept: application/vnd.github+json");
+        _hdrP.begin(nullptr, 0);
+        _net = NET_CHECK_HDR;
+        _netLast = now;
+        _pumpNet(now);
+    }
+
+    void _checkFailed(unsigned long now) {
+        _client.stop();
+        _net = NET_IDLE;
+        if (!_wifi.restartPending()) _scheduleRetry(now, false);
+    }
+
+    void _onCheckHeaders(unsigned long now, int r) {
+        if (r < 0) {
+            _note(Report::Failed, PSTR("Resposta invalida do GitHub"));
+            _log.log(PSTR("Erro JSON versao: headers"));
+            _checkFailed(now);
+            return;
+        }
+        if (_hdrP.code != 200) {
+            _note(Report::Failed, PSTR("GitHub HTTP %d"), _hdrP.code);
+            _log.log(PSTR("Erro HTTP versao: %d"), _hdrP.code);
+            _checkFailed(now);
+            return;
+        }
+        _tagP.begin(_latest, sizeof(_latest));
+        _net = NET_CHECK_BODY;
+        _pumpNet(now);
+    }
+
+    void _onCheckBody(unsigned long now, int r) {
+        if (r < 0) {
+            _note(Report::Failed, PSTR("Resposta invalida do GitHub"));
+            _log.log(PSTR("Erro JSON versao: tag_name"));
+            _checkFailed(now);
+            return;
+        }
+        if (_latest[0] == '\0') {
+            _note(Report::Failed, PSTR("Versao remota vazia"));
+            _checkFailed(now);
+            return;
+        }
+        _client.stop();
+        _net = NET_IDLE;
+        _afterCheck(now);
+    }
+
+    void _afterCheck(unsigned long now) {
+        if (!isNewer(_latest, firmware_version)) {
             bool restore = _slim;
             _available[0] = '\0';
             _tries = 0;
@@ -254,10 +507,10 @@ private:
             }
             return;
         }
-        strlcpy(_available, latest, sizeof(_available));
+        strlcpy(_available, _latest, sizeof(_available));
         _note(Report::Available, PSTR("Nova versao %s"), _available);
         _log.log(PSTR("Nova versao encontrada: %s"), _available);
-        if (!install) return;
+        if (!_checkInstall) return;
         if (strcmp(_available, _rejected) == 0) {
             bool restore = _slim;
             _tries = 0;
@@ -271,61 +524,7 @@ private:
             }
             return;
         }
-        if (!_startDownload(_available, now) && !_wifi.restartPending())
-            _scheduleRetry(now, true);
-    }
-
-    bool _checkVersion(char* latest, size_t cap) {
-        latest[0] = '\0';
-        if (!_tlsReady()) {
-            _recoverHeap();
-            return false;
-        }
-
-        static const char host[] = "api.github.com";
-        static const char path[] =
-            "/repos/allanbarcelos/esp8266-dns/releases/latest";
-        if (!_prepareTls(host, true)) {
-            _note(Report::Failed, PSTR("Cliente TLS indisponivel"));
-            _log.log(PSTR("OTA: TLS indisponivel"));
-            return false;
-        }
-        if (!_client.connect(host, 443)) {
-            _note(Report::Failed, PSTR("Falha ao consultar o GitHub"));
-            _log.log(PSTR("Falha ao verificar versao"));
-            _client.stop();
-            return false;
-        }
-        delay(1);
-        _sendGet(host, path, "Accept: application/vnd.github+json");
-        int code = 0;
-        int contentLength = -1;
-        if (!_readHeaders(code, contentLength, nullptr, 0)) {
-            _note(Report::Failed, PSTR("Resposta invalida do GitHub"));
-            _log.log(PSTR("Erro JSON versao: headers"));
-            _client.stop();
-            return false;
-        }
-        if (code != 200) {
-            _note(Report::Failed, PSTR("GitHub HTTP %d"), code);
-            _log.log(PSTR("Erro HTTP versao: %d"), code);
-            _client.stop();
-            return false;
-        }
-        bool found = _readTagName(latest, cap);
-        _client.stop();
-        delay(1);
-        if (!found) {
-            _note(Report::Failed, PSTR("Resposta invalida do GitHub"));
-            _log.log(PSTR("Erro JSON versao: tag_name"));
-            latest[0] = '\0';
-            return false;
-        }
-        if (latest[0] == '\0') {
-            _note(Report::Failed, PSTR("Versao remota vazia"));
-            return false;
-        }
-        return true;
+        _download(_available, now);
     }
 
     static bool _hdrIs(const char* line, const char* name) {
@@ -393,208 +592,104 @@ private:
         _client.print("\r\n");
     }
 
-    int _readChar() {
-        unsigned long start = millis();
-        for (;;) {
-            if (_client.available() > 0) return _client.read();
-            if (!_client.connected()) return -1;
-            if (millis() - start >= 15000UL) return -1;
-            delay(1);
-        }
-    }
+    // ── início do download (redirects até o CDN) ──────────────────────────────
 
-    // location, quando não nulo, tem locationCap > 0
-    bool _readHeaders(int& code, int& contentLength, char* location, size_t locationCap) {
-        code = 0;
-        contentLength = -1;
-        if (location) location[0] = '\0';
-
-        char name[32];
-        size_t n = 0;
-        bool gotStatus = false;
-        for (;;) {
-            int ch = _readChar();
-            if (ch < 0) return false;
-            if (ch == '\r') continue;
-            if (!gotStatus) {
-                if (ch == '\n') {
-                    name[n] = '\0';
-                    if (strncmp(name, "HTTP/", 5) != 0) return false;
-                    const char* sp = strchr(name, ' ');
-                    if (!sp || sp[1] < '0' || sp[1] > '9') return false;
-                    code = atoi(sp + 1);
-                    gotStatus = true;
-                    n = 0;
-                    continue;
-                }
-                if (n + 1 < sizeof(name)) name[n++] = (char)ch;
-                continue;
-            }
-            if (ch == '\n') {
-                if (n == 0) return true;
-                n = 0;
-                continue;
-            }
-            if (ch == ':') {
-                name[n] = '\0';
-                bool takeLoc = location && location[0] == '\0'
-                               && _hdrIs(name, "Location");
-                bool takeLen = _hdrIs(name, "Content-Length");
-                do {
-                    ch = _readChar();
-                    if (ch < 0) return false;
-                } while (ch == ' ' || ch == '\t');
-                n = 0;
-                while (ch != '\n') {
-                    if (ch != '\r') {
-                        if (takeLoc && n + 1 < locationCap) location[n++] = (char)ch;
-                        else if (takeLen && n + 1 < sizeof(name)) name[n++] = (char)ch;
-                    }
-                    ch = _readChar();
-                    if (ch < 0) return false;
-                }
-                if (takeLoc) location[n] = '\0';
-                if (takeLen) {
-                    name[n] = '\0';
-                    contentLength = atoi(name);
-                }
-                n = 0;
-                delay(1);
-                continue;
-            }
-            if (n + 1 < sizeof(name)) name[n++] = (char)ch;
-        }
-    }
-
-    bool _readTagName(char* tag, size_t cap) {
-        tag[0] = '\0';
-        static const char key[] = "\"tag_name\"";
-        unsigned ki = 0;
-        for (;;) {
-            int ch = _readChar();
-            if (ch < 0) return false;
-            if (ch == (unsigned char)key[ki]) {
-                ki++;
-                if (key[ki] == '\0') break;
-            } else {
-                ki = (ch == (unsigned char)key[0]) ? 1 : 0;
-            }
-        }
-        int ch;
-        do {
-            ch = _readChar();
-            if (ch < 0) return false;
-        } while (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r');
-        if (ch != ':') return false;
-        do {
-            ch = _readChar();
-            if (ch < 0) return false;
-        } while (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r');
-        if (ch != '"') return false;
-        size_t n = 0;
-        for (;;) {
-            ch = _readChar();
-            if (ch < 0) return false;
-            if (ch == '"') break;
-            if (n + 1 < cap) tag[n++] = (char)ch;
-        }
-        tag[n] = '\0';
-        char* s = tag;
-        while (*s == ' ' || *s == '\t') s++;
-        if (s != tag) memmove(tag, s, strlen(s) + 1);
-        size_t len = strlen(tag);
-        while (len && (tag[len - 1] == ' ' || tag[len - 1] == '\t'))
-            tag[--len] = '\0';
-        return true;
-    }
-
-    bool _startDownload(const char* version, unsigned long now) {
+    void _download(const char* version, unsigned long now) {
         if (!_tlsReady()) {
             _recoverHeap();
-            return false;
+            _downloadFailed(now);
+            return;
         }
-
-        char host[OTA_HOST_CAP];
-        char* path = (char*)malloc(OTA_PATH_CAP);
-        if (!path) {
+        _path = (char*)malloc(OTA_PATH_CAP);
+        if (!_path) {
             _note(Report::Failed, PSTR("Memoria insuficiente"));
             _log.log(PSTR("OTA: memoria insuficiente"));
             _recoverHeap();
-            return false;
+            _downloadFailed(now);
+            return;
         }
-
         // Host e caminho fixos; só a tag (≤15) e o asset variam e cabem
-        strlcpy(host, "github.com", sizeof(host));
-        snprintf(path, OTA_PATH_CAP,
-                 "/allanbarcelos/esp8266-dns/releases/download/%s/%s",
-                 version, assetName(signingEnabled()));
-        _log.log(PSTR("URL firmware: https://%s%s"), host, path);
+        strlcpy(_host, "github.com", sizeof(_host));
+        snprintf_P(_path, OTA_PATH_CAP,
+                   PSTR("/allanbarcelos/esp8266-dns/releases/download/%s/%s"),
+                   version, assetName(signingEnabled()));
+        _log.log(PSTR("URL firmware: https://%s%s"), _host, _path);
+        _hop = 0;
+        _downloadConnect(now);
+    }
 
-        int code = 0;
-        int contentLength = -1;
-        bool opened = false;
-        for (uint8_t hop = 0; hop < MAX_REDIRECTS; hop++) {
-            if (!_prepareTls(host, hop > 0)) {
-                free(path);
-                _note(Report::Failed, PSTR("Cliente TLS indisponivel"));
-                _log.log(PSTR("OTA: TLS indisponivel"));
-                return false;
-            }
-            if (!_client.connect(host, 443)) {
-                free(path);
-                _note(Report::Failed, PSTR("Falha ao baixar o firmware"));
-                _log.log(PSTR("Falha ao iniciar OTA"));
-                _client.stop();
-                return false;
-            }
-            delay(1);
-            _sendGet(host, path);
-            if (!_readHeaders(code, contentLength, path, OTA_PATH_CAP)) {
-                free(path);
-                _note(Report::Failed, PSTR("Resposta OTA incompleta"));
-                _log.log(PSTR("OTA: headers incompletos"));
-                _client.stop();
-                return false;
-            }
-            if (_isRedirect(code)) {
-                _log.log(PSTR("OTA redirect %d"), code);
-                _client.stop();
-                delay(10);
-                if (path[0] == '\0') {
-                    free(path);
-                    _note(Report::Failed, PSTR("Redirect OTA sem Location"));
-                    _log.log(PSTR("OTA: redirect sem Location"));
-                    return false;
-                }
-                if (path[0] == '/') continue;
-                if (!_splitUrl(path, host, sizeof(host), path, OTA_PATH_CAP)) {
-                    free(path);
-                    _note(Report::Failed, PSTR("Redirect OTA invalido"));
-                    _log.log(PSTR("OTA: redirect invalido"));
-                    return false;
-                }
-                continue;
-            }
-            opened = true;
-            break;
+    void _downloadConnect(unsigned long now) {
+        if (!_prepareTls(_host, _hop > 0)) {
+            _note(Report::Failed, PSTR("Cliente TLS indisponivel"));
+            _log.log(PSTR("OTA: TLS indisponivel"));
+            _downloadFailed(now);
+            return;
         }
-        if (!opened) {
-            free(path);
-            _note(Report::Failed, PSTR("OTA excedeu redirecionamentos"));
-            _log.log(PSTR("OTA: redirecionamentos esgotados"));
+        if (!_client.connect(_host, 443)) {
+            _note(Report::Failed, PSTR("Falha ao baixar o firmware"));
+            _log.log(PSTR("Falha ao iniciar OTA"));
+            _downloadFailed(now);
+            return;
+        }
+        _sendGet(_host, _path);
+        _hdrP.begin(_path, OTA_PATH_CAP); // Location reaproveita o buffer
+        _net = NET_DL_HDR;
+        _netLast = now;
+        _pumpNet(now);
+    }
+
+    void _downloadFailed(unsigned long now) {
+        _client.stop();
+        _net = NET_IDLE;
+        free(_path);
+        _path = nullptr;
+        if (!_wifi.restartPending()) _scheduleRetry(now, true);
+    }
+
+    void _onDownloadHeaders(unsigned long now, int r) {
+        if (r < 0) {
+            _note(Report::Failed, PSTR("Resposta OTA incompleta"));
+            _log.log(PSTR("OTA: headers incompletos"));
+            _downloadFailed(now);
+            return;
+        }
+        int code = _hdrP.code;
+        if (_isRedirect(code)) {
+            _log.log(PSTR("OTA redirect %d"), code);
             _client.stop();
-            return false;
+            if (_path[0] == '\0') {
+                _note(Report::Failed, PSTR("Redirect OTA sem Location"));
+                _log.log(PSTR("OTA: redirect sem Location"));
+                _downloadFailed(now);
+                return;
+            }
+            if (_path[0] != '/' &&
+                !_splitUrl(_path, _host, sizeof(_host), _path, OTA_PATH_CAP)) {
+                _note(Report::Failed, PSTR("Redirect OTA invalido"));
+                _log.log(PSTR("OTA: redirect invalido"));
+                _downloadFailed(now);
+                return;
+            }
+            if (++_hop >= MAX_REDIRECTS) {
+                _note(Report::Failed, PSTR("OTA excedeu redirecionamentos"));
+                _log.log(PSTR("OTA: redirecionamentos esgotados"));
+                _downloadFailed(now);
+                return;
+            }
+            _downloadConnect(now);
+            return;
         }
         if (code != 200) {
-            free(path);
             _note(Report::Failed, PSTR("Download HTTP %d"), code);
             _log.log(PSTR("HTTP OTA erro: %d"), code);
-            _client.stop();
-            return false;
+            _downloadFailed(now);
+            return;
         }
-        free(path);
+        _net = NET_IDLE;
+        free(_path);
+        _path = nullptr;
 
-        _contentLength = contentLength;
+        _contentLength = _hdrP.contentLength;
         _unknownLen = _contentLength < 0;
         size_t flashSize;
         if (_unknownLen) {
@@ -602,8 +697,8 @@ private:
         } else if (_contentLength == 0) {
             _note(Report::Failed, PSTR("Tamanho do firmware invalido"));
             _log.log(PSTR("Tamanho firmware invalido"));
-            _client.stop();
-            return false;
+            _downloadFailed(now);
+            return;
         } else {
             flashSize = (size_t)_contentLength;
         }
@@ -611,8 +706,8 @@ private:
         if (flashSize == 0 || !Update.begin(flashSize)) {
             _note(Report::Failed, PSTR("Sem espaco para o firmware"));
             _log.log(PSTR("Sem espaco para OTA: %s"), Update.getErrorString().c_str());
-            _client.stop();
-            return false;
+            _downloadFailed(now);
+            return;
         }
 
         _written      = 0;
@@ -622,7 +717,6 @@ private:
         _wifi.setOTAInProgress(true);
         if (_unknownLen) _log.log(PSTR("OTA iniciado: tamanho desconhecido"));
         else _log.log(PSTR("OTA iniciado: %d bytes"), _contentLength);
-        return true;
     }
 
     void _streamChunk(unsigned long now) {

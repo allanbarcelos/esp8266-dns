@@ -15,6 +15,12 @@ public:
     static constexpr unsigned long DEBOUNCE_MS      = 200;
     static constexpr unsigned long READ_GAP_MS      = 2000;
     static constexpr unsigned long DS_CONVERT_MS    = 800;
+    // Pulso de início em LOW: DHT11 pede ≥ 18 ms, DHT22 ≥ 1 ms (2 pela
+    // resolução do millis). Acima do máximo o sensor pode não responder.
+    static constexpr unsigned long DHT11_WAKE_MS    = 18;
+    static constexpr unsigned long DHT11_WAKE_MAX   = 30;
+    static constexpr unsigned long DHT22_WAKE_MS    = 2;
+    static constexpr unsigned long DHT22_WAKE_MAX   = 20;
     static constexpr unsigned long PULSE_WINDOW_MS  = 10000;
     static constexpr size_t        MSG_LEN          = 64;
 
@@ -266,8 +272,10 @@ private:
     unsigned long _since;
     unsigned long _lastRead;
     unsigned long _owSince;
+    unsigned long _dhtSince;
     unsigned long _windowStart;
     uint8_t _owState;
+    bool    _dhtWaking;
     char    _pending[MSG_LEN];
     char    _sensorLine[40];
     char    _moduleLine[16];
@@ -370,8 +378,10 @@ private:
         _since = 0;
         _lastRead = 0;
         _owSince = 0;
+        _dhtSince = 0;
         _windowStart = 0;
         _owState = OW_IDLE;
+        _dhtWaking = false;
         _pending[0] = '\0';
         _sensorLine[0] = '\0';
         _moduleLine[0] = '\0';
@@ -617,12 +627,18 @@ private:
         return true;
     }
 
-    bool _readDht(uint8_t data[5]) {
+    // Fase 1: pino em LOW; o tick seguinte que cair na janela lê os bits.
+    void _dhtWake(unsigned long now) {
         uint8_t pin = (uint8_t)_runSensor;
         pinMode(pin, OUTPUT);
         digitalWrite(pin, LOW);
-        if (sensorKind(_runSensorType) == KIND_DHT11) delay(18);
-        else delayMicroseconds(1100);
+        _dhtWaking = true;
+        _dhtSince = now;
+    }
+
+    // Fase 2: solta o pino e lê os 40 bits (µs, com a interrupção fechada)
+    bool _readDht(uint8_t data[5]) {
+        uint8_t pin = (uint8_t)_runSensor;
         digitalWrite(pin, HIGH);
         delayMicroseconds(40);
         pinMode(pin, INPUT_PULLUP);
@@ -648,10 +664,27 @@ private:
         _temp = t;
     }
 
+    // Sem delay: o pulso de início atravessa dois ticks e o loop segue
     void _tickDht(unsigned long now) {
+        if (_dhtWaking) {
+            bool dht11 = sensorKind(_runSensorType) == KIND_DHT11;
+            unsigned long held = now - _dhtSince;
+            if (held < (dht11 ? DHT11_WAKE_MS : DHT22_WAKE_MS)) return;
+            if (held > (dht11 ? DHT11_WAKE_MAX : DHT22_WAKE_MAX)) {
+                _dhtWake(now); // o loop atrasou: recomeça o pulso
+                return;
+            }
+            _dhtWaking = false;
+            _readDhtNow();
+            return;
+        }
         if (_haveRead && now - _lastRead < READ_GAP_MS) return;
         _lastRead = now;
         _haveRead = true;
+        _dhtWake(now);
+    }
+
+    void _readDhtNow() {
         uint8_t data[5];
         if (!_readDht(data)) {
             _fail();

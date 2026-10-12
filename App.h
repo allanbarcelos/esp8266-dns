@@ -38,7 +38,6 @@ public:
 
     void begin() {
         Serial.begin(115200);
-        delay(1000);
         Serial.printf("\n=== ESP8266 DNS Updater %s ===\n", firmware_version);
 
         configStore.begin();
@@ -74,9 +73,8 @@ public:
 
         if (!ota.slim() && !ota.busy()) dns.tick(now);
         ota.tick(now);
-        if (!ota.slim() && !ota.inProgress()) {
-            iot.tick(now);
-            ntfy.tick(now);
-        }
+        if (!ota.slim() && !ota.inProgress()) iot.tick(now);
+        // ntfy abre outra sessão TLS: espera o OTA soltar a dele (heap)
+        if (!ota.slim() && !ota.busy()) ntfy.tick(now);
     }
 };

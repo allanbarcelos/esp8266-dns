@@ -180,6 +180,13 @@ static void feedDht(uint8_t pin, const uint8_t d[5]) {
     seg(LOW, 100);
 }
 
+// Leitura do DHT em dois ticks: pulso de início em t, bits em t + wake
+static void dhtRead(IoTService& iot, unsigned long t,
+                    unsigned long wake = IoTService::DHT22_WAKE_MS) {
+    iot.tick(t);
+    iot.tick(t + wake);
+}
+
 static void frame(uint8_t a, uint8_t b, uint8_t c, uint8_t d, uint8_t out[5]) {
     out[0] = a;
     out[1] = b;
@@ -319,7 +326,7 @@ void test_dht22_umidade_modulo_e_margem() {
     uint8_t d[5];
     frame(0x01, 0xE7, 0x01, 0x09, d); // 48.7% e 26.5C
     feedDht(2, d);
-    iot.tick(0);
+    dhtRead(iot, 0);
     TEST_ASSERT_EQUAL_STRING("umid 48.7% temp 26.5C", iot.sensorText());
     TEST_ASSERT_TRUE(iot.moduleOn());
     TEST_ASSERT_EQUAL_STRING("[sensor] GPIO2 umid 48.7% temp 26.5C modulo ligado", iot.message());
@@ -329,18 +336,18 @@ void test_dht22_umidade_modulo_e_margem() {
     TEST_ASSERT_EQUAL(logged, logger.count());
 
     feedDht(2, d);
-    iot.tick(IoTService::READ_GAP_MS);
+    dhtRead(iot, IoTService::READ_GAP_MS);
     TEST_ASSERT_EQUAL(logged, logger.count());
     TEST_ASSERT_TRUE(iot.pending());
 
     frame(0x01, 0x81, 0x01, 0x09, d); // 38.5%
     feedDht(2, d);
-    iot.tick(IoTService::READ_GAP_MS * 2);
+    dhtRead(iot, IoTService::READ_GAP_MS * 2);
     TEST_ASSERT_TRUE(iot.moduleOn());
 
     frame(0x01, 0x72, 0x01, 0x09, d); // 37.0%
     feedDht(2, d);
-    iot.tick(IoTService::READ_GAP_MS * 3);
+    dhtRead(iot, IoTService::READ_GAP_MS * 3);
     TEST_ASSERT_FALSE(iot.moduleOn());
     TEST_ASSERT_TRUE(contains(std::string(iot.message()), "modulo desligado"));
 }
@@ -358,7 +365,7 @@ void test_dht_falhas_temperatura_e_dht11() {
     mock::bus = true;
     mock::busPin = 2;
     seg(HIGH, 5000);
-    iot.tick(0);
+    dhtRead(iot, 0);
     TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
     TEST_ASSERT_TRUE(logHas(logger, "IoT: leitura falhou"));
     uint8_t logged = logger.count();
@@ -366,21 +373,21 @@ void test_dht_falhas_temperatura_e_dht11() {
     mock::busSegs.clear();
     mock::busAt = 0;
     seg(LOW, 5000);
-    iot.tick(IoTService::READ_GAP_MS);
+    dhtRead(iot, IoTService::READ_GAP_MS);
     TEST_ASSERT_EQUAL(logged, logger.count());
 
     mock::busSegs.clear();
     mock::busAt = 0;
     seg(LOW, 80);
     seg(HIGH, 5000);
-    iot.tick(IoTService::READ_GAP_MS * 2);
+    dhtRead(iot, IoTService::READ_GAP_MS * 2);
 
     mock::busSegs.clear();
     mock::busAt = 0;
     seg(LOW, 80);
     seg(HIGH, 80);
     seg(LOW, 5000);
-    iot.tick(IoTService::READ_GAP_MS * 3);
+    dhtRead(iot, IoTService::READ_GAP_MS * 3);
 
     mock::busSegs.clear();
     mock::busAt = 0;
@@ -388,17 +395,17 @@ void test_dht_falhas_temperatura_e_dht11() {
     seg(HIGH, 80);
     seg(LOW, 50);
     seg(HIGH, 5000);
-    iot.tick(IoTService::READ_GAP_MS * 4);
+    dhtRead(iot, IoTService::READ_GAP_MS * 4);
 
     uint8_t bad[5] = {0x01, 0xE7, 0x01, 0x09, 0x00};
     feedDht(2, bad);
-    iot.tick(IoTService::READ_GAP_MS * 5);
+    dhtRead(iot, IoTService::READ_GAP_MS * 5);
     TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
 
     uint8_t neg[5];
     frame(0x01, 0x5E, 0x80, 0x65, neg); // 35.0% e -10.1C
     feedDht(2, neg);
-    iot.tick(IoTService::READ_GAP_MS * 6);
+    dhtRead(iot, IoTService::READ_GAP_MS * 6);
     TEST_ASSERT_EQUAL_STRING("umid 35.0% temp -10.1C", iot.sensorText());
     TEST_ASSERT_EQUAL_STRING("[sensor] GPIO2 umid 35.0% temp -10.1C", iot.message());
 
@@ -413,11 +420,47 @@ void test_dht_falhas_temperatura_e_dht11() {
     uint8_t d11[5];
     frame(40, 0, 26, 0, d11);
     feedDht(2, d11);
-    dht11.tick(0);
+    dhtRead(dht11, 0, IoTService::DHT11_WAKE_MS);
     TEST_ASSERT_EQUAL_STRING("umid 40.0% temp 26.0C", dht11.sensorText());
     TEST_ASSERT_TRUE(dht11.moduleOn());
     TEST_ASSERT_FALSE(dht11.pending());
     TEST_ASSERT_TRUE(logHas(logger, "IoT: GPIO2 umid 40.0% temp 26.0C"));
+}
+
+// O pulso de início do DHT não usa delay: o pino fica em LOW entre dois
+// ticks. Antes do mínimo não lê; depois do máximo recomeça o pulso.
+void test_dht_pulso_de_inicio_sem_delay() {
+    const struct { uint8_t type; unsigned long wake, max; } cases[] = {
+        {IoTService::SENSOR_DHT11, IoTService::DHT11_WAKE_MS, IoTService::DHT11_WAKE_MAX},
+        {IoTService::SENSOR_DHT22, IoTService::DHT22_WAKE_MS, IoTService::DHT22_WAKE_MAX},
+    };
+    for (const auto& c : cases) {
+        setUp();
+        arm(2, -1);
+        cfg.iot_sensor_type = c.type;
+        IoTService iot{cfg, logger};
+        iot.begin();
+        uint8_t d[5];
+        frame(40, 0, 26, 0, d);
+        feedDht(2, d);
+
+        unsigned long before = micros();
+        iot.tick(100);
+        TEST_ASSERT_EQUAL(before, micros());          // não esperou nada
+        TEST_ASSERT_EQUAL(OUTPUT, mock::pinModeV[2]);
+        TEST_ASSERT_EQUAL(LOW, mock::pinOut[2]);
+
+        iot.tick(100 + c.wake - 1);                    // ainda no pulso
+        TEST_ASSERT_EQUAL_STRING("aguardando", iot.sensorText());
+
+        iot.tick(100 + c.max + 1);                     // loop atrasou: recomeça
+        TEST_ASSERT_EQUAL_STRING("aguardando", iot.sensorText());
+        TEST_ASSERT_EQUAL(LOW, mock::pinOut[2]);
+
+        iot.tick(100 + c.max + 1 + c.wake);            // janela certa: lê
+        TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[2]);
+        TEST_ASSERT_TRUE(contains(std::string(iot.sensorText()), "umid"));
+    }
 }
 
 void test_ds18b20_conversao_e_erros() {
@@ -922,6 +965,7 @@ int main() {
     RUN_TEST(test_servo_nos_outros_pinos_e_falha_ao_anexar);
     RUN_TEST(test_dht22_umidade_modulo_e_margem);
     RUN_TEST(test_dht_falhas_temperatura_e_dht11);
+    RUN_TEST(test_dht_pulso_de_inicio_sem_delay);
     RUN_TEST(test_ds18b20_conversao_e_erros);
     RUN_TEST(test_pulsos_na_janela);
     RUN_TEST(test_histerese_abaixo_sem_ntfy);

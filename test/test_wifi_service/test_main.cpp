@@ -42,13 +42,36 @@ void test_conecta_em_modo_estacao() {
     TEST_ASSERT_EQUAL_STRING("senha123", WiFi.beginPass.c_str());
     TEST_ASSERT_FALSE(wifi.inConfigMode());
     TEST_ASSERT_EQUAL(WIFI_NONE_SLEEP, WiFi.sleepMode);
+    TEST_ASSERT_FALSE(logHas(logger, "Conectado!")); // o tick acompanha a associação
+    wifi.tick(0);
     TEST_ASSERT_TRUE(logHas(logger, "Conectado!"));
+}
+
+// begin() não espera a associação: o loop segue enquanto o Wi-Fi conecta
+void test_begin_nao_bloqueia() {
+    WiFi._status = WL_DISCONNECTED;
+    W wifi(cfg, logger);
+    setMillis(5000);
+    wifi.begin();
+    TEST_ASSERT_EQUAL(5000UL, millis());
+    wifi.tick(5000 + W::CONNECT_TIMEOUT - 1);
+    TEST_ASSERT_FALSE(wifi.inConfigMode());
+    TEST_ASSERT_EQUAL(WIFI_STA, WiFi._mode);
+    WiFi._status = WL_CONNECTED;
+    wifi.tick(5000 + W::CONNECT_TIMEOUT);
+    TEST_ASSERT_FALSE(wifi.inConfigMode());
+    TEST_ASSERT_TRUE(logHas(logger, "Conectado!"));
+    // conectado: o tick volta a vigiar a associação normalmente
+    WiFi._status = WL_DISCONNECTED;
+    wifi.tick(5000 + W::CONNECT_TIMEOUT + W::STATUS_INTERVAL);
+    TEST_ASSERT_EQUAL(1, WiFi.disconnectCalls);
 }
 
 void test_falha_inicia_ap_e_estacao() {
     WiFi._status = WL_DISCONNECTED;
     W wifi(cfg, logger);
     wifi.begin();
+    wifi.tick(W::CONNECT_TIMEOUT);
     TEST_ASSERT_EQUAL(WIFI_AP_STA, WiFi._mode);
     TEST_ASSERT_EQUAL(WIFI_NONE_SLEEP, WiFi.sleepMode);
     TEST_ASSERT_TRUE(wifi.inConfigMode());
@@ -63,6 +86,8 @@ void test_got_ip_sai_do_modo_configuracao() {
     W wifi(cfg, logger);
     wifi.registerEvents();
     wifi.begin();
+    wifi.tick(W::CONNECT_TIMEOUT);
+    TEST_ASSERT_TRUE(wifi.inConfigMode());
 
     WiFi._status = WL_CONNECTED;
     WiFi.gotIP(WiFiEventStationModeGotIP{});
@@ -250,6 +275,7 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_sem_ssid_inicia_ap_protegido);
     RUN_TEST(test_conecta_em_modo_estacao);
+    RUN_TEST(test_begin_nao_bloqueia);
     RUN_TEST(test_falha_inicia_ap_e_estacao);
     RUN_TEST(test_got_ip_sai_do_modo_configuracao);
     RUN_TEST(test_got_ip_em_modo_estacao_nao_muda_modo);
