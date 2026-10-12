@@ -59,6 +59,8 @@ public:
         _cfg.pass   = doc["pass"]   | "";
 
         strlcpy(_cfg.ntfy_topic, doc["ntfy_topic"] | "", sizeof(_cfg.ntfy_topic));
+        strlcpy(_cfg.ntfy_cmd,   doc["ntfy_cmd"]   | "", sizeof(_cfg.ntfy_cmd));
+        strlcpy(_cfg.ntfy_token, doc["ntfy_token"] | "", sizeof(_cfg.ntfy_token));
         _cfg.ota_auto = doc["ota_auto"] | true;
         strlcpy(_cfg.api_token,  doc["api_token"]  | "", sizeof(_cfg.api_token));
         strlcpy(_cfg.cf_token,   doc["cf_token"]   | "", sizeof(_cfg.cf_token));
@@ -98,6 +100,8 @@ public:
         doc["ssid"]       = _cfg.ssid;
         doc["pass"]       = _cfg.pass;
         doc["ntfy_topic"] = _cfg.ntfy_topic;
+        doc["ntfy_cmd"]   = _cfg.ntfy_cmd;
+        doc["ntfy_token"] = _cfg.ntfy_token;
         doc["ota_auto"]   = _cfg.ota_auto;
         doc["api_token"]  = _cfg.api_token;
         doc["cf_token"]   = _cfg.cf_token;

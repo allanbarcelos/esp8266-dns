@@ -240,6 +240,21 @@ void test_sucesso_zera_falhas_do_wifi() {
     TEST_ASSERT_FALSE(f.wifi.restartPending());
 }
 
+// O ntfy solta o TLS quando o próximo tick do DNS vai usar a rede
+void test_due_avisa_quando_vai_usar_a_rede() {
+    Fixture f;
+    TEST_ASSERT_FALSE(f.dns.due(T - 1));
+    TEST_ASSERT_TRUE(f.dns.due(T));
+    WiFi._status = WL_DISCONNECTED;
+    TEST_ASSERT_FALSE(f.dns.due(T));
+    WiFi._status = WL_CONNECTED;
+    fakeNow = 1000;
+    TEST_ASSERT_FALSE(f.dns.due(T));
+    fakeNow = Clock::MIN_VALID_EPOCH + 100;
+    cfg.cf_record_count = 0;
+    TEST_ASSERT_FALSE(f.dns.due(T));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_configured_exige_token_zona_e_records);
@@ -259,5 +274,6 @@ int main() {
     RUN_TEST(test_sucesso_zera_falhas_do_wifi);
     RUN_TEST(test_dns_memoria_insuficiente);
     RUN_TEST(test_dns_tls_indisponivel);
+    RUN_TEST(test_due_avisa_quando_vai_usar_a_rede);
     return UNITY_END();
 }

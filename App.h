@@ -34,10 +34,10 @@ public:
     CloudflareDNS    dns{config, logger, wifi, resolver, clock};
     OTAService       ota{logger, wifi};
     IoTService       iot{config, logger};
-    NtfyNotifier     ntfy{config, logger, resolver, &iot};
+    NtfyNotifier     ntfy{config, logger, resolver, &iot, &clock};
 
     // Camada 3 — painel web
-    WebService web{config, logger, configStore, wifi, ota, iot};
+    WebService web{config, logger, configStore, wifi, ota, iot, &ntfy};
 
     void begin() {
         Serial.begin(115200);
@@ -73,6 +73,10 @@ public:
         if (!ota.slim()) web.tick();
         wifi.tick(now);
         wifi.tickRestart(now);
+
+        // Uma sessão TLS por vez: o fluxo de comandos do ntfy solta a dele
+        // antes de o DNS ou o OTA usarem a rede neste mesmo tick
+        if (!ota.slim()) ntfy.hold(ota.wantsNet(now) || dns.due(now));
 
         if (!ota.slim() && !ota.busy()) dns.tick(now);
         ota.tick(now);

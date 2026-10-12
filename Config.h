@@ -62,6 +62,8 @@ struct Config {
     char    cf_host[64]               = {};  // apenas exibição no painel
 
     char    ntfy_topic[64]            = {};
+    char    ntfy_cmd[64]              = {};   // tópico de comandos; "" desliga
+    char    ntfy_token[48]            = {};   // token de acesso do ntfy (opcional)
     bool    ota_auto                  = true; // ausência no JSON mantém o automático ligado
     char    api_token[33]             = {};   // API local (Bearer); gerado com o IoT
 

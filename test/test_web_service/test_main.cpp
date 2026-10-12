@@ -19,10 +19,14 @@ struct Fixture {
     WiFiService wifi{cfg, logger};
     OTAService  ota{logger, wifi};
     IoTService  iot{cfg, logger};
-    WebService  web{cfg, logger, store, wifi, ota, iot};
+    Clock            clock;
+    PublicIPResolver resolver{logger, clock};
+    NtfyNotifier     ntfy{cfg, logger, resolver, &iot, &clock};
+    WebService  web;
     ESP8266WebServer& srv = *ESP8266WebServer::instance();
 
-    Fixture() { web.begin(); }
+    explicit Fixture(bool withNtfy = true)
+        : web(cfg, logger, store, wifi, ota, iot, withNtfy ? &ntfy : nullptr) { web.begin(); }
 
     bool get(const char* path)              { return srv.request(HTTP_GET, path); }
     bool post(const char* path, Args a = {}) {
@@ -1128,6 +1132,60 @@ void test_api_sem_token_e_iot_desligado() {
     TEST_ASSERT_TRUE(contains(f.out(), ">Gerar token</button>"));
 }
 
+void test_ntfy_comandos_pagina_e_validacoes() {
+    Fixture f;
+    f.get("/ntfy");
+    TEST_ASSERT_TRUE(contains(f.out(), "<h2>Comandos pelo ntfy</h2>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Situacao</span><b>desligado</b>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='cmd' value=''"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Gerar nome aleatorio"));
+    TEST_ASSERT_TRUE(contains(f.out(), "crypto.getRandomValues"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='token'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='token_clear' value='1'>"));
+
+    struct { const char* topic; const char* cmd; const char* token; const char* msg; } bad[] = {
+        {"dados", "a b", "", "Topico de comandos invalido"},
+        {"mesmo", "mesmo", "", "precisa ser diferente"},
+        {"dados", "cmd-x", "tk-1", "Token do ntfy invalido"},
+        {"dados", "cmd-x", "tk_0123456789012345678901234567890123456789012345", "Token do ntfy invalido"},
+    };
+    for (const auto& b : bad) {
+        f.post("/ntfy/save", {{"topic", b.topic}, {"cmd", b.cmd}, {"token", b.token}});
+        TEST_ASSERT_EQUAL_MESSAGE(400, f.srv.code, b.msg);
+        TEST_ASSERT_TRUE_MESSAGE(contains(f.out(), b.msg), b.msg);
+    }
+    TEST_ASSERT_EQUAL_STRING("", cfg.ntfy_cmd);
+
+    f.post("/ntfy/save", {{"topic", "dados"}, {"cmd", " cmd-x "}, {"token", "tk_abc"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("cmd-x", cfg.ntfy_cmd);
+    TEST_ASSERT_EQUAL_STRING("tk_abc", cfg.ntfy_token);
+    f.get("/ntfy");
+    TEST_ASSERT_FALSE(contains(f.out(), "tk_abc"));        // segredo não volta à página
+
+    // Em branco mantém; marcar apaga
+    f.post("/ntfy/save", {{"topic", "dados"}, {"cmd", ""}, {"token", ""}});
+    TEST_ASSERT_EQUAL_STRING("tk_abc", cfg.ntfy_token);
+    TEST_ASSERT_EQUAL_STRING("", cfg.ntfy_cmd);
+    f.post("/ntfy/save", {{"topic", "dados"}, {"token", ""}, {"token_clear", "1"}});
+    TEST_ASSERT_EQUAL_STRING("", cfg.ntfy_token);
+
+    // Com atuador e tópico, mostra a conexão
+    strlcpy(cfg.iot.actuator, "rele", sizeof(cfg.iot.actuator));
+    cfg.iot.actuatorPin = 0;
+    strlcpy(cfg.ntfy_cmd, "cmd-x", sizeof(cfg.ntfy_cmd));
+    f.iot.begin();
+    f.get("/ntfy");
+    TEST_ASSERT_TRUE(contains(f.out(), "Situacao</span><b>conectando</b>"));
+}
+
+void test_ntfy_pagina_sem_servico_de_comandos() {
+    Fixture f(false);
+    f.get("/ntfy");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_FALSE(contains(f.out(), "Comandos pelo ntfy"));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_escape);
@@ -1193,5 +1251,7 @@ int main() {
     RUN_TEST(test_api_le_e_comanda);
     RUN_TEST(test_api_token_gerado_mostrado_e_trocado);
     RUN_TEST(test_api_sem_token_e_iot_desligado);
+    RUN_TEST(test_ntfy_comandos_pagina_e_validacoes);
+    RUN_TEST(test_ntfy_pagina_sem_servico_de_comandos);
     return UNITY_END();
 }

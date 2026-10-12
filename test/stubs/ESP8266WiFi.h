@@ -31,12 +31,13 @@ namespace MockHTTP {
     inline bool                     keepOpen = false;
     inline std::string              rawHttp;
     inline bool                     rawAny = false; // rawHttp vale também para /releases/latest
+    inline std::string              lastRaw;        // último pedido HTTP cru (TLS)
 
     inline void reset() {
         calledURLs.clear(); requests.clear(); queue.clear(); qIdx = 0;
         beginResults.clear(); bIdx = 0;
         lastHTTP10 = false; lastUA.clear(); keepOpen = false;
-        rawHttp.clear(); rawAny = false;
+        rawHttp.clear(); rawAny = false; lastRaw.clear();
     }
 
     inline void push(int code, const std::string& body = "", int size = -1,
@@ -212,9 +213,17 @@ inline void WiFiClient::setTimeout(unsigned long ms) {
     MockTLS::lastTimeoutMs = ms;
 }
 
+class WiFiClientSecure;
+namespace MockTLS { inline WiFiClientSecure* live = nullptr; } // último que conectou
+
 class WiFiClientSecure : public WiFiClient {
 public:
     WiFiClientSecure() { _owned = MockTLS::nullOwned ? nullptr : &_ctx; }
+    ~WiFiClientSecure() { if (MockTLS::live == this) MockTLS::live = nullptr; }
+
+    // Dados que o servidor manda depois (fluxo contínuo)
+    void inject(const std::string& data) { _rx += data; }
+    bool isConnected() const { return _connected; }
     WiFiClient _ctx;
 
     void setBufferSizes(int in, int out) {
@@ -233,6 +242,7 @@ public:
             MockTLS::connectCalls == MockTLS::failOnConnect) return 0;
         _host = host ? host : "";
         _connected = true;
+        MockTLS::live = this;
         _tx.clear();
         _rx.clear();
         _rxPos = 0;
@@ -298,6 +308,7 @@ private:
                 host = _tx.substr(hostPos + 6, end - (hostPos + 6));
         }
         MockHTTP::calledURLs.push_back("https://" + host + path);
+        MockHTTP::lastRaw = _tx;
         MockHTTP::lastHTTP10 = _tx.find("HTTP/1.0") != std::string::npos;
         if (_tx.find("User-Agent: ESP8266-dns") != std::string::npos)
             MockHTTP::lastUA = "ESP8266-dns";

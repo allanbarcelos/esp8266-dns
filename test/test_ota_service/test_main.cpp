@@ -1180,6 +1180,24 @@ void test_tag_malformada() {
     }
 }
 
+// O ntfy solta o TLS quando o OTA vai consultar ou baixar
+void test_wants_net_segue_a_agenda() {
+    Fixture f;
+    TEST_ASSERT_FALSE(f.ota.wantsNet(OTAService::FIRST_CHECK - 1));
+    TEST_ASSERT_TRUE(f.ota.wantsNet(OTAService::FIRST_CHECK));
+    TEST_ASSERT_FALSE(f.ota.wantsNet(OTAService::DEADLINE));
+
+    MockHTTP::push(200, R"({"tag_name":"dev"})");
+    f.ota.tick(OTAService::FIRST_CHECK);
+    TEST_ASSERT_FALSE(f.ota.wantsNet(OTAService::FIRST_CHECK + T - 1));
+    TEST_ASSERT_TRUE(f.ota.wantsNet(OTAService::FIRST_CHECK + T));
+
+    f.ota.setAutomatic(false);
+    TEST_ASSERT_FALSE(f.ota.wantsNet(OTAService::FIRST_CHECK + T));
+    f.ota.requestCheck();                              // pedido do painel
+    TEST_ASSERT_TRUE(f.ota.wantsNet(0));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_parse_tag);
@@ -1278,5 +1296,6 @@ int main() {
     RUN_TEST(test_tag_com_tab_no_inicio);
     RUN_TEST(test_tag_longa_e_truncada);
     RUN_TEST(test_tag_malformada);
+    RUN_TEST(test_wants_net_segue_a_agenda);
     return UNITY_END();
 }

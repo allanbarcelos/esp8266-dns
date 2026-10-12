@@ -197,6 +197,313 @@ void test_valida_topico() {
     TEST_ASSERT_FALSE(NtfyNotifier::isValidTopic("a b"));
 }
 
+// ── Comandos pelo ntfy (fluxo contínuo) ──────────────────────────────────────
+
+static const char* OK_HDR = "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\n\r\n";
+
+struct Cmd {
+    Clock            clock{fakeTime};
+    PublicIPResolver resolver{logger, clock};
+    IoTService       iot{cfg, logger};
+    NtfyNotifier     ntfy{cfg, logger, resolver, &iot, &clock};
+
+    Cmd() {
+        cfg.ntfy_topic[0] = '\0';               // só comandos: nada a publicar
+        strlcpy(cfg.ntfy_cmd, "cmd-abc", sizeof(cfg.ntfy_cmd));
+        strlcpy(cfg.iot.actuator, "rele", sizeof(cfg.iot.actuator));
+        cfg.iot.actuatorPin = 0;
+        iot.begin();
+        MockHTTP::keepOpen = true;
+    }
+
+    // Conecta e lê status e cabeçalhos
+    void open(unsigned long t = 0) {
+        MockHTTP::rawHttp = OK_HDR;
+        ntfy.tick(t);
+        ntfy.tick(t + 1);
+    }
+
+    void send(const std::string& line) { MockTLS::live->inject(line + "\r\n"); }
+};
+
+static std::string message(const char* id, const char* text, long age = 0) {
+    char buf[200];
+    snprintf(buf, sizeof(buf),
+             "{\"id\":\"%s\",\"time\":%ld,\"event\":\"message\",\"topic\":\"cmd-abc\","
+             "\"message\":\"%s\"}", id, (long)fakeNow - age, text);
+    return buf;
+}
+
+void test_comandos_conecta_validando_o_certificado() {
+    Cmd c;
+    TEST_ASSERT_EQUAL_STRING("conectando", c.ntfy.commandStatus());
+    MockHTTP::rawHttp = OK_HDR;
+    c.ntfy.tick(0);
+    TEST_ASSERT_TRUE(contains(MockHTTP::lastRaw,
+        "GET /cmd-abc/json HTTP/1.0\r\nHost: ntfy.sh\r\nUser-Agent: ESP8266\r\n\r\n"));
+    TEST_ASSERT_FALSE(contains(MockHTTP::lastRaw, "Authorization"));
+    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockTLS::lastTrustPem);
+    TEST_ASSERT_EQUAL((long)fakeNow, (long)MockTLS::lastTime);
+    TEST_ASSERT_EQUAL(0, MockTLS::insecureCalls);
+    TEST_ASSERT_EQUAL(NtfyNotifier::CONNECT_MS, MockTLS::lastTimeoutMs);
+
+    c.ntfy.tick(1);
+    TEST_ASSERT_EQUAL_STRING("conectado", c.ntfy.commandStatus());
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy: comandos conectados"));
+
+    c.send("{\"id\":\"o1\",\"time\":1,\"event\":\"open\",\"topic\":\"cmd-abc\"}");
+    c.send("{\"event\":\"keepalive\"}");
+    c.send("lixo");
+    c.send(message("m1", "ligar"));
+    c.ntfy.tick(2);
+    TEST_ASSERT_TRUE(c.iot.actuatorOn());
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy: comando \"ligar\""));
+
+    c.send(message("m2", "DESLIGAR"));
+    c.ntfy.tick(3);
+    TEST_ASSERT_FALSE(c.iot.actuatorOn());
+}
+
+void test_comandos_reconecta_pedindo_o_que_perdeu() {
+    Cmd c;
+    c.open();
+    c.send(message("m7", "ligar"));
+    c.ntfy.tick(10);
+
+    // Servidor fechou: espera e reabre com since=<último id>
+    MockHTTP::keepOpen = false;
+    c.ntfy.tick(20);
+    TEST_ASSERT_TRUE(logHas(logger, "fluxo de comandos encerrado"));
+    MockHTTP::keepOpen = true;
+    MockHTTP::rawHttp = OK_HDR;
+    c.ntfy.tick(20 + NtfyNotifier::RECONNECT_MS - 1);
+    TEST_ASSERT_EQUAL_STRING("conectando", c.ntfy.commandStatus());
+    TEST_ASSERT_FALSE(contains(MockHTTP::lastRaw, "since"));
+    c.ntfy.tick(20 + NtfyNotifier::RECONNECT_MS);
+    TEST_ASSERT_TRUE(contains(MockHTTP::lastRaw, "GET /cmd-abc/json?since=m7 HTTP/1.0"));
+
+    // Sem nada (nem keepalive) por muito tempo: reconecta
+    unsigned long t = 20 + NtfyNotifier::RECONNECT_MS;
+    c.ntfy.tick(t + 1);
+    c.ntfy.tick(t + 1 + NtfyNotifier::IDLE_TIMEOUT);
+    TEST_ASSERT_EQUAL_STRING("conectado", c.ntfy.commandStatus());
+    c.ntfy.tick(t + 2 + NtfyNotifier::IDLE_TIMEOUT);
+    TEST_ASSERT_TRUE(logHas(logger, "fluxo de comandos parado"));
+}
+
+void test_comandos_com_token_e_resposta_de_erro() {
+    strlcpy(cfg.ntfy_token, "tk_segredo", sizeof(cfg.ntfy_token));
+    Cmd c;
+    c.open();
+    TEST_ASSERT_TRUE(contains(MockHTTP::lastRaw, "Authorization: Bearer tk_segredo\r\n"));
+}
+
+void test_comandos_invalidos_respondem_no_topico_de_dados() {
+    Cmd c;
+    c.open();
+    c.send(message("e1", "voar"));
+    c.ntfy.tick(10);
+    TEST_ASSERT_TRUE(logHas(logger, "[erro] comando invalido: voar"));
+    c.send(message("e2", "50%"));
+    c.ntfy.tick(11);
+    TEST_ASSERT_TRUE(logHas(logger, "[erro] comando nao vale para este atuador: 50%"));
+
+    // Com tópico de dados, a resposta sai e o fluxo fecha para o envio
+    strlcpy(cfg.ntfy_topic, "dados", sizeof(cfg.ntfy_topic));
+    strlcpy(cfg.ntfy_token, "tk_x", sizeof(cfg.ntfy_token));
+    MockHTTP::push(200, "ok");
+    c.ntfy.tick(12);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[0].payload, "[erro] comando nao vale"));
+    bool auth = false;
+    for (auto& h : MockHTTP::requests[0].headers)
+        auth = auth || (h.first == "Authorization" && h.second == "Bearer tk_x");
+    TEST_ASSERT_TRUE(auth);
+    TEST_ASSERT_FALSE(MockTLS::live && MockTLS::live->isConnected());
+
+    // Resposta que falha tenta de novo depois do intervalo curto
+    MockHTTP::rawHttp = OK_HDR;
+    c.ntfy.tick(13);                                 // reconecta
+    c.ntfy.tick(14);
+    c.send(message("e3", "voar"));
+    c.ntfy.tick(15);
+    MockHTTP::push(500, "x");
+    c.ntfy.tick(12 + NtfyNotifier::POST_GAP);
+    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
+}
+
+void test_comandos_ignorados_quando_velhos_ou_longos() {
+    Cmd c;
+    c.open();
+    c.send(message("v1", "ligar", NtfyNotifier::STALE_S + 1));
+    c.ntfy.tick(10);
+    TEST_ASSERT_FALSE(c.iot.actuatorOn());
+    TEST_ASSERT_TRUE(logHas(logger, "comando antigo ignorado"));
+
+    // Linha maior que o buffer (anexo, título): descartada inteira
+    MockTLS::live->inject(std::string(NtfyNotifier::LINE_LEN + 50, 'x') + "\n");
+    c.send(message("v2", "ligar"));
+    c.ntfy.tick(11);                                 // lê até 256 bytes por tick
+    TEST_ASSERT_FALSE(c.iot.actuatorOn());
+    c.ntfy.tick(12);
+    c.ntfy.tick(13);
+    TEST_ASSERT_TRUE(c.iot.actuatorOn());
+}
+
+void test_comandos_falhas_esperam_cada_vez_mais() {
+    Cmd c;
+    MockHTTP::rawHttp = "HTTP/1.1 401 Unauthorized\r\n\r\n";
+    c.ntfy.tick(0);
+    c.ntfy.tick(1);
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy: comandos HTTP 401"));
+    TEST_ASSERT_EQUAL_STRING("conectando", c.ntfy.commandStatus());
+
+    MockHTTP::rawHttp = "lixo\r\n\r\n";
+    c.ntfy.tick(1 + 4999);                           // backoff de 5 s
+    TEST_ASSERT_FALSE(contains(MockHTTP::lastRaw, "lixo"));
+    int calls = MockTLS::connectCalls;
+    c.ntfy.tick(1 + 5000);
+    TEST_ASSERT_EQUAL(calls + 1, MockTLS::connectCalls);
+    c.ntfy.tick(1 + 5001);
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy: comandos HTTP 0"));
+
+    MockTLS::failConnect = true;                     // depois 10 s
+    c.ntfy.tick(5002 + 9999);
+    TEST_ASSERT_EQUAL(calls + 1, MockTLS::connectCalls);
+    c.ntfy.tick(5002 + 10000);
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy: sem conexao para comandos"));
+
+    // O teto é 5 min
+    unsigned long t = 5002 + 10000;
+    for (int i = 0; i < 8; i++) {
+        t += NtfyNotifier::BACKOFF_MAX_S * 1000UL;
+        c.ntfy.tick(t);
+    }
+    calls = MockTLS::connectCalls;
+    c.ntfy.tick(t + NtfyNotifier::BACKOFF_MAX_S * 1000UL);
+    TEST_ASSERT_EQUAL(calls + 1, MockTLS::connectCalls);
+
+    // Conectar zera a espera
+    MockTLS::failConnect = false;
+    t += NtfyNotifier::BACKOFF_MAX_S * 2000UL;
+    c.open(t);
+    TEST_ASSERT_EQUAL_STRING("conectado", c.ntfy.commandStatus());
+}
+
+void test_comandos_sem_memoria_sem_tls_e_sem_relogio() {
+    {
+        Cmd c;
+        ESP._heap = 1000;
+        c.ntfy.tick(0);
+        TEST_ASSERT_TRUE(logHas(logger, "memoria insuficiente para comandos"));
+        TEST_ASSERT_EQUAL(0, MockTLS::connectCalls);
+    }
+    resetMocks();
+    {
+        MockTLS::nullOwned = true;                   // contexto TLS sem memória
+        Cmd c;
+        c.ntfy.tick(0);
+        TEST_ASSERT_TRUE(logHas(logger, "sem conexao para comandos"));
+        TEST_ASSERT_EQUAL(0, MockTLS::connectCalls);
+    }
+    resetMocks();
+    {
+        fakeNow = 1000;                               // relógio ainda em 1970
+        Cmd c;
+        c.ntfy.tick(0);
+        TEST_ASSERT_EQUAL(0, MockTLS::connectCalls);
+        fakeNow = Clock::MIN_VALID_EPOCH + 100;
+        MockHTTP::rawHttp = OK_HDR;
+        c.ntfy.tick(NtfyNotifier::RECONNECT_MS - 1);
+        TEST_ASSERT_EQUAL(0, MockTLS::connectCalls);
+        c.ntfy.tick(NtfyNotifier::RECONNECT_MS);
+        TEST_ASSERT_EQUAL(1, MockTLS::connectCalls);
+    }
+}
+
+void test_comandos_pausam_e_desligam() {
+    Cmd c;
+    c.open();
+    TEST_ASSERT_TRUE(MockTLS::live->isConnected());
+
+    // DNS ou OTA vão usar a rede: solta a sessão na hora
+    c.ntfy.hold(true);
+    TEST_ASSERT_EQUAL_STRING("pausado", c.ntfy.commandStatus());
+    TEST_ASSERT_FALSE(MockTLS::live && MockTLS::live->isConnected());
+    int calls = MockTLS::connectCalls;
+    c.ntfy.tick(100);
+    TEST_ASSERT_EQUAL(calls, MockTLS::connectCalls);
+    c.ntfy.hold(false);
+    c.open(200);                                      // volta sem esperar
+    TEST_ASSERT_EQUAL(calls + 1, MockTLS::connectCalls);
+
+    WiFi._status = WL_DISCONNECTED;
+    c.ntfy.tick(300);
+    TEST_ASSERT_FALSE(MockTLS::live && MockTLS::live->isConnected());
+    WiFi._status = WL_CONNECTED;
+
+    // Sem atuador, sem tópico ou sem relógio: desligado
+    cfg.ntfy_cmd[0] = '\0';
+    c.ntfy.tick(400);
+    TEST_ASSERT_EQUAL_STRING("desligado", c.ntfy.commandStatus());
+    strlcpy(cfg.ntfy_cmd, "cmd-abc", sizeof(cfg.ntfy_cmd));
+    cfg.iot.actuatorPin = -1;
+    c.iot.begin();
+    TEST_ASSERT_EQUAL_STRING("desligado", c.ntfy.commandStatus());
+    NtfyNotifier semRelogio{cfg, logger, c.resolver, &c.iot};
+    TEST_ASSERT_EQUAL_STRING("desligado", semRelogio.commandStatus());
+    NtfyNotifier semIot{cfg, logger, c.resolver, nullptr, &c.clock};
+    TEST_ASSERT_EQUAL_STRING("desligado", semIot.commandStatus());
+}
+
+// Evento sai em segundos; leitura periódica, por minuto
+void test_eventos_saem_rapido_leituras_periodicas_nao() {
+    Fix f;
+    strlcpy(cfg.iot.actuator, "rele", sizeof(cfg.iot.actuator));
+    cfg.iot.actuatorPin = 0;
+    cfg.iot.notify = true;
+    IoTService iot{cfg, logger};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, &iot};
+    iot.begin();
+    MockHTTP::push(200, "1.2.3.4");
+    MockHTTP::push(200, "ok");
+    ntfy.tick(0);                                     // IP no boot
+    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
+
+    iot.command("ligar", 100);
+    TEST_ASSERT_TRUE(iot.urgent());
+    ntfy.tick(NtfyNotifier::POST_GAP - 1);
+    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
+    MockHTTP::push(200, "ok");
+    ntfy.tick(NtfyNotifier::POST_GAP);
+    TEST_ASSERT_EQUAL(3, (int)MockHTTP::requests.size());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[2].payload, "[atuador] ligado"));
+    TEST_ASSERT_FALSE(iot.urgent());
+}
+
+// Leitura periódica (sem mudança) espera o intervalo longo
+void test_leitura_periodica_nao_e_urgente() {
+    Fix f;
+    strlcpy(cfg.iot.sensor, "pulsos", sizeof(cfg.iot.sensor));
+    cfg.iot.sensorPin = 2;
+    cfg.iot.notify = true;
+    IoTService iot{cfg, logger};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, &iot};
+    iot.begin();
+    iot.tick(0);
+    iot.tick(IoTService::PULSE_WINDOW_MS);            // 1ª leitura: urgente
+    TEST_ASSERT_TRUE(iot.urgent());
+    MockHTTP::push(200, "ok");
+    ntfy.tick(IoTService::PULSE_WINDOW_MS);
+    TEST_ASSERT_FALSE(iot.pending());
+
+    iot.tick(IoTService::PULSE_WINDOW_MS * 2);        // igual: periódica
+    TEST_ASSERT_TRUE(iot.pending());
+    TEST_ASSERT_FALSE(iot.urgent());
+    ntfy.tick(IoTService::PULSE_WINDOW_MS * 2);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_sem_envio_sem_topico);
@@ -212,5 +519,15 @@ int main() {
     RUN_TEST(test_memoria_insuficiente_nao_envia);
     RUN_TEST(test_tls_indisponivel_nao_envia);
     RUN_TEST(test_valida_topico);
+    RUN_TEST(test_comandos_conecta_validando_o_certificado);
+    RUN_TEST(test_comandos_reconecta_pedindo_o_que_perdeu);
+    RUN_TEST(test_comandos_com_token_e_resposta_de_erro);
+    RUN_TEST(test_comandos_invalidos_respondem_no_topico_de_dados);
+    RUN_TEST(test_comandos_ignorados_quando_velhos_ou_longos);
+    RUN_TEST(test_comandos_falhas_esperam_cada_vez_mais);
+    RUN_TEST(test_comandos_sem_memoria_sem_tls_e_sem_relogio);
+    RUN_TEST(test_comandos_pausam_e_desligam);
+    RUN_TEST(test_eventos_saem_rapido_leituras_periodicas_nao);
+    RUN_TEST(test_leitura_periodica_nao_e_urgente);
     return UNITY_END();
 }

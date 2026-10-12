@@ -35,6 +35,12 @@ public:
         _update(now);
     }
 
+    // A próxima chamada de tick vai usar a rede (TLS)
+    bool due(unsigned long now) const {
+        return configured() && now - _lastCheck >= CHECK_INTERVAL &&
+               _wifi.isConnected() && _clock.synced();
+    }
+
     bool configured() const {
         return _cfg.cf_token[0] && _cfg.cf_zone[0] && _cfg.cf_record_count > 0;
     }

@@ -58,6 +58,14 @@ public:
         return _active() || _wantCheck || _wantInstall;
     }
 
+    // Consulta ou download agora ou no próximo tick (o ntfy solta o TLS)
+    bool wantsNet(unsigned long now) const {
+        if (busy()) return true;
+        if (!_automatic || now >= DEADLINE) return false;
+        if (_lastCheck == 0) return now >= FIRST_CHECK;
+        return now - _lastCheck >= CHECK_INTERVAL;
+    }
+
     void begin() {
         _loadRejected();
         _loadPending();

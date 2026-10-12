@@ -236,8 +236,13 @@ public:
     }
 
     bool pending() const { return _pending[0] != '\0'; }
+    // Mudança (comando, estado novo) sai em segundos; leitura periódica, por minuto
+    bool urgent() const { return _urgent; }
     const char* message() const { return _pending; }
-    void ack() { _pending[0] = '\0'; }
+    void ack() {
+        _pending[0] = '\0';
+        _urgent = false;
+    }
 
     // Contagem de pulsos. O ISR só incrementa.
     static void IRAM_ATTR onPulse() { _pulses++; }
@@ -289,6 +294,7 @@ private:
     unsigned long _onSince;
     char    _actLine[28];
     char    _pending[MSG_LEN];
+    bool    _urgent;
     Servo   _servo;
 
     static inline volatile uint32_t _pulses = 0;
@@ -335,6 +341,7 @@ private:
         _onSince = 0;
         _actLine[0] = '\0';
         _pending[0] = '\0';
+        _urgent = false;
         _pulses = 0;
     }
 
@@ -464,7 +471,10 @@ private:
         char line[MSG_LEN];
         snprintf_P(line, sizeof(line), fmt, actuatorText());
         _log.log(PSTR("IoT: %s"), line);
-        if (_r.notify) strlcpy(_pending, line, sizeof(_pending));
+        if (_r.notify) {
+            strlcpy(_pending, line, sizeof(_pending));
+            _urgent = true;
+        }
     }
 
     // Leva o atuador à última decisão da regra (modo automático). Não
@@ -536,7 +546,10 @@ private:
         else
             snprintf(line, sizeof(line), "[sensor] %s", sensorText());
         if (log) _log.log(PSTR("IoT: %s"), line + 9);
-        if (_r.notify) strlcpy(_pending, line, sizeof(_pending));
+        if (_r.notify) {
+            strlcpy(_pending, line, sizeof(_pending));
+            _urgent = _urgent || log;
+        }
     }
 
     void _fail() {

@@ -1126,6 +1126,22 @@ void test_regra_abre_o_servo() {
     TEST_ASSERT_EQUAL(120, mock::servoAngle);
 }
 
+// Aviso urgente segue urgente até sair, mesmo com leituras no meio
+void test_urgente_se_acumula_ate_o_envio() {
+    sensor("pir", 2);
+    cfg.iot.notify = true;
+    IoTService iot{cfg, logger};
+    iot.begin();
+    level(iot, 2, HIGH, 0);
+    TEST_ASSERT_TRUE(iot.urgent());
+    level(iot, 2, LOW, 1000);
+    TEST_ASSERT_TRUE(iot.urgent());
+    TEST_ASSERT_EQUAL_STRING("[sensor] livre", iot.message());
+    iot.ack();
+    TEST_ASSERT_FALSE(iot.urgent());
+    TEST_ASSERT_FALSE(iot.pending());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_catalogo_por_identificador);
@@ -1156,5 +1172,6 @@ int main() {
     RUN_TEST(test_intensidade_proporcional);
     RUN_TEST(test_proporcional_sem_decimos_e_manual_numerico);
     RUN_TEST(test_regra_abre_o_servo);
+    RUN_TEST(test_urgente_se_acumula_ate_o_envio);
     return UNITY_END();
 }

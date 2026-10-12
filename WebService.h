@@ -153,9 +153,10 @@ public:
     static constexpr size_t STATE_JSON_LEN = 384;
 
     WebService(Config& cfg, Logger& log, ConfigStore& store,
-               WiFiService& wifi, OTAService& ota, IoTService& iot)
+               WiFiService& wifi, OTAService& ota, IoTService& iot,
+               NtfyNotifier* ntfy = nullptr)
         : _server(80), _cfg(cfg), _log(log), _store(store),
-          _wifi(wifi), _ota(ota), _iot(iot) {
+          _wifi(wifi), _ota(ota), _iot(iot), _ntfy(ntfy) {
         _csrfToken[0] = '\0';
     }
 
@@ -268,6 +269,7 @@ private:
     WiFiService&     _wifi;
     OTAService&      _ota;
     IoTService&      _iot;
+    NtfyNotifier*    _ntfy;
 
     char _csrfToken[17]; // 16 hex + null
 
@@ -718,13 +720,31 @@ private:
             _alert(PSTR("success"), String("Topico: ") + _cfg.ntfy_topic);
         else
             _alertP(PSTR("warning"), PSTR("Topico nao configurado - notificacoes desativadas"));
+        if (_ntfy) {
+            _box(PSTR("Comandos pelo ntfy"));
+            _row(PSTR("Situacao"), _ntfy->commandStatus());
+            _boxEnd();
+        }
 
         _p(PSTR("<form action='/ntfy/save' method='POST'>"));
         _csrfField();
         _input(PSTR("Topico ntfy.sh"), PSTR("topic"), _cfg.ntfy_topic,
                PSTR("maxlength='63' pattern='[A-Za-z0-9_\\-]*' placeholder='meu-topico-secreto'"));
-        _p(PSTR("<p class='m'>Enviado no boot e quando o IP mudar. "
-                "Deixe em branco para desativar.</p>"));
+        _p(PSTR("<p class='m'>Recebe o IP no boot e quando ele mudar, e as leituras e "
+                "mudancas do IoT. Deixe em branco para desativar.</p>"));
+        _input(PSTR("Topico de comandos"), PSTR("cmd"), _cfg.ntfy_cmd,
+               PSTR("id='cmd' maxlength='63' pattern='[A-Za-z0-9_\\-]*'"));
+        _p(PSTR("<button type='button' class='b2' onclick=\"var a=new Uint8Array(12);"
+                "crypto.getRandomValues(a);document.getElementById('cmd').value='cmd-'+"
+                "Array.from(a,function(b){return('0'+b.toString(16)).slice(-2)}).join('')\">"
+                "Gerar nome aleatorio</button>"
+                "<p class='m'>Cada mensagem publicada neste topico vira um comando do atuador "
+                "(ligar, desligar, pulso 5, 50%, abrir, auto). Quem souber o nome pode "
+                "comandar: use um nome longo e aleatorio, diferente do topico acima, ou um "
+                "token de acesso. Em branco, desativado.</p>"));
+        _passwordInput(PSTR("Token de acesso do ntfy <span class='m'>(opcional; em branco mantem)"
+                            "</span>"), PSTR("token"), PSTR("maxlength='47' placeholder='tk_...'"));
+        _switch(PSTR("token_clear"), PSTR("Apagar o token salvo"), false);
         _button(PSTR("Salvar"));
         _pageEnd();
     }
@@ -734,12 +754,38 @@ private:
         if (!_checkCSRF()) return;
 
         String topic = _server.arg("topic");
+        String cmd = _server.arg("cmd");
+        String token = _server.arg("token");
         topic.trim();
+        cmd.trim();
+        token.trim();
         if (topic.length() > 0 && !NtfyNotifier::isValidTopic(topic)) {
             _errorPage(PSTR("Topico invalido (use letras, numeros, _ ou -)"), PSTR("/ntfy"));
             return;
         }
+        if (cmd.length() > 0 && !NtfyNotifier::isValidTopic(cmd)) {
+            _errorPage(PSTR("Topico de comandos invalido (use letras, numeros, _ ou -)"),
+                       PSTR("/ntfy"));
+            return;
+        }
+        // A resposta vai ao tópico de dados: o mesmo tópico leria a própria resposta
+        if (cmd.length() > 0 && cmd == topic) {
+            _errorPage(PSTR("O topico de comandos precisa ser diferente"), PSTR("/ntfy"));
+            return;
+        }
+        bool tokenOk = token.length() < sizeof(_cfg.ntfy_token);
+        for (size_t i = 0; tokenOk && i < token.length(); i++) {
+            char c = token.c_str()[i];
+            tokenOk = isalnum((unsigned char)c) || c == '_';
+        }
+        if (!tokenOk) {
+            _errorPage(PSTR("Token do ntfy invalido"), PSTR("/ntfy"));
+            return;
+        }
         strlcpy(_cfg.ntfy_topic, topic.c_str(), sizeof(_cfg.ntfy_topic));
+        strlcpy(_cfg.ntfy_cmd, cmd.c_str(), sizeof(_cfg.ntfy_cmd));
+        if (_flag("token_clear")) _cfg.ntfy_token[0] = '\0';
+        else if (token.length()) strlcpy(_cfg.ntfy_token, token.c_str(), sizeof(_cfg.ntfy_token));
         if (!_store.save()) {
             _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/ntfy"));
             return;
