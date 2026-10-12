@@ -166,16 +166,33 @@ Not in the firmware yet. The local ring (`Logger.h`, 10 lines of 128 characters,
 
 ## 🔧 Local build
 
+The ESP-01 has no auto-reset: to flash, tie **GPIO0 to GND** and power-cycle the adapter. After flashing, release GPIO0 and power-cycle again to run the firmware.
+
+**PlatformIO** (`platformio.ini` already embeds `public.key`, the OTA linker script and drops float `printf`):
+
 ```bash
+pio run -e esp8266                                   # build
+pio run -e esp8266 -t erase  --upload-port COM4      # optional: wipe flash (config included)
+pio run -e esp8266 -t upload --upload-port COM4      # re-enter flash mode after an erase
+pio device monitor -b 115200 -p COM4
+```
+
+**arduino-cli** (same flags as CI):
+
+```bash
+arduino-cli config init   # skip if you already have an arduino-cli config
+arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
+arduino-cli core update-index
 arduino-cli core install esp8266:esp8266@3.1.2
-arduino-cli lib install "ArduinoJson@6.21.4"
+arduino-cli lib install "ArduinoJson@6.21.6"
 python3 tools/ota_flash_ld.py
 arduino-cli compile --fqbn esp8266:esp8266:generic:eesz=1M64 \
   --build-property build.flash_ld=eagle.flash.1m64.ota.ld \
+  --build-property "build.float=" \
   --build-property "build.extra_flags=-DARDUINO_SIGNING=1" \
   --output-dir build
 arduino-cli upload  --fqbn esp8266:esp8266:generic:eesz=1M64 -p /dev/ttyUSB0 --input-dir build
 arduino-cli monitor -p /dev/ttyUSB0 --config 115200
 ```
 
-Local builds report version `dev` and update to the latest release on the first OTA check.
+Local builds report version `dev` and update to the latest release on the first OTA check (unless automatic update is off).

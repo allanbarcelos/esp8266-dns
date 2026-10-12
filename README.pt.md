@@ -166,16 +166,33 @@ Ainda não está no firmware. O anel local (`Logger.h`, 10 linhas de 128 caracte
 
 ## 🔧 Build local
 
+O ESP-01 não tem reset automático: para gravar, ligue o **GPIO0 ao GND** e reconecte o adaptador. Depois da gravação, solte o GPIO0 e reconecte de novo para rodar o firmware.
+
+**PlatformIO** (o `platformio.ini` já embute a `public.key`, o linker script do OTA e tira o `float` do `printf`):
+
 ```bash
+pio run -e esp8266                                   # compila
+pio run -e esp8266 -t erase  --upload-port COM4      # opcional: apaga a flash (inclusive a configuração)
+pio run -e esp8266 -t upload --upload-port COM4      # depois de apagar, volte ao modo de gravação
+pio device monitor -b 115200 -p COM4
+```
+
+**arduino-cli** (mesmas flags do CI):
+
+```bash
+arduino-cli config init   # pule se já tiver configuração do arduino-cli
+arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
+arduino-cli core update-index
 arduino-cli core install esp8266:esp8266@3.1.2
-arduino-cli lib install "ArduinoJson@6.21.4"
+arduino-cli lib install "ArduinoJson@6.21.6"
 python3 tools/ota_flash_ld.py
 arduino-cli compile --fqbn esp8266:esp8266:generic:eesz=1M64 \
   --build-property build.flash_ld=eagle.flash.1m64.ota.ld \
+  --build-property "build.float=" \
   --build-property "build.extra_flags=-DARDUINO_SIGNING=1" \
   --output-dir build
 arduino-cli upload  --fqbn esp8266:esp8266:generic:eesz=1M64 -p /dev/ttyUSB0 --input-dir build
 arduino-cli monitor -p /dev/ttyUSB0 --config 115200
 ```
 
-Builds locais têm versão `dev` e atualizam para o último release na primeira checagem OTA.
+Builds locais têm versão `dev` e atualizam para o último release na primeira checagem OTA (se a atualização automática estiver ligada).
