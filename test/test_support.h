@@ -8,6 +8,18 @@
 #include <cstring>
 #include "Logger.h"
 
+// malloc falha uma vez para o tamanho pedido (link com -Wl,--wrap=malloc
+// no env native). Só o tamanho exato falha: libc e Unity seguem normais.
+namespace mock { inline size_t failMallocSize = 0; }
+extern "C" void* __real_malloc(size_t n);
+extern "C" void* __wrap_malloc(size_t n) {
+    if (mock::failMallocSize != 0 && n == mock::failMallocSize) {
+        mock::failMallocSize = 0;
+        return nullptr;
+    }
+    return __real_malloc(n);
+}
+
 // Restaura todos os mocks globais para o estado inicial
 inline void resetMocks() {
     setMillis(0);
@@ -18,6 +30,7 @@ inline void resetMocks() {
     ESP.reset();
     Update.reset();
     mock::configTimeCalls = 0;
+    mock::failMallocSize = 0;
     mock::ntpServer1.clear();
     mock::resetPins();
     mock::resetBus();

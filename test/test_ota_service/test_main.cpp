@@ -934,6 +934,210 @@ void test_consulta_esgota_sem_gravar_pedido() {
     TEST_ASSERT_TRUE(logHas(logger, "tentativas esgotadas"));
 }
 
+// ── caminhos de erro do TLS/HTTP cru ─────────────────────────────────────────
+
+void test_consulta_headers_incompletos() {
+    Fixture f;
+    MockHTTP::rawAny = true;
+    MockHTTP::rawHttp = "HTTP/1.0 200 OK\r\nContent-Type: x";
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "Erro JSON versao: headers"));
+    TEST_ASSERT_EQUAL_STRING("Nova tentativa em 10 s", f.ota.detail());
+}
+
+// O BearSSL aloca os buffers e o maior bloco livre já não cabe o RX
+void test_bloco_encolhe_apos_buffers_tls() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockTLS::shrinkOnBuffers = 2; // 1 = consulta, 2 = download
+    MockTLS::shrinkBlockTo = OTAService::GITHUB_RX + OTAService::TLS_TAIL - 1;
+    f.ota.tick(T);
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: TLS indisponivel"));
+}
+
+void test_leitura_expira_sem_dados() {
+    Fixture f;
+    MockHTTP::push(200, R"({"name":"sem tag")");
+    MockHTTP::keepOpen = true;
+    unsigned long before = millis();
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(millis() - before >= 15000UL);
+    TEST_ASSERT_TRUE(logHas(logger, "Erro JSON versao: tag_name"));
+}
+
+void test_header_sem_dois_pontos_e_ignorado() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::rawHttp = "HTTP/1.0 200 OK\r\nSemValor\r\nContent-Length: 4\r\n\r\nXXXX";
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    TEST_ASSERT_EQUAL(4, f.ota.contentLength());
+}
+
+void test_tag_com_espacos_no_fim() {
+    Fixture f;
+    f.ota.setAutomatic(false);
+    MockHTTP::push(200, "{\"tag_name\":\"v999\t \"}");
+    f.ota.requestCheck();
+    f.ota.tick(0);
+    TEST_ASSERT_EQUAL_STRING("v999", f.ota.availableVersion());
+}
+
+void test_download_sem_memoria_para_o_caminho() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    mock::failMallocSize = OTAService::OTA_PATH_CAP;
+    f.ota.tick(T);
+    TEST_ASSERT_FALSE(f.ota.inProgress());
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: memoria insuficiente"));
+    TEST_ASSERT_TRUE(f.wifi.restartPending());
+    TEST_ASSERT_EQUAL_STRING("v999 1", MockFS::files["/ota.pending"].c_str());
+}
+
+// ── parser de cabeçalhos do download ─────────────────────────────────────────
+
+// Consulta válida e a resposta crua do primeiro GET do download
+static void rawDownload(const std::string& http) {
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::rawHttp = http;
+}
+
+void test_status_cortado() {
+    Fixture f;
+    rawDownload("HTTP/1.0 200 OK");
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: headers incompletos"));
+}
+
+void test_status_com_codigo_invalido() {
+    const char* lines[] = {"HTTP/1.0 !00 x\r\n\r\n", "HTTP/1.0 x00 y\r\n\r\n"};
+    for (const char* line : lines) {
+        setUp();
+        Fixture f;
+        rawDownload(line);
+        f.ota.tick(T);
+        TEST_ASSERT_TRUE(logHas(logger, "OTA: headers incompletos"));
+    }
+}
+
+void test_status_longo_e_truncado() {
+    Fixture f;
+    rawDownload("HTTP/1.0 200 " + std::string(40, 'O') + "\r\nContent-Length: 4\r\n\r\nXXXX");
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    TEST_ASSERT_EQUAL(4, f.ota.contentLength());
+}
+
+void test_header_cortado_apos_dois_pontos() {
+    Fixture f;
+    rawDownload("HTTP/1.0 200 OK\r\nX:");
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: headers incompletos"));
+}
+
+void test_header_com_tab_apos_dois_pontos() {
+    Fixture f;
+    rawDownload("HTTP/1.0 200 OK\r\nContent-Length:\t4\r\n\r\nXXXX");
+    f.ota.tick(T);
+    TEST_ASSERT_EQUAL(4, f.ota.contentLength());
+}
+
+void test_nome_de_header_longo() {
+    Fixture f;
+    rawDownload("HTTP/1.0 200 OK\r\n" + std::string(40, 'H') + ": v\r\nContent-Length: 4\r\n\r\nXXXX");
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    TEST_ASSERT_EQUAL(4, f.ota.contentLength());
+}
+
+void test_content_length_longo_e_truncado() {
+    Fixture f;
+    rawDownload("HTTP/1.0 200 OK\r\nContent-Length: " + std::string(40, '0') + "\r\n\r\n");
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "Tamanho firmware invalido"));
+}
+
+void test_location_longo_e_truncado() {
+    Fixture f;
+    rawDownload("HTTP/1.0 302 F\r\nLocation: /" + std::string(1300, 'a') + "\r\n\r\n");
+    MockHTTP::push(200, std::string(32, 'Z'));
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    std::string expected = "https://github.com/" + std::string(OTAService::OTA_PATH_CAP - 2, 'a');
+    TEST_ASSERT_EQUAL_STRING(expected.c_str(), MockHTTP::calledURLs.back().c_str());
+}
+
+void test_primeiro_location_vale() {
+    Fixture f;
+    rawDownload("HTTP/1.0 302 F\r\nLocation: /a\r\nLocation: /b\r\n\r\n");
+    MockHTTP::push(200, std::string(32, 'Z'));
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(f.ota.inProgress());
+    TEST_ASSERT_EQUAL_STRING("https://github.com/a", MockHTTP::calledURLs.back().c_str());
+}
+
+void test_redirect_sem_host() {
+    Fixture f;
+    MockHTTP::push(200, R"({"tag_name":"v999"})");
+    MockHTTP::push(302, "", -1, "https:///fw.bin");
+    f.ota.tick(T);
+    TEST_ASSERT_TRUE(logHas(logger, "OTA: redirect invalido"));
+}
+
+// ── parser de tag_name ───────────────────────────────────────────────────────
+
+static void checkWith(Fixture& f, const std::string& body) {
+    f.ota.setAutomatic(false);
+    MockHTTP::push(200, body);
+    f.ota.requestCheck();
+    f.ota.tick(0);
+}
+
+void test_tag_apos_aspas_repetidas() {
+    Fixture f;
+    checkWith(f, R"({"a":"","tag_name":"v999"})");
+    TEST_ASSERT_EQUAL_STRING("v999", f.ota.availableVersion());
+}
+
+void test_tag_com_espacos_em_volta_dos_dois_pontos() {
+    Fixture f;
+    checkWith(f, "{\"tag_name\" \t\r\n: \t\r\n\"v999\"}");
+    TEST_ASSERT_EQUAL_STRING("v999", f.ota.availableVersion());
+}
+
+void test_tag_com_tab_no_inicio() {
+    Fixture f;
+    checkWith(f, "{\"tag_name\":\"\t v999\"}");
+    TEST_ASSERT_EQUAL_STRING("v999", f.ota.availableVersion());
+}
+
+void test_tag_longa_e_truncada() {
+    Fixture f;
+    checkWith(f, R"({"tag_name":"v12345678901234567890"})");
+    TEST_ASSERT_FALSE(logHas(logger, "Erro JSON versao"));
+    TEST_ASSERT_EQUAL(OTAService::Report::UpToDate, f.ota.report()); // v12345678901234 não é tag válida
+}
+
+void test_tag_malformada() {
+    const char* bodies[] = {
+        R"({"tag_name")",      // termina antes dos dois-pontos
+        R"({"tag_name" x)",    // sem dois-pontos
+        R"({"tag_name":)",     // termina antes do valor
+        R"({"tag_name":5})",   // valor não é string
+        R"({"tag_name":"v99)", // string sem fechar
+    };
+    for (const char* body : bodies) {
+        setUp();
+        Fixture f;
+        checkWith(f, body);
+        TEST_ASSERT_TRUE_MESSAGE(logHas(logger, "Erro JSON versao: tag_name"), body);
+        TEST_ASSERT_EQUAL_STRING("", f.ota.availableVersion());
+    }
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_parse_tag);
@@ -1010,5 +1214,26 @@ int main() {
     RUN_TEST(test_cdn_usa_mfln);
     RUN_TEST(test_redirect_sem_path);
     RUN_TEST(test_redirect_host_longo);
+    RUN_TEST(test_consulta_headers_incompletos);
+    RUN_TEST(test_bloco_encolhe_apos_buffers_tls);
+    RUN_TEST(test_leitura_expira_sem_dados);
+    RUN_TEST(test_header_sem_dois_pontos_e_ignorado);
+    RUN_TEST(test_tag_com_espacos_no_fim);
+    RUN_TEST(test_download_sem_memoria_para_o_caminho);
+    RUN_TEST(test_status_cortado);
+    RUN_TEST(test_status_com_codigo_invalido);
+    RUN_TEST(test_status_longo_e_truncado);
+    RUN_TEST(test_header_cortado_apos_dois_pontos);
+    RUN_TEST(test_header_com_tab_apos_dois_pontos);
+    RUN_TEST(test_nome_de_header_longo);
+    RUN_TEST(test_content_length_longo_e_truncado);
+    RUN_TEST(test_location_longo_e_truncado);
+    RUN_TEST(test_primeiro_location_vale);
+    RUN_TEST(test_redirect_sem_host);
+    RUN_TEST(test_tag_apos_aspas_repetidas);
+    RUN_TEST(test_tag_com_espacos_em_volta_dos_dois_pontos);
+    RUN_TEST(test_tag_com_tab_no_inicio);
+    RUN_TEST(test_tag_longa_e_truncada);
+    RUN_TEST(test_tag_malformada);
     return UNITY_END();
 }

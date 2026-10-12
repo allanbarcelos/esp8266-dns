@@ -51,7 +51,8 @@ public:
     bool automatic() const { return _automatic; }
     bool slim()      const { return _slim; }
     bool busy()      const {
-        return _inProgress || _wantCheck || _wantInstall || _nextRetry != 0;
+        // _nextRetry só fica != 0 junto com _wantCheck/_wantInstall
+        return _inProgress || _wantCheck || _wantInstall;
     }
 
     void begin() {
@@ -339,9 +340,11 @@ private:
         return line[n] == '\0';
     }
 
+    // url é o próprio buffer path (Location do redirect, já limitado a
+    // pathCap): o caminho só é movido para o início.
     static bool _splitUrl(const char* url, char* host, size_t hostCap,
                           char* path, size_t pathCap) {
-        if (!url || strncmp(url, "https://", 8) != 0) return false;
+        if (strncmp(url, "https://", 8) != 0) return false;
         const char* p = url + 8;
         const char* slash = strchr(p, '/');
         size_t hostLen = slash ? (size_t)(slash - p) : strlen(p);
@@ -351,9 +354,7 @@ private:
         char* colon = strchr(host, ':');
         if (colon) *colon = '\0';
         if (slash) {
-            size_t pathLen = strlen(slash);
-            if (pathLen >= pathCap) return false;
-            memmove(path, slash, pathLen + 1);
+            memmove(path, slash, strlen(slash) + 1);
         } else {
             strlcpy(path, "/", pathCap);
         }
@@ -395,20 +396,18 @@ private:
     int _readChar() {
         unsigned long start = millis();
         for (;;) {
-            if (_client.available() > 0) {
-                int ch = _client.read();
-                if (ch >= 0) return ch;
-            }
-            if (!_client.connected() && _client.available() <= 0) return -1;
+            if (_client.available() > 0) return _client.read();
+            if (!_client.connected()) return -1;
             if (millis() - start >= 15000UL) return -1;
             delay(1);
         }
     }
 
+    // location, quando não nulo, tem locationCap > 0
     bool _readHeaders(int& code, int& contentLength, char* location, size_t locationCap) {
         code = 0;
         contentLength = -1;
-        if (location && locationCap) location[0] = '\0';
+        if (location) location[0] = '\0';
 
         char name[32];
         size_t n = 0;
@@ -438,7 +437,7 @@ private:
             }
             if (ch == ':') {
                 name[n] = '\0';
-                bool takeLoc = location && locationCap && location[0] == '\0'
+                bool takeLoc = location && location[0] == '\0'
                                && _hdrIs(name, "Location");
                 bool takeLen = _hdrIs(name, "Content-Length");
                 do {
@@ -468,7 +467,6 @@ private:
     }
 
     bool _readTagName(char* tag, size_t cap) {
-        if (!tag || cap == 0) return false;
         tag[0] = '\0';
         static const char key[] = "\"tag_name\"";
         unsigned ki = 0;
@@ -517,7 +515,6 @@ private:
         }
 
         char host[OTA_HOST_CAP];
-        char url[128];
         char* path = (char*)malloc(OTA_PATH_CAP);
         if (!path) {
             _note(Report::Failed, "Memoria insuficiente");
@@ -526,16 +523,12 @@ private:
             return false;
         }
 
-        snprintf(url, sizeof(url),
-                 "https://github.com/allanbarcelos/esp8266-dns/releases/download/%s/%s",
+        // Host e caminho fixos; só a tag (≤15) e o asset variam e cabem
+        strlcpy(host, "github.com", sizeof(host));
+        snprintf(path, OTA_PATH_CAP,
+                 "/allanbarcelos/esp8266-dns/releases/download/%s/%s",
                  version, assetName(signingEnabled()));
-        _log.log("URL firmware: %s", url);
-        if (!_splitUrl(url, host, sizeof(host), path, OTA_PATH_CAP)) {
-            free(path);
-            _note(Report::Failed, "URL de download invalida");
-            _log.log("OTA: URL invalida");
-            return false;
-        }
+        _log.log("URL firmware: https://%s%s", host, path);
 
         int code = 0;
         int contentLength = -1;
@@ -721,7 +714,7 @@ private:
             _tries = 0;
             _retryDelay = 0;
             _nextRetry = 0;
-            if (install && _available[0] != '\0') {
+            if (install) { // instalação só é pedida com _available preenchido
                 _persistAndReboot();
                 return;
             }
@@ -780,7 +773,7 @@ private:
         if (!f) return;
         size_t n = f.readBytes(_rejected, sizeof(_rejected) - 1);
         f.close();
-        _rejected[n] = ' ';
+        _rejected[n] = '\0';
     }
 
     void _clearPending() {

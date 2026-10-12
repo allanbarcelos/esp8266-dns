@@ -57,6 +57,20 @@ void test_begin_recuperacao_ota() {
     TEST_ASSERT_EQUAL_STRING("nenhum", app.iot.sensorText());
 }
 
+// Recuperação: só Wi-Fi e OTA rodam; painel, DNS, IoT e ntfy ficam parados
+void test_tick_em_recuperacao_so_roda_ota() {
+    MockFS::put("/config.json", R"({"ssid":"Rede","pass":"12345678","webpss":"senha-forte"})");
+    MockFS::put("/ota.pending", "v129 1");
+    App app;
+    app.begin();
+    MockHTTP::push(200, std::string(512, 'X'), 4096);
+    app.tick();
+    TEST_ASSERT_TRUE(app.ota.inProgress());
+    TEST_ASSERT_EQUAL(0, ESP8266WebServer::instance()->handleCalls);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_TRUE(contains(MockHTTP::calledURLs[0], "/download/v129/"));
+}
+
 void test_tick_pausa_dns_durante_ota() {
     MockFS::put("/config.json", R"({"ssid":"Rede","pass":"12345678","webpss":"senha-forte"})");
     App app;
@@ -81,6 +95,7 @@ int main() {
     RUN_TEST(test_begin_sem_config_entra_em_modo_ap);
     RUN_TEST(test_tick_executa_todos_os_servicos);
     RUN_TEST(test_begin_recuperacao_ota);
+    RUN_TEST(test_tick_em_recuperacao_so_roda_ota);
     RUN_TEST(test_tick_pausa_dns_durante_ota);
     return UNITY_END();
 }

@@ -27,12 +27,13 @@ namespace MockHTTP {
     inline std::string              lastUA;
     inline bool                     keepOpen = false;
     inline std::string              rawHttp;
+    inline bool                     rawAny = false; // rawHttp vale também para /releases/latest
 
     inline void reset() {
         calledURLs.clear(); requests.clear(); queue.clear(); qIdx = 0;
         beginResults.clear(); bIdx = 0;
         lastHTTP10 = false; lastUA.clear(); keepOpen = false;
-        rawHttp.clear();
+        rawHttp.clear(); rawAny = false;
     }
 
     inline void push(int code, const std::string& body = "", int size = -1,
@@ -188,7 +189,13 @@ namespace MockTLS {
     inline int                       connectCalls  = 0;
     inline int                       failOnConnect = 0; // 1-based; 0 = off
     inline bool                      mfln          = false;
+    // Na N-ésima chamada de setBufferSizes (1-based) o maior bloco livre
+    // cai para shrinkBlockTo: a alocação do BearSSL fragmentou a heap.
+    inline int                       buffersCalls  = 0;
+    inline int                       shrinkOnBuffers = 0;
+    inline uint32_t                  shrinkBlockTo = 0;
     inline void reset() {
+        buffersCalls = 0; shrinkOnBuffers = 0; shrinkBlockTo = 0;
         insecureCalls = 0; lastTrustPem = nullptr; lastTime = 0;
         timeoutCalls = 0; lastTimeoutMs = 0;
         bufIn = 0; bufOut = 0; nullOwned = false;
@@ -207,7 +214,10 @@ public:
     WiFiClientSecure() { _owned = MockTLS::nullOwned ? nullptr : &_ctx; }
     WiFiClient _ctx;
 
-    void setBufferSizes(int in, int out)               { MockTLS::bufIn = in; MockTLS::bufOut = out; }
+    void setBufferSizes(int in, int out) {
+        MockTLS::bufIn = in; MockTLS::bufOut = out;
+        if (++MockTLS::buffersCalls == MockTLS::shrinkOnBuffers) ESP._maxBlock = MockTLS::shrinkBlockTo;
+    }
     void setInsecure()                                 { MockTLS::insecureCalls++; }
     void setTrustAnchors(const BearSSL::X509List* ta)  { MockTLS::lastTrustPem = ta->pem; }
     void setX509Time(time_t t)                         { MockTLS::lastTime = t; }
@@ -290,7 +300,7 @@ private:
             MockHTTP::lastUA = "ESP8266-dns";
 
         if (!MockHTTP::rawHttp.empty() &&
-            path.find("/releases/latest") == std::string::npos) {
+            (MockHTTP::rawAny || path.find("/releases/latest") == std::string::npos)) {
             _rx = std::move(MockHTTP::rawHttp);
             MockHTTP::rawHttp.clear();
             _rxPos = 0;
