@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+
 # Embute public.key no firmware ESP8266 antes de o core compilar.
 #
 # O PlatformIO não executa o recipe.hooks do arduino-cli. Sem este

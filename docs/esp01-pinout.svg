@@ -1,3 +1,8 @@
+<!--
+  SPDX-License-Identifier: MIT
+  Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+-->
+
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1040 700" font-family="system-ui,Segoe UI,Roboto,Arial,sans-serif" role="img" aria-labelledby="t">
 <title id="t">Pinos do ESP-01, vista de cima, antena à esquerda</title>
 <defs>

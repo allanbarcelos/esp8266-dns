@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+
 # Tira o suporte a float de printf/scanf do link (≈16 KB de flash).
 #
 # O builder do core força "-u _printf_float -u _scanf_float"; o sketch

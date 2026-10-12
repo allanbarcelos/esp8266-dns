@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+
 #pragma once
 // Não definimos ARDUINO aqui para evitar ativar polyfills PROGMEM do ArduinoJson.
 // O suporte a String e Stream é habilitado via build_flags no platformio.ini:

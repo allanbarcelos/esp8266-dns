@@ -196,3 +196,9 @@ arduino-cli monitor -p /dev/ttyUSB0 --config 115200
 ```
 
 Builds locais têm versão `dev` e atualizam para o último release na primeira checagem OTA (se a atualização automática estiver ligada).
+
+---
+
+## 📄 Licença
+
+[MIT](LICENSE) © 2026 Allan Barcelos. Todo arquivo de código traz um cabeçalho SPDX (`SPDX-License-Identifier: MIT` e a linha de copyright); `python3 tools/license_headers.py` acrescenta o cabeçalho em arquivos novos e o workflow **License headers** recusa uma mudança sem ele. Componentes de terceiros e os pedidos de cortesia estão no [NOTICE](NOTICE). Para relatar uma vulnerabilidade, veja o [SECURITY.md](SECURITY.md).

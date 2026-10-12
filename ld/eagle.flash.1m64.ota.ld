@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+ */
+
 /* 1MB / FS 64KB with a hard 400 KB OTA hole the linker cannot occupy.
  *
  * Stock eagle.flash.1m64.ld gives IROM len 0xe9ff0 (up to FS at 0xEB000).

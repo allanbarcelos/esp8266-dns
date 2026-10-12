@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+
 # Instala ld/eagle.flash.1m64.ota.ld no core ESP8266.
 #
 # O recipe do arduino-cli copia tools/sdk/ld/{build.flash_ld}. Sem este

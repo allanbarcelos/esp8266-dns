@@ -1,0 +1,26 @@
+ESP8266 IoT
+Copyright (c) 2026 Allan Barcelos
+https://github.com/allanbarcelos/esp8266-iot
+
+This software is licensed under the MIT License (see LICENSE).
+
+REQUIRED BY THE LICENSE
+  Any copy or substantial portion of this software must keep the copyright
+  notice and the MIT License text. That includes the SPDX header at the top of
+  each source file ("SPDX-License-Identifier: MIT" and the copyright line):
+  removing it from copied code does not comply with the license.
+
+ASKED AS A COURTESY
+  If you run, fork, or build on this firmware, please:
+    - keep the firmware version and project name in the panel footer;
+    - mention the original project, with a link, in your README or About page.
+  The MIT License does not require these, but they are how a free project gets
+  known, and the author asks that you keep them.
+
+Third-party components keep their own licenses and notices:
+  ESP8266 Arduino core (LGPL-2.1)   esp8266/Arduino, linked into the firmware
+                                    (includes BearSSL, MIT, and the Servo library)
+  ArduinoJson (MIT)                 bblanchon/ArduinoJson 6.21.6
+  Unity (MIT)                       ThrowTheSwitch/Unity, tests only
+  ESP-01 photo (CC BY 2.0)          SparkFun Electronics; cropped, resized and
+                                    re-encoded as WebP in Assets.h

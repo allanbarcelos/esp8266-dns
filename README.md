@@ -196,3 +196,9 @@ arduino-cli monitor -p /dev/ttyUSB0 --config 115200
 ```
 
 Local builds report version `dev` and update to the latest release on the first OTA check (unless automatic update is off).
+
+---
+
+## 📄 License
+
+[MIT](LICENSE) © 2026 Allan Barcelos. Every source file carries an SPDX header (`SPDX-License-Identifier: MIT` and the copyright line); `python3 tools/license_headers.py` adds it to new files and the **License headers** workflow refuses a change without it. Third-party components and the courtesy requests are listed in [NOTICE](NOTICE). To report a vulnerability, see [SECURITY.md](SECURITY.md).

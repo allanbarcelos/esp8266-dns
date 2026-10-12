@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+
 """Gera Assets.h com as imagens do painel embutidas no firmware.
 
 No modo AP não há internet, então o painel não pode buscar imagens fora.
@@ -35,7 +38,8 @@ def photo():
 
 def pinout():
     with open(os.path.join(ROOT, "docs", "esp01-pinout.svg"), "rb") as f:
-        svg = re.sub(rb">\s+<", b"><", f.read()).strip()
+        svg = re.sub(rb"<!--.*?-->", b"", f.read(), flags=re.S)  # cabeçalho de licença
+        svg = re.sub(rb">\s+<", b"><", svg).strip()
     return gzip.compress(svg, 9, mtime=0)
 
 
@@ -50,6 +54,9 @@ def main():
     jpg, (w, h) = photo()
     svg = pinout()
     text = (
+        "// SPDX-License-Identifier: MIT\n"
+        "// Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: "
+        "https://github.com/allanbarcelos/esp8266-iot\n\n"
         "#pragma once\n"
         "// Gerado por tools/embed_assets.py a partir de docs/. Não edite.\n"
         "#include <Arduino.h>\n\n"

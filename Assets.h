@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+
 #pragma once
 // Gerado por tools/embed_assets.py a partir de docs/. Não edite.
 #include <Arduino.h>

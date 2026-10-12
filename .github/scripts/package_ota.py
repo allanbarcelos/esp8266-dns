@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+
 """Empacota o firmware para OTA e valida tudo o que um aparelho vai checar.
 
 Gera, a partir do .bin cru do arduino-cli:

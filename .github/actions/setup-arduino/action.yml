@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+
 name: Setup Arduino CLI (ESP8266)
 description: Instala arduino-cli, o core ESP8266 3.1.2 e as bibliotecas do firmware
 runs:

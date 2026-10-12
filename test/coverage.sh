@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+
 # Roda os testes nativos com instrumentação e exige 100% de cobertura
 # (linhas e funções) nos headers do firmware. Requer gcc, PlatformIO e gcovr.
 set -euo pipefail
