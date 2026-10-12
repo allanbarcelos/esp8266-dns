@@ -46,82 +46,206 @@ void test_load_retorna_false_json_invalido() {
 }
 
 void test_load_defaults() {
-    MockFS::put("/config.json", R"({"ssid":"net"})");
+    MockFS::put("/config.json", R"({"v":2,"ssid":"net"})");
     TEST_ASSERT_TRUE(store.load());
     TEST_ASSERT_EQUAL_STRING("admin", config.webusr.c_str());
     TEST_ASSERT_EQUAL_STRING("", config.webpss.c_str());
     TEST_ASSERT_EQUAL_STRING("", config.pass.c_str());
     TEST_ASSERT_EQUAL(0, config.cf_record_count);
     TEST_ASSERT_TRUE(config.ota_auto);
-    TEST_ASSERT_EQUAL(0, config.iot_sensor_type);
-    TEST_ASSERT_EQUAL(0, config.iot_module_type);
-    TEST_ASSERT_FALSE(config.iot_above);
-    TEST_ASSERT_EQUAL(0, config.iot_threshold);
-    TEST_ASSERT_EQUAL(90, config.iot_angle_on);
-    TEST_ASSERT_EQUAL(0, config.iot_angle_off);
-    TEST_ASSERT_EQUAL(100, config.iot_duty_on);
-    TEST_ASSERT_EQUAL(0, config.iot_duty_off);
-    TEST_ASSERT_EQUAL(0, config.iot_manual);
-    TEST_ASSERT_FALSE(config.iot_toggle);
-    TEST_ASSERT_FALSE(config.iot_linear);
-    TEST_ASSERT_EQUAL(0, config.iot_threshold_hi);
+    const IoTConfig& t = config.iot;
+    TEST_ASSERT_EQUAL_STRING("", t.sensor);
+    TEST_ASSERT_EQUAL(-1, t.sensorPin);
+    TEST_ASSERT_TRUE(t.sensorHigh);
+    TEST_ASSERT_EQUAL_STRING("", t.actuator);
+    TEST_ASSERT_EQUAL(-1, t.actuatorPin);
+    TEST_ASSERT_FALSE(t.actuatorHigh);
+    TEST_ASSERT_EQUAL(90, t.angleOn);
+    TEST_ASSERT_EQUAL(0, t.angleOff);
+    TEST_ASSERT_EQUAL(100, t.dutyOn);
+    TEST_ASSERT_EQUAL(0, t.dutyOff);
+    TEST_ASSERT_EQUAL(8, t.leds);
+    TEST_ASSERT_EQUAL(0, t.maxOn);
+    TEST_ASSERT_FALSE(t.restore);
+    TEST_ASSERT_TRUE(t.rule);
+    TEST_ASSERT_FALSE(t.notify);
+    // Já na versão atual: nada é regravado
+    TEST_ASSERT_EQUAL(0, (int)MockFS::files.count("/config.v1.json"));
 }
 
-void test_iot_persiste_e_ausencia_desliga() {
-    TEST_ASSERT_EQUAL(-1, config.iot_sensor_pin);
-    TEST_ASSERT_EQUAL(-1, config.iot_module_pin);
-    TEST_ASSERT_TRUE(config.iot_sensor_high);
-    TEST_ASSERT_FALSE(config.iot_module_high);
-    TEST_ASSERT_FALSE(config.iot_notify);
-
-    config.iot_sensor_pin = 2;
-    config.iot_module_pin = 0;
-    config.iot_sensor_high = false;
-    config.iot_module_high = true;
-    config.iot_notify = true;
+// Formato v2: todos os campos voltam iguais
+void test_iot_v2_ida_e_volta() {
+    IoTConfig& t = config.iot;
+    strlcpy(t.sensor, "dht22", sizeof(t.sensor));
+    t.sensorPin = 2;
+    t.sensorHigh = false;
+    strlcpy(t.onText, "molhado", sizeof(t.onText));
+    strlcpy(t.offText, "seco", sizeof(t.offText));
+    t.metric = 1;
+    t.notify = true;
+    strlcpy(t.actuator, "ventilador", sizeof(t.actuator));
+    t.actuatorPin = 0;
+    t.actuatorHigh = true;
+    t.angleOn = 170;
+    t.angleOff = 10;
+    t.dutyOn = 80;
+    t.dutyOff = 20;
+    t.leds = 30;
+    t.maxOn = 90;
+    t.restore = true;
+    t.rule = false;
+    t.above = true;
+    t.threshold = -10;
+    t.margin = 2;
+    t.toggle = true;
+    t.linear = true;
+    t.thresholdHi = 40;
     TEST_ASSERT_TRUE(store.save());
-    config = Config{};
-    TEST_ASSERT_EQUAL(-1, config.iot_sensor_pin);
-    TEST_ASSERT_TRUE(store.load());
-    TEST_ASSERT_EQUAL(2, config.iot_sensor_pin);
-    TEST_ASSERT_EQUAL(0, config.iot_module_pin);
-    TEST_ASSERT_FALSE(config.iot_sensor_high);
-    TEST_ASSERT_TRUE(config.iot_module_high);
-    TEST_ASSERT_TRUE(config.iot_notify);
-    TEST_ASSERT_EQUAL(0, config.iot_sensor_type);
-    TEST_ASSERT_EQUAL(90, config.iot_angle_on);
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"v\":2"));
 
-    config.iot_sensor_type = 2;
-    config.iot_module_type = 1;
-    config.iot_metric = 1;
-    config.iot_above = true;
-    config.iot_threshold = -10;
-    config.iot_margin = 2;
-    config.iot_angle_on = 180;
-    config.iot_angle_off = 15;
-    config.iot_duty_on = 40;
-    config.iot_duty_off = 10;
-    config.iot_manual = 2;
-    config.iot_toggle = true;
-    config.iot_linear = true;
-    config.iot_threshold_hi = 40;
-    TEST_ASSERT_TRUE(store.save());
     config = Config{};
     TEST_ASSERT_TRUE(store.load());
-    TEST_ASSERT_EQUAL(2, config.iot_sensor_type);
-    TEST_ASSERT_EQUAL(1, config.iot_module_type);
-    TEST_ASSERT_EQUAL(1, config.iot_metric);
-    TEST_ASSERT_TRUE(config.iot_above);
-    TEST_ASSERT_EQUAL(-10, config.iot_threshold);
-    TEST_ASSERT_EQUAL(2, config.iot_margin);
-    TEST_ASSERT_EQUAL(180, config.iot_angle_on);
-    TEST_ASSERT_EQUAL(15, config.iot_angle_off);
-    TEST_ASSERT_EQUAL(40, config.iot_duty_on);
-    TEST_ASSERT_EQUAL(10, config.iot_duty_off);
-    TEST_ASSERT_EQUAL(2, config.iot_manual);
-    TEST_ASSERT_TRUE(config.iot_toggle);
-    TEST_ASSERT_TRUE(config.iot_linear);
-    TEST_ASSERT_EQUAL(40, config.iot_threshold_hi);
+    TEST_ASSERT_TRUE(logHas(logger, "Configuracao carregada"));
+    TEST_ASSERT_EQUAL_STRING("dht22", t.sensor);
+    TEST_ASSERT_EQUAL(2, t.sensorPin);
+    TEST_ASSERT_FALSE(t.sensorHigh);
+    TEST_ASSERT_EQUAL_STRING("molhado", t.onText);
+    TEST_ASSERT_EQUAL_STRING("seco", t.offText);
+    TEST_ASSERT_EQUAL(1, t.metric);
+    TEST_ASSERT_TRUE(t.notify);
+    TEST_ASSERT_EQUAL_STRING("ventilador", t.actuator);
+    TEST_ASSERT_EQUAL(0, t.actuatorPin);
+    TEST_ASSERT_TRUE(t.actuatorHigh);
+    TEST_ASSERT_EQUAL(170, t.angleOn);
+    TEST_ASSERT_EQUAL(10, t.angleOff);
+    TEST_ASSERT_EQUAL(80, t.dutyOn);
+    TEST_ASSERT_EQUAL(20, t.dutyOff);
+    TEST_ASSERT_EQUAL(30, t.leds);
+    TEST_ASSERT_EQUAL(90, t.maxOn);
+    TEST_ASSERT_TRUE(t.restore);
+    TEST_ASSERT_FALSE(t.rule);
+    TEST_ASSERT_TRUE(t.above);
+    TEST_ASSERT_EQUAL(-10, t.threshold);
+    TEST_ASSERT_EQUAL(2, t.margin);
+    TEST_ASSERT_TRUE(t.toggle);
+    TEST_ASSERT_TRUE(t.linear);
+    TEST_ASSERT_EQUAL(40, t.thresholdHi);
+}
+
+// Configuração de antes do catálogo por identificador (sem "v")
+static const char* V1 = R"({"ssid":"net","iot_sensor":2,"iot_module":0,
+    "iot_sensor_type":2,"iot_module_type":6,"iot_sensor_high":false,
+    "iot_module_high":true,"iot_notify":true,"iot_metric":1,"iot_above":true,
+    "iot_threshold":30,"iot_margin":2,"iot_angle_on":120,"iot_angle_off":5,
+    "iot_duty_on":70,"iot_duty_off":10,"iot_manual":1,"iot_toggle":true,
+    "iot_linear":true,"iot_threshold_hi":40})";
+
+void test_migracao_v1_completa() {
+    MockFS::put("/config.json", V1);
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_TRUE(logHas(logger, "migrada para v2"));
+    const IoTConfig& t = config.iot;
+    TEST_ASSERT_EQUAL_STRING("dht22", t.sensor);
+    TEST_ASSERT_EQUAL(2, t.sensorPin);
+    TEST_ASSERT_FALSE(t.sensorHigh);
+    TEST_ASSERT_EQUAL_STRING("ventilador", t.actuator);
+    TEST_ASSERT_EQUAL(0, t.actuatorPin);
+    TEST_ASSERT_TRUE(t.actuatorHigh);
+    TEST_ASSERT_TRUE(t.notify);
+    TEST_ASSERT_EQUAL(1, t.metric);
+    TEST_ASSERT_TRUE(t.above);
+    TEST_ASSERT_EQUAL(30, t.threshold);
+    TEST_ASSERT_EQUAL(2, t.margin);
+    TEST_ASSERT_EQUAL(120, t.angleOn);
+    TEST_ASSERT_EQUAL(5, t.angleOff);
+    TEST_ASSERT_EQUAL(70, t.dutyOn);
+    TEST_ASSERT_EQUAL(10, t.dutyOff);
+    TEST_ASSERT_TRUE(t.toggle);
+    TEST_ASSERT_TRUE(t.linear);
+    TEST_ASSERT_EQUAL(40, t.thresholdHi);
+    TEST_ASSERT_TRUE(t.rule);
+
+    // "Comando: ligado" vira estado manual guardado, restaurado no boot
+    TEST_ASSERT_TRUE(t.restore);
+    IoTState st;
+    TEST_ASSERT_TRUE(st.load());
+    TEST_ASSERT_TRUE(st.manual);
+    TEST_ASSERT_TRUE(st.on);
+    TEST_ASSERT_EQUAL(70, st.level);
+    TEST_ASSERT_EQUAL(120, st.angle);
+
+    // Original guardado; arquivo novo já na v2
+    TEST_ASSERT_EQUAL_STRING(V1, MockFS::files["/config.v1.json"].c_str());
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"v\":2"));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"actuator\":\"ventilador\""));
+    TEST_ASSERT_EQUAL_STRING("net", config.ssid.c_str());
+}
+
+void test_migracao_v1_desligado_forcado_e_tipos_fora_da_tabela() {
+    MockFS::put("/config.json", R"({"iot_sensor":3,"iot_module":1,
+        "iot_sensor_type":99,"iot_module_type":99,"iot_manual":2})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_STRING("digital", config.iot.sensor);
+    TEST_ASSERT_EQUAL_STRING("rele", config.iot.actuator);
+    IoTState st;
+    TEST_ASSERT_TRUE(st.load());
+    TEST_ASSERT_TRUE(st.manual);
+    TEST_ASSERT_FALSE(st.on);
+}
+
+void test_migracao_v1_sem_sensor_o_modulo_continua_parado() {
+    // v1 só acionava o módulo com sensor: sem sensor, nada passa a acionar
+    MockFS::put("/config.json", R"({"iot_sensor":-1,"iot_module":0,"iot_manual":1})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_STRING("", config.iot.sensor);
+    TEST_ASSERT_EQUAL_STRING("", config.iot.actuator);
+    TEST_ASSERT_EQUAL(-1, config.iot.actuatorPin);
+    TEST_ASSERT_FALSE(config.iot.restore);
+    TEST_ASSERT_EQUAL(0, (int)MockFS::files.count("/iot.state"));
+
+    // Mesmo pino no sensor e no módulo: só o sensor
+    MockFS::reset();
+    MockFS::put("/config.json", R"({"iot_sensor":2,"iot_module":2})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_STRING("digital", config.iot.sensor);
+    TEST_ASSERT_EQUAL_STRING("", config.iot.actuator);
+
+    // Só o sensor
+    MockFS::reset();
+    MockFS::put("/config.json", R"({"iot_sensor":2})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_STRING("digital", config.iot.sensor);
+    TEST_ASSERT_EQUAL_STRING("", config.iot.actuator);
+
+    // Sem comando fixo, sem estado guardado
+    MockFS::reset();
+    MockFS::put("/config.json", R"({"iot_sensor":2,"iot_module":0})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_STRING("rele", config.iot.actuator);
+    TEST_ASSERT_FALSE(config.iot.restore);
+    TEST_ASSERT_EQUAL(0, (int)MockFS::files.count("/iot.state"));
+}
+
+void test_migracao_sem_conseguir_gravar_segue_com_a_config() {
+    MockFS::put("/config.json", V1);
+    MockFS::failWriteOpen = true;
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_STRING("dht22", config.iot.sensor);
+    TEST_ASSERT_EQUAL(0, (int)MockFS::files.count("/config.v1.json"));
+    TEST_ASSERT_EQUAL(0, (int)MockFS::files.count("/iot.state"));
+    TEST_ASSERT_TRUE(logHas(logger, "Erro ao salvar"));
+    TEST_ASSERT_EQUAL_STRING(V1, MockFS::files["/config.json"].c_str());
+}
+
+// OTA que voltou atrás: tipo desconhecido fica guardado, arquivo intacto
+void test_versao_mais_nova_nao_e_regravada() {
+    const char* v3 = R"({"v":3,"sensor":"laser","sensor_pin":2,"novo":1})";
+    MockFS::put("/config.json", v3);
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_TRUE(logHas(logger, "v3, mais nova"));
+    TEST_ASSERT_EQUAL_STRING("laser", config.iot.sensor);
+    TEST_ASSERT_EQUAL(2, config.iot.sensorPin);
+    TEST_ASSERT_EQUAL_STRING(v3, MockFS::files["/config.json"].c_str());
 }
 
 void test_ota_auto_persiste() {
@@ -135,14 +259,14 @@ void test_ota_auto_persiste() {
 
 void test_load_limita_quantidade_de_records() {
     MockFS::put("/config.json",
-        R"({"cf_records":["a","b","c","d","e","f","g"]})");
+        R"({"v":2,"cf_records":["a","b","c","d","e","f","g"]})");
     TEST_ASSERT_TRUE(store.load());
     TEST_ASSERT_EQUAL(MAX_RECORDS, config.cf_record_count);
     TEST_ASSERT_EQUAL_STRING("e", config.cf_records[MAX_RECORDS - 1]);
 }
 
 void test_load_record_nao_texto_vira_vazio() {
-    MockFS::put("/config.json", R"({"cf_records":[123,"ok"]})");
+    MockFS::put("/config.json", R"({"v":2,"cf_records":[123,"ok"]})");
     TEST_ASSERT_TRUE(store.load());
     TEST_ASSERT_EQUAL(2, config.cf_record_count);
     TEST_ASSERT_EQUAL_STRING("", config.cf_records[0]);
@@ -192,12 +316,17 @@ void test_save_pior_caso_cabe() {
     for (int i = 0; i < MAX_RECORDS; i++)
         std::memset(config.cf_records[i], 'r', sizeof(config.cf_records[0]) - 1);
     config.cf_record_count = MAX_RECORDS;
+    std::memset(config.iot.sensor,   's', sizeof(config.iot.sensor) - 1);
+    std::memset(config.iot.actuator, 'a', sizeof(config.iot.actuator) - 1);
+    std::memset(config.iot.onText,   'o', sizeof(config.iot.onText) - 1);
+    std::memset(config.iot.offText,  'f', sizeof(config.iot.offText) - 1);
 
     TEST_ASSERT_TRUE(store.save());
     config = Config{};
     TEST_ASSERT_TRUE(store.load());
     TEST_ASSERT_EQUAL(63, (int)std::strlen(config.cf_host));
     TEST_ASSERT_EQUAL(MAX_RECORDS, config.cf_record_count);
+    TEST_ASSERT_EQUAL(15, (int)std::strlen(config.iot.offText));
 }
 
 void test_save_overflow_nao_grava() {
@@ -238,7 +367,12 @@ int main() {
     RUN_TEST(test_load_falha_ao_abrir);
     RUN_TEST(test_load_retorna_false_json_invalido);
     RUN_TEST(test_load_defaults);
-    RUN_TEST(test_iot_persiste_e_ausencia_desliga);
+    RUN_TEST(test_iot_v2_ida_e_volta);
+    RUN_TEST(test_migracao_v1_completa);
+    RUN_TEST(test_migracao_v1_desligado_forcado_e_tipos_fora_da_tabela);
+    RUN_TEST(test_migracao_v1_sem_sensor_o_modulo_continua_parado);
+    RUN_TEST(test_migracao_sem_conseguir_gravar_segue_com_a_config);
+    RUN_TEST(test_versao_mais_nova_nao_e_regravada);
     RUN_TEST(test_ota_auto_persiste);
     RUN_TEST(test_load_limita_quantidade_de_records);
     RUN_TEST(test_load_record_nao_texto_vira_vazio);

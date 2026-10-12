@@ -17,6 +17,38 @@
 
 #define MIN_PANEL_PASSWORD_LEN 8
 
+// IoT: um sensor e um atuador, cada um opcional. Tipos pelo identificador
+// do catálogo (IoTCatalog.h); identificador vazio ou pino -1 desliga a parte.
+struct IoTConfig {
+    char     sensor[12]    = {};
+    int8_t   sensorPin     = -1;
+    bool     sensorHigh    = true;   // digital: nível que significa "ativo"
+    char     onText[16]    = {};     // digital: nome dos estados ("" = do tipo)
+    char     offText[16]   = {};
+    uint8_t  metric        = 0;      // DHT: a regra usa 0 umidade, 1 temperatura
+    bool     notify        = false;  // leitura e estado vão ao tópico ntfy
+
+    char     actuator[12]  = {};
+    int8_t   actuatorPin   = -1;
+    bool     actuatorHigh  = false;  // liga/desliga: nível do pino que liga
+    uint8_t  angleOn       = 90;     // posição: aberto / fechado
+    uint8_t  angleOff      = 0;
+    uint8_t  dutyOn        = 100;    // intensidade ao ligar / quando desligado
+    uint8_t  dutyOff       = 0;
+    uint8_t  leds          = 8;      // cor: LEDs na fita
+    uint16_t maxOn         = 0;      // minutos ligado até desligar sozinho; 0 = sem limite
+    bool     restore       = false;  // ao religar: último comando (senão, desligado)
+
+    // Regra (sensor e atuador): o sensor comanda o atuador no modo automático
+    bool     rule          = true;
+    bool     above         = false;  // numérico: liga acima do limite (senão, abaixo)
+    int16_t  threshold     = 0;
+    uint8_t  margin        = 0;      // histerese para desligar
+    bool     toggle        = false;  // digital: cada acionamento inverte o atuador
+    bool     linear        = false;  // intensidade proporcional entre os limites
+    int16_t  thresholdHi   = 0;
+};
+
 struct Config {
     String  webusr;
     String  webpss;
@@ -32,27 +64,7 @@ struct Config {
     char    ntfy_topic[64]            = {};
     bool    ota_auto                  = true; // ausência no JSON mantém o automático ligado
 
-    // IoT. Pino -1 desliga a função. Ausência no JSON deixa tudo desligado.
-    int8_t  iot_sensor_pin            = -1;
-    int8_t  iot_module_pin            = -1;
-    bool    iot_sensor_high           = true;  // nível do sensor que liga o módulo
-    bool    iot_module_high           = false; // nível do pino que liga o módulo
-    bool    iot_notify                = false;
-    // Catálogo em IoTService. Ausência = digital e relé.
-    uint8_t iot_sensor_type           = 0;
-    uint8_t iot_module_type           = 0;
-    uint8_t iot_metric                = 0;     // DHT: 0 umidade, 1 temperatura
-    bool    iot_above                 = false; // true: liga acima do limite
-    int16_t iot_threshold             = 0;
-    uint8_t iot_margin                = 0;
-    uint8_t iot_angle_on              = 90;
-    uint8_t iot_angle_off             = 0;
-    uint8_t iot_duty_on               = 100;   // PWM 0–100. Ausência = 100 / 0
-    uint8_t iot_duty_off              = 0;
-    uint8_t iot_manual                = 0;     // 0 automático, 1 forçar ligado, 2 forçar desligado
-    bool    iot_toggle                = false; // digital: cada pulso inverte o módulo
-    bool    iot_linear                = false; // PWM: potência entre o limite e o limite alto
-    int16_t iot_threshold_hi          = 0;
+    IoTConfig iot;
 
     // Estado em runtime — escrito pelos serviços, lido pelo WebService
     char          publicIP[16]  = {};

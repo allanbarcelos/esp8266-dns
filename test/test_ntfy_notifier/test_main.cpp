@@ -159,8 +159,9 @@ void test_sensor_no_mesmo_topico() {
     Fix f;
     IoTService iot{cfg, logger};
     NtfyNotifier ntfy{cfg, logger, f.resolver, &iot};
-    cfg.iot_sensor_pin = 2;
-    cfg.iot_notify = true;
+    strlcpy(cfg.iot.sensor, "digital", sizeof(cfg.iot.sensor));
+    cfg.iot.sensorPin = 2;
+    cfg.iot.notify = true;
     mock::pinIn[2] = HIGH;
     iot.begin();
     iot.tick(0);
@@ -171,7 +172,7 @@ void test_sensor_no_mesmo_topico() {
     ntfy.tick(0);
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
     TEST_ASSERT_EQUAL_STRING("POST", MockHTTP::requests[0].method.c_str());
-    TEST_ASSERT_TRUE(contains(MockHTTP::requests[0].payload, "[sensor] GPIO2 alto"));
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[0].payload, "[sensor] ativo"));
     TEST_ASSERT_FALSE(iot.pending());
 
     mock::pinIn[2] = LOW;

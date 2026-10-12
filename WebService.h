@@ -67,6 +67,12 @@ static const char _HTML_HEAD_B[] PROGMEM =
     "font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}"
     "img{max-width:100%;height:auto;border-radius:6px}"
     "figure{margin:0 0 16px;text-align:center}"
+    "fieldset{border:1px solid var(--ln);border-radius:8px;margin:0 0 16px;padding:4px 16px 16px}"
+    "legend{padding:0 6px;font-weight:600}[hidden]{display:none!important}"
+    ".ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:8px}"
+    ".ctl button,.ctl input{width:auto;margin:0}.ctl label{margin:0}"
+    "button[aria-checked=false]{background:none;border:1px solid var(--ln);color:var(--fg)}"
+    "input[type=range]{padding:0}input[type=color]{height:40px;padding:2px}"
     "</style></head><body><header><b>&#9679; ESP8266 DNS</b>"
     "<nav aria-label='Menu'><a href='/'>Home</a><a href='/status'>Status</a>"
     "<a href='/log'>Logs</a><a href='/cloudflare'>Cloudflare</a><a href='/ntfy'>Ntfy</a>"
@@ -78,6 +84,63 @@ static const char _HTML_FOOT_A[] PROGMEM = "</main><footer>Firmware: ";
 static const char _HTML_FOOT_B[] PROGMEM = "</footer></body></html>";
 
 
+// Página IoT: mostra só os campos do papel e dos tipos escolhidos, a dica
+// de ligação de cada tipo e a regra escrita como frase. SK e AC (tipo →
+// Kind/Cap) e T (CSRF) vêm antes, gerados do catálogo.
+static const char _IOT_JS[] PROGMEM =
+    "function $(i){return document.getElementById(i)}"
+    "function V(n){return document.querySelector('[name='+n+']')}"
+    "var SH=['','Modulo com saida digital (D0); a sensibilidade se ajusta no trimpot.',"
+    "'DHT11: pull-up de 4,7 a 10 kOhm entre dados e 3,3 V; uma leitura a cada 2 s.',"
+    "'DHT22: pull-up de 4,7 a 10 kOhm entre dados e 3,3 V; uma leitura a cada 2 s.',"
+    "'DS18B20: pull-up de 4,7 kOhm entre dados e 3,3 V.',"
+    "'HC-SR04: trig e echo juntos no mesmo pino, com 1 kOhm no echo; ate 400 cm.',"
+    "'Conta pulsos a cada 10 s (YF-S201: cerca de 75 pulsos por L/min).'],"
+    "AH=['','Modulos de rele costumam ligar em nivel baixo.',"
+    "'PWM no pino: use MOSFET ou driver de motor, nunca a carga direto no pino.',"
+    "'Servo com 5 V separado e GND em comum com o ESP.',"
+    "'WS2812 em 5 V: resistor de 330 Ohm na linha de dados; ate 60 LEDs.'],"
+    "P=' GPIO0 e GPIO2 precisam estar altos no boot; TX e RX deixam de ser serial.';"
+    "function f(){var r=(document.querySelector('[name=role]:checked')||{}).value||'n',"
+    "hs=r.indexOf('s')>=0,ha=r.indexOf('a')>=0,k=SK[V('sensor').value],"
+    "p=AC[V('actuator').value],d=k==1,h=k==2||k==3,"
+    "u=h?(V('metric').value=='1'?'\\u00b0C':'%'):k==4?'\\u00b0C':k==5?'cm':'pulsos',"
+    "a=V('actuator').selectedOptions[0].text.toLowerCase(),t=+V('threshold').value,"
+    "m=+V('margin').value,ab=V('above').value=='1',ru=V('rule').checked,"
+    "ln=p==2&&!d&&V('linear').value=='1',s;"
+    "$('fs').hidden=!hs;$('fa').hidden=!ha;$('fr').hidden=!(hs&&ha);"
+    "$('sd').hidden=!d;$('sm').hidden=!h;$('al').hidden=p!=1;$('ap').hidden=p!=2;"
+    "$('aa').hidden=p!=3;$('ac').hidden=p!=4;"
+    "$('rd').hidden=!d||!ru;$('rn').hidden=d||!ru;$('rl').hidden=!(p==2&&!d);$('rh').hidden=!ln;"
+    "$('sh').textContent=SH[k]+P;$('ah').textContent=AH[p]+P;"
+    "if(!ru)s='Sem regra: o atuador so obedece comandos.';"
+    "else if(d){var o=V('sensor_on').value||'ativo';"
+    "s=V('toggle').value=='1'?'Cada vez que o sensor ficar '+o+', o '+a+' inverte.'"
+    ":'Liga o '+a+' enquanto o sensor estiver '+o+'.'}"
+    "else if(ln)s='Intensidade proporcional de '+t+' a '+V('threshold_hi').value+' '+u+'.';"
+    "else s='Liga o '+a+' quando o valor ficar '+(ab?'acima de ':'abaixo de ')+t+' '+u"
+    "+' e desliga ao voltar '+(ab?'abaixo de ':'acima de ')+(ab?t-m:t+m)+' '+u+'.';"
+    "$('rs').textContent=s}"
+    "document.querySelectorAll('form input,form select').forEach(function(e){"
+    "e.addEventListener('input',f)});f();";
+
+// Cartão "Agora": comandos sem recarregar e leitura a cada 5 s
+static const char _IOT_LIVE_JS[] PROGMEM =
+    "function u(s){var a=s.actuator,e=s.sensor,w;if(e)$('ns').textContent=e.text;"
+    "if(a){$('na').textContent=a.text;"
+    "if(w=$('sw'))w.setAttribute('aria-checked',a.on);"
+    "if(w=$('nm'))w.textContent=a.mode=='auto'?'automatico':'manual';"
+    "if(w=$('au'))w.hidden=a.mode=='auto';"
+    "if(a.level!=null&&(w=$('lv'))){w.value=a.level;$('lvo').value=a.level}"
+    "if(a.angle!=null&&(w=$('ag'))){w.value=a.angle;$('ago').value=a.angle}"
+    "if(a.color&&(w=$('co')))w.value=a.color}}"
+    "function c(x){$('msg').textContent='';fetch('/iot/cmd',{method:'POST',"
+    "body:new URLSearchParams({cmd:x,_csrf:T})}).then(function(r){return r.json()})"
+    ".then(function(s){if(s.error)$('msg').textContent=s.error;else u(s)})"
+    ".catch(function(){$('msg').textContent='Sem resposta do aparelho'})}"
+    "setInterval(function(){fetch('/iot/now').then(function(r){if(r.ok)return r.json()})"
+    ".then(function(s){if(s)u(s)}).catch(function(){})},5000);";
+
 // Texto fixo das páginas fica na flash (PSTR/PROGMEM) e sai por
 // sendContent_P: literal comum ocupa RAM no ESP8266, e a heap livre é o
 // que o TLS do OTA precisa. Parâmetro PGM_P aceita flash ou RAM (as
@@ -87,6 +150,8 @@ static const char _HTML_FOOT_B[] PROGMEM = "</footer></body></html>";
 
 class WebService {
 public:
+    static constexpr size_t STATE_JSON_LEN = 384;
+
     WebService(Config& cfg, Logger& log, ConfigStore& store,
                WiFiService& wifi, OTAService& ota, IoTService& iot)
         : _server(80), _cfg(cfg), _log(log), _store(store),
@@ -110,6 +175,7 @@ public:
         _server.on("/iot",             HTTP_GET,  [this]() { _handleIot(); });
         _server.on("/iot/save",        HTTP_POST, [this]() { _handleIotSave(); });
         _server.on("/iot/now",         HTTP_GET,  [this]() { _handleIotNow(); });
+        _server.on("/iot/cmd",         HTTP_POST, [this]() { _handleIotCmd(); });
         _server.on("/update",          HTTP_GET,  [this]() { _handleUpdate(); });
         _server.on("/update/auto",     HTTP_POST, [this]() { _handleUpdateAuto(); });
         _server.on("/update/check",    HTTP_POST, [this]() { _handleUpdateCheck(); });
@@ -788,70 +854,73 @@ private:
                 "Foto: SparkFun, CC BY 2.0</figcaption></figure>"));
     }
 
-    void _sendKindList(bool sensors) {
-        uint8_t n = sensors ? IoTService::SENSOR_COUNT : IoTService::MODULE_COUNT;
-        for (uint8_t i = 0; i < n; i++) {
-            if (i) _p(PSTR(","));
-            char buf[4];
-            snprintf(buf, sizeof(buf), "%u",
-                     sensors ? IoTService::sensorKind(i) : IoTService::moduleKind(i));
-            _s(buf);
-        }
-    }
+    // ── IoT ──────────────────────────────────────────────────────────────────
 
-    void _typeOptions(bool sensors, uint8_t current) {
-        uint8_t n = sensors ? IoTService::SENSOR_COUNT : IoTService::MODULE_COUNT;
-        for (uint8_t i = 0; i < n; i++) {
-            char value[4];
-            snprintf(value, sizeof(value), "%u", i);
-            _choice(value,
-                    sensors ? IoTService::sensorLabel(i) : IoTService::moduleLabel(i),
-                    current == i);
-        }
-    }
-
-    void _pinOptions(int8_t current) {
-        static const int8_t pins[] = {-1, 2, 0, 1, 3};
-        static const char* values[] = {"-1", "2", "0", "1", "3"};
-        static const char* labels[] = {
-            "Nenhum", "GPIO2", "GPIO0", "TX (GPIO1)", "RX (GPIO3)"
-        };
-        for (int i = 0; i < 5; i++)
-            _choice(values[i], labels[i], current == pins[i]);
-    }
-
-    void _levelOptions(bool high) {
-        _choice(PSTR("1"), PSTR("Alto"), high);
-        _choice(PSTR("0"), PSTR("Baixo"), !high);
-    }
-
-    void _choice(PGM_P value, PGM_P label, bool on) {
+    void _option(const char* value, PGM_P label, bool on) {
         _p(PSTR("<option value='"));
-        _p(value);
+        _s(value);
         _p(on ? PSTR("' selected>") : PSTR("'>"));
         _p(label);
         _p(PSTR("</option>"));
     }
 
-    void _selectOpen(PGM_P label, PGM_P id) {
+    void _selectOpen(PGM_P label, PGM_P name) {
         _labelOpen(label);
-        _p(PSTR("<select id='"));
-        _p(id);
-        _p(PSTR("' name='"));
-        _p(id);
-        _p(PSTR("' onchange='iotSync()'>"));
+        _p(PSTR("<select name='"));
+        _p(name);
+        _p(PSTR("'>"));
     }
 
     void _selectEnd() { _p(PSTR("</select></label>")); }
 
-    void _divOpen(PGM_P id, bool show) {
-        _p(PSTR("<div id='"));
-        _p(id);
-        _p(show ? PSTR("'>") : PSTR("' style='display:none'>"));
+    // Duas opções 0/1 (nível, sim/não)
+    void _pair(PGM_P label, PGM_P name, PGM_P zero, PGM_P one, bool value) {
+        _selectOpen(label, name);
+        _option("0", zero, !value);
+        _option("1", one, value);
+        _selectEnd();
+    }
+
+    void _pinSelect(PGM_P label, PGM_P name, int8_t current) {
+        static const int8_t pins[] = {-1, 2, 0, 1, 3};
+        static const char* const values[] = {"-1", "2", "0", "1", "3"};
+        static const char* const labels[] = {
+            "Escolha", "GPIO2", "GPIO0", "TX (GPIO1)", "RX (GPIO3)"
+        };
+        _selectOpen(label, name);
+        for (int i = 0; i < 5; i++) _option(values[i], labels[i], current == pins[i]);
+        _selectEnd();
+    }
+
+    void _groupOpen(PGM_P label) {
+        _p(PSTR("<optgroup label='"));
+        _p(label);
+        _p(PSTR("'>"));
+    }
+
+    void _sensorSelect(const char* current) {
+        _selectOpen(PSTR("Tipo"), PSTR("sensor"));
+        for (uint8_t g = 0; g < 3; g++) {
+            _groupOpen(iot::SENSOR_GROUPS[g]);
+            for (const iot::SensorDef& s : iot::SENSORS)
+                if (s.group == g) _option(s.slug, s.label, strcmp(s.slug, current) == 0);
+            _p(PSTR("</optgroup>"));
+        }
+        _selectEnd();
+    }
+
+    void _actuatorSelect(const char* current) {
+        _selectOpen(PSTR("Tipo"), PSTR("actuator"));
+        for (uint8_t cap = iot::C_ONOFF; cap <= iot::C_COLOR; cap++) {
+            _groupOpen(iot::ACTUATOR_GROUPS[cap - 1]);
+            for (const iot::ActuatorDef& a : iot::ACTUATORS)
+                if (a.cap == cap) _option(a.slug, a.label, strcmp(a.slug, current) == 0);
+            _p(PSTR("</optgroup>"));
+        }
+        _selectEnd();
     }
 
     // name vai para %s: tem de estar em RAM (snprintf_P só lê o formato da flash).
-    // Pior caso (threshold_hi, int mínimo, -55, 100000) dá 93 bytes.
     void _number(PGM_P label, const char* name, int value, int min, int max) {
         _labelOpen(label);
         char buf[112];
@@ -861,326 +930,372 @@ private:
         _s(buf);
     }
 
-    // Leitura atual em texto puro: sensor na 1ª linha, módulo na 2ª.
-    // O script da página põe em textContent, então não precisa escapar.
-    void _handleIotNow() {
-        if (!_guard()) return;
-        String body(_iot.sensorText());
-        body += '\n';
-        body += _iot.moduleText();
-        _server.sendHeader("Cache-Control", "no-store");
-        _server.send(200, "text/plain", body);
+    void _fieldsetOpen(PGM_P id, PGM_P legend) {
+        _p(PSTR("<fieldset id='"));
+        _p(id);
+        _p(PSTR("'><legend>"));
+        _p(legend);
+        _p(PSTR("</legend>"));
+    }
+
+    void _divOpen(PGM_P id) {
+        _p(PSTR("<div id='"));
+        _p(id);
+        _p(PSTR("'>"));
+    }
+
+    void _radio(PGM_P value, PGM_P label, bool on) {
+        _p(PSTR("<label class='sw'><input type='radio' name='role' value='"));
+        _p(value);
+        _p(on ? PSTR("' checked>") : PSTR("'>"));
+        _p(label);
+        _p(PSTR("</label>"));
+    }
+
+    // Faixa 0–N com o valor ao lado; solta o dedo e o comando vai
+    void _range(PGM_P label, PGM_P id, int value, int max, PGM_P cmd, PGM_P unit) {
+        char buf[40];   // "' min='0' max='180' value='180" = 30
+        _labelOpen(label);
+        _p(PSTR(": <output id='"));
+        _p(id);
+        _p(PSTR("o'>"));
+        snprintf(buf, sizeof(buf), "%d", value);
+        _s(buf);
+        _p(PSTR("</output>"));
+        _p(unit);
+        _p(PSTR("<input type='range' id='"));
+        _p(id);
+        snprintf(buf, sizeof(buf), "' min='0' max='%d' value='%d", max, value);
+        _s(buf);
+        _p(PSTR("' oninput=\"$(this.id+'o').value=this.value\" onchange=\"c('"));
+        _p(cmd);
+        _p(PSTR("'+this.value)\"></label>"));
+    }
+
+    // Controles do cartão "Agora", de acordo com o que o atuador faz
+    void _controls() {
+        const iot::ActuatorDef* a = _iot.actuatorDef();
+        uint8_t cap = a->cap;
+        char buf[32];
+        _p(PSTR("<div class='ctl'>"));
+        if (cap == iot::C_POSITION) {
+            _p(PSTR("<button type='button' onclick=\"c('abrir')\">Abrir</button>"
+                    "<button type='button' class='b2' onclick=\"c('fechar')\">Fechar</button>"));
+        } else {
+            _p(PSTR("<button type='button' role='switch' id='sw' aria-checked='"));
+            _p(_iot.actuatorOn() ? PSTR("true") : PSTR("false"));
+            _p(PSTR("' onclick=\"c(this.getAttribute('aria-checked')=='true'?'desligar':'ligar')\">"));
+            _p(a->label);
+            _p(PSTR("</button>"));
+        }
+        _p(PSTR("<label>Pulso (s)<input type='number' id='pd' min='1' max='3600' value='"));
+        snprintf(buf, sizeof(buf), "%u", a->pulse);
+        _s(buf);
+        _p(PSTR("'></label><button type='button' class='b2' onclick=\"c('pulso '+$('pd').value)\">"
+                "Pulso</button>"));
+        if (_iot.hasRule()) {
+            _p(PSTR("<button type='button' class='b2' id='au' onclick=\"c('auto')\""));
+            if (!_iot.manual()) _p(PSTR(" hidden"));
+            _p(PSTR(">Voltar ao automatico</button>"));
+        }
+        _p(PSTR("</div>"));
+        if (cap == iot::C_LEVEL || cap == iot::C_COLOR)
+            _range(cap == iot::C_LEVEL ? PSTR("Intensidade") : PSTR("Brilho"),
+                   PSTR("lv"), _iot.level(), 100, PSTR("nivel "), PSTR("%"));
+        if (cap == iot::C_POSITION)
+            _range(PSTR("Angulo"), PSTR("ag"), _iot.angle(), 180, PSTR("angulo "), PSTR(" graus"));
+        if (cap == iot::C_COLOR) {
+            snprintf(buf, sizeof(buf), "%06lx", (unsigned long)_iot.color());
+            _p(PSTR("<label>Cor<input type='color' id='co' value='#"));
+            _s(buf);
+            _p(PSTR("' onchange=\"c('cor '+this.value)\"></label>"));
+        }
     }
 
     void _handleIot() {
         if (!_guard()) return;
         _pageBegin();
         _title(PSTR("IoT"));
+        const IoTConfig& t = _cfg.iot;
+        if (_iot.unknownType())
+            _alertP(PSTR("warning"), PSTR("Tipo desconhecido nesta versao: a parte fica desligada"));
+        if (t.notify && _cfg.ntfy_topic[0] == '\0')
+            _alertP(PSTR("warning"), PSTR("Cadastre o topico ntfy para enviar a leitura"));
+
+        bool live = _iot.hasSensor() || _iot.hasActuator();
+        if (live) {
+            _box(PSTR("Agora"));
+            if (_iot.hasSensor()) _row(PSTR("Sensor"), _iot.sensorText(), PSTR("ns"));
+            if (_iot.hasActuator()) {
+                _row(PSTR("Atuador"), _iot.actuatorText(), PSTR("na"));
+                if (_iot.hasRule())
+                    _row(PSTR("Modo"), _iot.manual() ? String("manual") : String("automatico"),
+                         PSTR("nm"));
+            }
+            _boxEnd();
+            if (_iot.hasActuator()) _controls();
+            _p(PSTR("<p id='msg' class='m' role='status' aria-live='polite'></p>"));
+        }
+
         _p(PSTR("<figure><img src='/pinout.svg' width='1040' height='700' "
                 "alt='Pinos do ESP-01, vista de cima: GPIO0, RX (GPIO3), GPIO2, GND; "
                 "VCC 3,3 V, RST, CH_PD, TX (GPIO1)'></figure>"));
-        _p(PSTR("<p class='m'>"
-            "GPIO0 e GPIO2 ficam em alto no boot. O sensor e o modulo usam pinos "
-            "diferentes. Digital, PIR, porta, chuva, chama, gas, solo, luz, som, "
-            "boia e botao ligam por nivel, ou alternam a cada pulso. O comando "
-            "pode forcar o modulo ligado ou desligado. DHT, DS18B20, pulsos "
-            "(a cada 10 s) e ultrassom (trig e echo no mesmo pino, em cm) comparam "
-            "um valor com o limite. Rele, LED, buzzer, bomba e valvula usam um "
-            "nivel. O servo vai para um angulo. Ventilador e motor usam PWM de 0 "
-            "a 100, em dois patamares ou proporcional entre o limite e o limite "
-            "alto. DHT e DS18B20 pedem pull-up. A leitura segue no topico ntfy ja "
-            "cadastrado, com o prefixo [sensor]. O IP sai como [ip].</p>"));
 
-        _box(PSTR("Agora"));
-        _row(PSTR("Sensor"), _iot.sensorText(), PSTR("ns"));
-        _row(PSTR("Modulo"), _iot.moduleText(), PSTR("nm"));
-        _boxEnd();
-        // Leitura ao vivo: busca só os dois valores a cada 5 s. Recarregar a
-        // página inteira descartava o que estava sendo editado no formulário.
-        if (IoTService::allowedPin(_cfg.iot_sensor_pin))
-            _p(PSTR("<script>setInterval(function(){fetch('/iot/now')"
-                    ".then(function(r){if(r.ok)return r.text()})"
-                    ".then(function(t){if(!t)return;t=t.split('\\n');"
-                    "document.getElementById('ns').textContent=t[0];"
-                    "document.getElementById('nm').textContent=t[1]})"
-                    ".catch(function(){})},5000)</script>"));
-
-        if (_cfg.iot_notify && _cfg.ntfy_topic[0] == '\0')
-            _alertP(PSTR("warning"), PSTR("Cadastre o topico ntfy para enviar a leitura"));
-
-        uint8_t sensorKind = IoTService::sensorKind(_cfg.iot_sensor_type);
-        uint8_t moduleKind = IoTService::moduleKind(_cfg.iot_module_type);
-        bool numeric = sensorKind != IoTService::KIND_DIGITAL;
-        bool dht = sensorKind == IoTService::KIND_DHT11 ||
-                   sensorKind == IoTService::KIND_DHT22;
-        bool level = moduleKind == IoTService::MKIND_LEVEL;
-        bool servo = moduleKind == IoTService::MKIND_SERVO;
-        bool pwm = moduleKind == IoTService::MKIND_PWM;
-
+        bool hs = t.sensor[0] && t.sensorPin >= 0;
+        bool ha = t.actuator[0] && t.actuatorPin >= 0;
         _p(PSTR("<form action='/iot/save' method='POST'>"));
         _csrfField();
-        _selectOpen(PSTR("Pino do sensor"), PSTR("sensor"));
-        _pinOptions(_cfg.iot_sensor_pin);
-        _selectEnd();
-        _selectOpen(PSTR("Pino do modulo"), PSTR("module"));
-        _pinOptions(_cfg.iot_module_pin);
-        _selectEnd();
+        _fieldsetOpen(PSTR("fp"), PSTR("O que este aparelho faz?"));
+        _radio(PSTR("n"), PSTR("Nada (IoT desligado)"), !hs && !ha);
+        _radio(PSTR("s"), PSTR("So sensor: mede e avisa"), hs && !ha);
+        _radio(PSTR("a"), PSTR("So atuador: obedece comandos"), !hs && ha);
+        _radio(PSTR("sa"), PSTR("Sensor e atuador"), hs && ha);
+        _p(PSTR("</fieldset>"));
 
-        _selectOpen(PSTR("Comando"), PSTR("manual"));
-        _choice(PSTR("0"), PSTR("Automatico"), _cfg.iot_manual == IoTService::MANUAL_AUTO);
-        _choice(PSTR("1"), PSTR("Ligado"), _cfg.iot_manual == IoTService::MANUAL_ON);
-        _choice(PSTR("2"), PSTR("Desligado"), _cfg.iot_manual == IoTService::MANUAL_OFF);
-        _selectEnd();
-
-        _selectOpen(PSTR("Tipo do sensor"), PSTR("sensor_type"));
-        _typeOptions(true, _cfg.iot_sensor_type);
-        _selectEnd();
-
-        _divOpen(PSTR("iot_digital"), !numeric);
-        _selectOpen(PSTR("Ligar o modulo quando o sensor estiver"), PSTR("sensor_high"));
-        _levelOptions(_cfg.iot_sensor_high);
-        _selectEnd();
-        _selectOpen(PSTR("Ao pulso"), PSTR("toggle"));
-        _choice(PSTR("0"), PSTR("Seguir o nivel"), !_cfg.iot_toggle);
-        _choice(PSTR("1"), PSTR("Alternar"), _cfg.iot_toggle);
-        _selectEnd();
+        _fieldsetOpen(PSTR("fs"), PSTR("Sensor"));
+        _sensorSelect(t.sensor);
+        _pinSelect(PSTR("Pino"), PSTR("sensor_pin"), t.sensorPin);
+        _divOpen(PSTR("sd"));
+        _pair(PSTR("Ativo com o pino em"), PSTR("sensor_high"),
+              PSTR("Nivel baixo"), PSTR("Nivel alto"), t.sensorHigh);
+        _input(PSTR("Nome do estado ativo"), PSTR("sensor_on"), t.onText, PSTR("maxlength='15' placeholder='padrao do tipo'"));
+        _input(PSTR("Nome do estado inativo"), PSTR("sensor_off"), t.offText,
+               PSTR("maxlength='15' placeholder='padrao do tipo'"));
         _p(PSTR("</div>"));
+        _divOpen(PSTR("sm"));
+        _pair(PSTR("Grandeza usada na regra"), PSTR("metric"),
+              PSTR("Umidade"), PSTR("Temperatura"), t.metric == 1);
+        _p(PSTR("</div><p class='m' id='sh'></p></fieldset>"));
 
-        _divOpen(PSTR("iot_value"), numeric);
-        _divOpen(PSTR("iot_metric"), dht);
-        _selectOpen(PSTR("Grandeza"), PSTR("metric"));
-        _choice(PSTR("0"), PSTR("Umidade"), _cfg.iot_metric == 0);
-        _choice(PSTR("1"), PSTR("Temperatura"), _cfg.iot_metric == 1);
-        _selectEnd();
+        _fieldsetOpen(PSTR("fa"), PSTR("Atuador"));
+        _actuatorSelect(t.actuator);
+        _pinSelect(PSTR("Pino"), PSTR("actuator_pin"), t.actuatorPin);
+        _divOpen(PSTR("al"));
+        _pair(PSTR("Liga com o pino em"), PSTR("actuator_high"),
+              PSTR("Nivel baixo (modulos de rele comuns)"), PSTR("Nivel alto"), t.actuatorHigh);
         _p(PSTR("</div>"));
-        _selectOpen(PSTR("Ligar quando o valor estiver"), PSTR("above"));
-        _choice(PSTR("0"), PSTR("Abaixo de"), !_cfg.iot_above);
-        _choice(PSTR("1"), PSTR("Acima de"), _cfg.iot_above);
-        _selectEnd();
-        _number(PSTR("Limite"), "threshold", _cfg.iot_threshold, -55, 100000);
-        _number(PSTR("Margem"), "margin", _cfg.iot_margin, 0, 50);
+        _divOpen(PSTR("ap"));
+        _number(PSTR("Intensidade ao ligar (%)"), "duty_on", t.dutyOn, 0, 100);
+        _number(PSTR("Intensidade desligado (%)"), "duty_off", t.dutyOff, 0, 100);
         _p(PSTR("</div>"));
-
-        _selectOpen(PSTR("Tipo do modulo"), PSTR("module_type"));
-        _typeOptions(false, _cfg.iot_module_type);
-        _selectEnd();
-
-        _divOpen(PSTR("iot_level"), level);
-        _selectOpen(PSTR("Nivel do pino que liga o modulo"), PSTR("module_high"));
-        _levelOptions(_cfg.iot_module_high);
-        _selectEnd();
+        _divOpen(PSTR("aa"));
+        _number(PSTR("Angulo aberto"), "angle_on", t.angleOn, 0, 180);
+        _number(PSTR("Angulo fechado"), "angle_off", t.angleOff, 0, 180);
         _p(PSTR("</div>"));
-
-        _divOpen(PSTR("iot_servo"), servo);
-        _number(PSTR("Angulo ao ligar"), "angle_on", _cfg.iot_angle_on, 0, 180);
-        _number(PSTR("Angulo ao soltar"), "angle_off", _cfg.iot_angle_off, 0, 180);
+        _divOpen(PSTR("ac"));
+        _number(PSTR("Quantidade de LEDs"), "leds", t.leds, 1, IoTService::MAX_LEDS);
         _p(PSTR("</div>"));
+        _number(PSTR("Desligar sozinho depois de (min; 0 = nunca)"), "max_on", t.maxOn, 0, 1440);
+        _pair(PSTR("Ao religar o aparelho"), PSTR("restore"),
+              PSTR("Desligado"), PSTR("Ultimo comando"), t.restore);
+        _p(PSTR("<p class='m' id='ah'></p></fieldset>"));
 
-        _divOpen(PSTR("iot_pwm"), pwm);
-        _number(PSTR("Potencia ao ligar (%)"), "duty_on", _cfg.iot_duty_on, 0, 100);
-        _number(PSTR("Potencia ao soltar (%)"), "duty_off", _cfg.iot_duty_off, 0, 100);
+        _fieldsetOpen(PSTR("fr"), PSTR("Regra"));
+        _switch(PSTR("rule"), PSTR("O sensor comanda o atuador (modo automatico)"), t.rule);
+        _divOpen(PSTR("rd"));
+        _pair(PSTR("Quando o sensor ficar ativo"), PSTR("toggle"),
+              PSTR("Ligar enquanto estiver ativo"), PSTR("Inverter o atuador"), t.toggle);
         _p(PSTR("</div>"));
-
-        _divOpen(PSTR("iot_span"), pwm && numeric);
-        _selectOpen(PSTR("Curva da potencia"), PSTR("linear"));
-        _choice(PSTR("0"), PSTR("Dois patamares"), !_cfg.iot_linear);
-        _choice(PSTR("1"), PSTR("Proporcional"), _cfg.iot_linear);
-        _selectEnd();
-        _number(PSTR("Limite alto"), "threshold_hi", _cfg.iot_threshold_hi, -55, 100000);
+        _divOpen(PSTR("rn"));
+        _pair(PSTR("Ligar quando o valor ficar"), PSTR("above"),
+              PSTR("Abaixo do limite"), PSTR("Acima do limite"), t.above);
+        _number(PSTR("Limite"), "threshold", t.threshold, -999, 9999);
+        _number(PSTR("Margem para desligar"), "margin", t.margin, 0, 50);
+        _divOpen(PSTR("rl"));
+        _pair(PSTR("Intensidade"), PSTR("linear"),
+              PSTR("Liga e desliga no limite"), PSTR("Proporcional ate o limite alto"), t.linear);
+        _divOpen(PSTR("rh"));
+        _number(PSTR("Limite alto"), "threshold_hi", t.thresholdHi, -999, 9999);
         _p(PSTR("</div>"));
+        _p(PSTR("</div></div><p class='m' id='rs'></p></fieldset>"));
 
-        _switch(PSTR("iot_notify"), PSTR("Enviar leitura ao ntfy"), _cfg.iot_notify);
+        _switch(PSTR("notify"), PSTR("Enviar leituras e mudancas ao ntfy"), t.notify);
         _button(PSTR("Salvar"));
-        _p(PSTR("<script>function iotSync(){var sk=["));
-        _sendKindList(true);
-        _p(PSTR("];var mk=["));
-        _sendKindList(false);
-        char js[900];
-        snprintf_P(js, sizeof(js), PSTR(
-            "];var s=+document.getElementById('sensor_type').value;"
-            "var m=+document.getElementById('module_type').value;"
-            "if(!(s>=0&&s<sk.length))s=0;"
-            "if(!(m>=0&&m<mk.length))m=0;"
-            "var num=sk[s]!=%u;"
-            "var pwm=mk[m]==%u;"
-            "document.getElementById('iot_digital').style.display=num?'none':'';"
-            "document.getElementById('iot_value').style.display=num?'':'none';"
-            "document.getElementById('iot_metric').style.display=(sk[s]==%u||sk[s]==%u)?'':'none';"
-            "document.getElementById('iot_level').style.display=mk[m]==%u?'':'none';"
-            "document.getElementById('iot_servo').style.display=mk[m]==%u?'':'none';"
-            "document.getElementById('iot_pwm').style.display=pwm?'':'none';"
-            "document.getElementById('iot_span').style.display=(pwm&&num)?'':'none';"
-            "}iotSync();</script>"),
-            IoTService::KIND_DIGITAL, IoTService::MKIND_PWM,
-            IoTService::KIND_DHT11, IoTService::KIND_DHT22,
-            IoTService::MKIND_LEVEL, IoTService::MKIND_SERVO);
-        _s(js);
+
+        _p(PSTR("<script>var SK={"));
+        for (uint8_t i = 0; i < iot::SENSOR_COUNT; i++) {
+            char buf[24];
+            snprintf(buf, sizeof(buf), "%s%s:%u", i ? "," : "", iot::SENSORS[i].slug,
+                     iot::SENSORS[i].kind);
+            _s(buf);
+        }
+        _p(PSTR("},AC={"));
+        for (uint8_t i = 0; i < iot::ACTUATOR_COUNT; i++) {
+            char buf[24];
+            snprintf(buf, sizeof(buf), "%s%s:%u", i ? "," : "", iot::ACTUATORS[i].slug,
+                     iot::ACTUATORS[i].cap);
+            _s(buf);
+        }
+        _p(PSTR("},T='"));
+        _s(_csrfToken);
+        _p(PSTR("';"));
+        _p(_IOT_JS);
+        if (live) _p(_IOT_LIVE_JS);
+        _p(PSTR("</script>"));
         _pageEnd();
+    }
+
+    // Lê um inteiro do formulário na faixa; senão responde 400
+    bool _int(const char* name, int min, int max, int16_t& out) {
+        if (IoTService::parseI16(_server.arg(name), min, max, out)) return true;
+        _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
+        return false;
+    }
+
+    bool _u8(const char* name, int min, int max, uint8_t& out) {
+        int16_t v = 0;
+        if (!_int(name, min, max, v)) return false;
+        out = (uint8_t)v;
+        return true;
+    }
+
+    bool _flag(const char* name) { return _server.arg(name) == "1"; }
+
+    // Nome de estado: até 15 letras, números, espaço, - _ . ,
+    bool _stateText(const char* name, char* dst) {
+        String v = _server.arg(name);
+        v.trim();
+        bool ok = v.length() < 16;
+        for (size_t i = 0; ok && i < v.length(); i++) {
+            char c = v.c_str()[i];
+            ok = isalnum((unsigned char)c) || strchr(" -_.,", c) != nullptr;
+        }
+        if (!ok) {
+            _errorPage(PSTR("Nome de estado invalido"), PSTR("/iot"));
+            return false;
+        }
+        strlcpy(dst, v.c_str(), 16);
+        return true;
+    }
+
+    bool _pinArg(const char* name, int8_t& out) {
+        String v = _server.arg(name);   // temporário dentro do && conta um ramo a mais
+        if (IoTService::parsePin(v, out) && iot::allowedPin(out)) return true;
+        _errorPage(PSTR("Escolha o pino"), PSTR("/iot"));
+        return false;
     }
 
     void _handleIotSave() {
         if (!_guard()) return;
         if (!_checkCSRF()) return;
 
-        // O gcc, com -fno-exceptions, ainda conta um ramo de limpeza do
-        // temporário quando && ou || recebe uma String. Esse ramo não executa.
-        int8_t sensor = -1;
-        int8_t module = -1;
-        String sensorArg = _server.arg("sensor");
-        String moduleArg = _server.arg("module");
-        if (!IoTService::parsePin(sensorArg, sensor)) {
-            _errorPage(PSTR("Pino invalido"), PSTR("/iot"));
-            return;
-        }
-        if (!IoTService::parsePin(moduleArg, module)) {
-            _errorPage(PSTR("Pino invalido"), PSTR("/iot"));
-            return;
-        }
-        if (sensor != -1 && sensor == module) {
-            _errorPage(PSTR("Sensor e modulo precisam de pinos diferentes"), PSTR("/iot"));
+        String role = _server.arg("role");
+        bool hs = role == "s" || role == "sa";
+        bool ha = role == "a" || role == "sa";
+        if (!hs && !ha && role != "n") {
+            _errorPage(PSTR("Escolha o que o aparelho faz"), PSTR("/iot"));
             return;
         }
 
-        uint8_t sensorType = IoTService::SENSOR_DIGITAL;
-        String sensorTypeArg = _server.arg("sensor_type");
-        if (sensorTypeArg.length() > 0 &&
-            !IoTService::parseU8(sensorTypeArg, 0,
-                                 IoTService::SENSOR_COUNT - 1, sensorType)) {
-            _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
-            return;
-        }
-        uint8_t moduleType = IoTService::MODULE_LEVEL;
-        String moduleTypeArg = _server.arg("module_type");
-        if (moduleTypeArg.length() > 0 &&
-            !IoTService::parseU8(moduleTypeArg, 0,
-                                 IoTService::MODULE_COUNT - 1, moduleType)) {
-            _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
-            return;
-        }
-        uint8_t metric = 0;
-        String metricArg = _server.arg("metric");
-        if (metricArg.length() > 0 &&
-            !IoTService::parseU8(metricArg, 0, 1, metric)) {
-            _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
-            return;
+        // Parte que não está em uso guarda os ajustes e perde só tipo e pino
+        IoTConfig t = _cfg.iot;
+        t.sensor[0] = '\0';
+        t.sensorPin = -1;
+        t.actuator[0] = '\0';
+        t.actuatorPin = -1;
+        uint8_t kind = iot::K_NONE;
+        uint8_t cap = iot::C_NONE;
+
+        if (hs) {
+            String slug = _server.arg("sensor");
+            int8_t i = iot::sensorIndex(slug.c_str());
+            if (i < 0) {
+                _errorPage(PSTR("Tipo de sensor invalido"), PSTR("/iot"));
+                return;
+            }
+            strlcpy(t.sensor, slug.c_str(), sizeof(t.sensor));
+            kind = iot::SENSORS[i].kind;
+            if (!_pinArg("sensor_pin", t.sensorPin)) return;
+            if (kind == iot::K_DIGITAL) {
+                t.sensorHigh = _flag("sensor_high");
+                if (!_stateText("sensor_on", t.onText)) return;
+                if (!_stateText("sensor_off", t.offText)) return;
+            }
+            if ((kind == iot::K_DHT11 || kind == iot::K_DHT22) && !_u8("metric", 0, 1, t.metric))
+                return;
         }
 
-        int16_t threshold = 0;
-        uint8_t margin = 0;
-        if (IoTService::sensorKind(sensorType) != IoTService::KIND_DIGITAL) {
-            String thresholdArg = _server.arg("threshold");
-            if (!IoTService::parseI16(thresholdArg, -55, 100000, threshold)) {
-                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
+        if (ha) {
+            String slug = _server.arg("actuator");
+            int8_t i = iot::actuatorIndex(slug.c_str());
+            if (i < 0) {
+                _errorPage(PSTR("Tipo de atuador invalido"), PSTR("/iot"));
                 return;
             }
-            String marginArg = _server.arg("margin");
-            if (marginArg.length() > 0 &&
-                !IoTService::parseU8(marginArg, 0, 50, margin)) {
-                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
+            strlcpy(t.actuator, slug.c_str(), sizeof(t.actuator));
+            cap = iot::ACTUATORS[i].cap;
+            if (!_pinArg("actuator_pin", t.actuatorPin)) return;
+            if (hs && t.actuatorPin == t.sensorPin) {
+                _errorPage(PSTR("Sensor e atuador precisam de pinos diferentes"), PSTR("/iot"));
                 return;
             }
+            if (cap == iot::C_ONOFF) t.actuatorHigh = _flag("actuator_high");
+            if (cap == iot::C_LEVEL &&
+                (!_u8("duty_on", 0, 100, t.dutyOn) || !_u8("duty_off", 0, 100, t.dutyOff)))
+                return;
+            if (cap == iot::C_POSITION &&
+                (!_u8("angle_on", 0, 180, t.angleOn) || !_u8("angle_off", 0, 180, t.angleOff)))
+                return;
+            if (cap == iot::C_COLOR && !_u8("leds", 1, IoTService::MAX_LEDS, t.leds)) return;
+            int16_t maxOn = 0;
+            if (!_int("max_on", 0, 1440, maxOn)) return;
+            t.maxOn = (uint16_t)maxOn;
+            t.restore = _flag("restore");
         }
 
-        uint8_t angleOn = 90;
-        uint8_t angleOff = 0;
-        if (IoTService::moduleKind(moduleType) == IoTService::MKIND_SERVO) {
-            String angleOnArg = _server.arg("angle_on");
-            String angleOffArg = _server.arg("angle_off");
-            if (!IoTService::parseU8(angleOnArg, 0, 180, angleOn)) {
-                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
-                return;
-            }
-            if (!IoTService::parseU8(angleOffArg, 0, 180, angleOff)) {
-                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
-                return;
+        if (hs && ha) {
+            t.rule = _flag("rule");
+            if (t.rule && kind == iot::K_DIGITAL) t.toggle = _flag("toggle");
+            if (t.rule && kind != iot::K_DIGITAL) {
+                t.above = _flag("above");
+                if (!_int("threshold", -999, 9999, t.threshold)) return;
+                if (!_u8("margin", 0, 50, t.margin)) return;
+                t.linear = cap == iot::C_LEVEL && _flag("linear");
+                if (t.linear) {
+                    if (!_int("threshold_hi", -999, 9999, t.thresholdHi)) return;
+                    if (t.thresholdHi <= t.threshold) {
+                        _errorPage(PSTR("O limite alto precisa passar do limite"), PSTR("/iot"));
+                        return;
+                    }
+                }
             }
         }
-        uint8_t manual = IoTService::MANUAL_AUTO;
-        String manualArg = _server.arg("manual");
-        if (manualArg.length() > 0 &&
-            !IoTService::parseU8(manualArg, 0, IoTService::MANUAL_OFF, manual)) {
-            _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
-            return;
-        }
-        bool toggle = false;
-        String toggleArg = _server.arg("toggle");
-        if (toggleArg.length() > 0) {
-            uint8_t toggleBit = 0;
-            if (!IoTService::parseU8(toggleArg, 0, 1, toggleBit)) {
-                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
-                return;
-            }
-            toggle = toggleBit == 1;
-        }
-        bool linear = false;
-        String linearArg = _server.arg("linear");
-        if (linearArg.length() > 0) {
-            uint8_t linearBit = 0;
-            if (!IoTService::parseU8(linearArg, 0, 1, linearBit)) {
-                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
-                return;
-            }
-            linear = linearBit == 1;
-        }
-        if (IoTService::sensorKind(sensorType) != IoTService::KIND_DIGITAL)
-            toggle = false;
-        if (IoTService::sensorKind(sensorType) == IoTService::KIND_DIGITAL)
-            linear = false;
-        if (IoTService::moduleKind(moduleType) != IoTService::MKIND_PWM)
-            linear = false;
+        t.notify = _flag("notify");
 
-        int16_t thresholdHi = 0;
-        if (linear) {
-            String hiArg = _server.arg("threshold_hi");
-            if (!IoTService::parseI16(hiArg, -55, 100000, thresholdHi)) {
-                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
-                return;
-            }
-            if (thresholdHi <= threshold) {
-                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
-                return;
-            }
-        }
-
-        uint8_t dutyOn = 100;
-        uint8_t dutyOff = 0;
-        if (IoTService::moduleKind(moduleType) == IoTService::MKIND_PWM) {
-            String dutyOnArg = _server.arg("duty_on");
-            String dutyOffArg = _server.arg("duty_off");
-            if (!IoTService::parseU8(dutyOnArg, 0, 100, dutyOn)) {
-                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
-                return;
-            }
-            if (!IoTService::parseU8(dutyOffArg, 0, 100, dutyOff)) {
-                _errorPage(PSTR("Valor invalido"), PSTR("/iot"));
-                return;
-            }
-        }
-
-        _cfg.iot_sensor_pin   = sensor;
-        _cfg.iot_module_pin   = module;
-        _cfg.iot_sensor_high  = _server.arg("sensor_high") == "1";
-        _cfg.iot_module_high  = _server.arg("module_high") == "1";
-        _cfg.iot_notify       = _server.arg("iot_notify") == "1";
-        _cfg.iot_sensor_type  = sensorType;
-        _cfg.iot_module_type  = moduleType;
-        _cfg.iot_metric       = metric;
-        _cfg.iot_above        = _server.arg("above") == "1";
-        _cfg.iot_threshold    = threshold;
-        _cfg.iot_margin       = margin;
-        _cfg.iot_angle_on     = angleOn;
-        _cfg.iot_angle_off    = angleOff;
-        _cfg.iot_duty_on      = dutyOn;
-        _cfg.iot_duty_off     = dutyOff;
-        _cfg.iot_manual       = manual;
-        _cfg.iot_toggle       = toggle;
-        _cfg.iot_linear       = linear;
-        _cfg.iot_threshold_hi = thresholdHi;
+        _cfg.iot = t;
         if (!_store.save()) {
             _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/iot"));
             return;
         }
         _iot.begin();
         _savedPage(PSTR("IoT configurado"), PSTR("/iot"));
+    }
+
+    // Estado em JSON, ou o erro do comando
+    void _sendState(uint8_t result) {
+        _server.sendHeader("Cache-Control", "no-store");
+        if (result != IoTService::OK) {
+            const char* msg = result == IoTService::INVALID ? "comando invalido"
+                            : result == IoTService::UNSUPPORTED ? "comando nao vale para este atuador"
+                            : "nenhum atuador configurado";
+            _server.send(400, "application/json", String("{\"error\":\"") + msg + "\"}");
+            return;
+        }
+        char buf[STATE_JSON_LEN];
+        _iot.stateJson(buf, sizeof(buf));
+        _server.send(200, "application/json", buf);
+    }
+
+    void _handleIotNow() {
+        if (!_guard()) return;
+        _sendState(IoTService::OK);
+    }
+
+    // Comando do painel (mesmo texto da API e do ntfy)
+    void _handleIotCmd() {
+        if (!_guard()) return;
+        if (!_checkCSRF()) return;
+        String cmd = _server.arg("cmd");
+        _sendState(_iot.command(cmd.c_str(), millis()));
     }
 };

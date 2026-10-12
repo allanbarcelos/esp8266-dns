@@ -60,6 +60,9 @@ inline size_t mock_strlcpy(char* dst, const char* src, size_t size) {
 #define PROGMEM
 #define pgm_read_ptr(p)  (*(p))
 #define strcpy_P(d, s)   strcpy((d), (s))
+#define strncpy_P(d, s, n) strncpy((d), (s), (n))
+#define strcmp_P(a, b)   strcmp((a), (b))
+#define pgm_read_byte(p) (*(const uint8_t*)(p))
 #define PGM_P            const char*
 #define PSTR(s)          (s)
 #define vsnprintf_P      vsnprintf

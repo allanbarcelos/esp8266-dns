@@ -6,13 +6,18 @@
 #include <Servo.h>
 #include "Config.h"
 #include "Logger.h"
+#include "IoTCatalog.h"
+#include "IoTCommand.h"
+#include "IoTState.h"
+#include "Ws2812.h"
 
-// Um sensor e um módulo na ESP-01. O tipo vem da web.
-// Sem as chaves novas, o sensor é digital e o módulo é nível fixo.
-// A leitura numérica comanda o módulo na hora. O ntfy leva uma linha
-// só, com o prefixo [sensor], no tópico já cadastrado.
-// Os pinos efetivos são copiados em begin(). Uma gravação que falha
-// não muda a saída que já está no ar.
+// Um sensor e um atuador no ESP-01, cada um opcional:
+// - só sensor: lê e publica no ntfy;
+// - só atuador: obedece comandos (painel, API local, ntfy);
+// - os dois: com a regra ligada, o sensor comanda o atuador no modo
+//   automático. Um comando manual vale até "auto".
+// A configuração é copiada em begin(): uma gravação que falha não muda a
+// saída que já está no ar.
 class IoTService {
 public:
     static constexpr unsigned long DEBOUNCE_MS      = 200;
@@ -25,83 +30,14 @@ public:
     static constexpr unsigned long DHT22_WAKE_MS    = 2;
     static constexpr unsigned long DHT22_WAKE_MAX   = 20;
     static constexpr unsigned long PULSE_WINDOW_MS  = 10000;
-    static constexpr size_t        MSG_LEN          = 64;
+    static constexpr size_t        MSG_LEN          = 80;
+    static constexpr uint8_t       MAX_LEDS         = 60;  // 1,8 ms sem interrupção
 
-    static constexpr uint8_t SENSOR_DIGITAL = 0;
-    static constexpr uint8_t SENSOR_DHT11   = 1;
-    static constexpr uint8_t SENSOR_DHT22   = 2;
-    static constexpr uint8_t SENSOR_DS18B20 = 3;
-    static constexpr uint8_t SENSOR_PULSE   = 4;
-    static constexpr uint8_t SENSOR_PIR     = 5;
-    static constexpr uint8_t SENSOR_DOOR    = 6;
-    static constexpr uint8_t SENSOR_RAIN    = 7;
-    static constexpr uint8_t SENSOR_FLAME   = 8;
-    static constexpr uint8_t SENSOR_GAS     = 9;
-    static constexpr uint8_t SENSOR_SOIL    = 10;
-    static constexpr uint8_t SENSOR_LIGHT   = 11;
-    static constexpr uint8_t SENSOR_SOUND   = 12;
-    static constexpr uint8_t SENSOR_FLOAT   = 13;
-    static constexpr uint8_t SENSOR_BUTTON  = 14;
-    static constexpr uint8_t SENSOR_RANGE   = 15;
-    static constexpr uint8_t SENSOR_COUNT   = 16;
+    enum Result : uint8_t { OK, INVALID, UNSUPPORTED, NO_ACTUATOR };
 
-    static constexpr uint8_t MODULE_LEVEL  = 0;
-    static constexpr uint8_t MODULE_SERVO  = 1;
-    static constexpr uint8_t MODULE_LED    = 2;
-    static constexpr uint8_t MODULE_BUZZER = 3;
-    static constexpr uint8_t MODULE_PUMP   = 4;
-    static constexpr uint8_t MODULE_VALVE  = 5;
-    static constexpr uint8_t MODULE_FAN    = 6;
-    static constexpr uint8_t MODULE_MOTOR  = 7;
-    static constexpr uint8_t MODULE_COUNT  = 8;
+    IoTService(Config& cfg, Logger& log) : _cfg(cfg), _log(log) { _clear(); }
 
-    // O script da página usa estes números. 0 no sensor é o nível digital.
-    static constexpr uint8_t KIND_DIGITAL = 0;
-    static constexpr uint8_t KIND_DHT11   = 1;
-    static constexpr uint8_t KIND_DHT22   = 2;
-    static constexpr uint8_t KIND_DS18    = 3;
-    static constexpr uint8_t KIND_PULSE   = 4;
-    static constexpr uint8_t KIND_RANGE   = 5;
-
-    static constexpr uint8_t MKIND_LEVEL = 0;
-    static constexpr uint8_t MKIND_SERVO = 1;
-    static constexpr uint8_t MKIND_PWM   = 2;
-
-    static constexpr uint8_t MANUAL_AUTO = 0;
-    static constexpr uint8_t MANUAL_ON   = 1;
-    static constexpr uint8_t MANUAL_OFF  = 2;
-
-    static uint8_t sensorKind(uint8_t type) { return _sensorAt(type).kind; }
-    static const char* sensorLabel(uint8_t type) { return _sensorAt(type).label; }
-    static uint8_t moduleKind(uint8_t type) { return _moduleAt(type).kind; }
-    static const char* moduleLabel(uint8_t type) { return _moduleAt(type).label; }
-
-    IoTService(Config& cfg, Logger& log) : _cfg(cfg), _log(log) {
-        _runSensor = -1;
-        _runModule = -1;
-        _runSensorHigh = true;
-        _runModuleHigh = false;
-        _runNotify = false;
-        _runSensorType = SENSOR_DIGITAL;
-        _runModuleType = MODULE_LEVEL;
-        _runMetric = 0;
-        _runAbove = false;
-        _runThreshold = 0;
-        _runMargin = 0;
-        _runAngleOn = 90;
-        _runAngleOff = 0;
-        _runDutyOn = 100;
-        _runDutyOff = 0;
-        _runManual = MANUAL_AUTO;
-        _runToggle = false;
-        _runLinear = false;
-        _runThresholdHi = 0;
-        _clear();
-    }
-
-    static bool allowedPin(int pin) {
-        return pin == 0 || pin == 1 || pin == 2 || pin == 3;
-    }
+    static bool allowedPin(int pin) { return iot::allowedPin(pin); }
 
     static bool parsePin(const String& s, int8_t& out) {
         if (s == "-1") {
@@ -145,74 +81,424 @@ public:
     }
 
     void begin() {
-        _releaseOutput();
+        _release();
         _detachSensor();
         _clear();
-        _runSensor     = _cfg.iot_sensor_pin;
-        _runModule     = _cfg.iot_module_pin;
-        _runSensorHigh = _cfg.iot_sensor_high;
-        _runModuleHigh = _cfg.iot_module_high;
-        _runNotify     = _cfg.iot_notify;
-        _runSensorType = _cfg.iot_sensor_type;
-        _runModuleType = _cfg.iot_module_type;
-        _runMetric     = _cfg.iot_metric;
-        _runAbove      = _cfg.iot_above;
-        _runThreshold  = _cfg.iot_threshold;
-        _runMargin     = _cfg.iot_margin;
-        _runAngleOn    = _cfg.iot_angle_on;
-        _runAngleOff   = _cfg.iot_angle_off;
-        _runDutyOn     = _clampDuty(_cfg.iot_duty_on);
-        _runDutyOff    = _clampDuty(_cfg.iot_duty_off);
-        _runManual     = _cfg.iot_manual;
-        _runToggle     = _cfg.iot_toggle;
-        _runLinear     = _cfg.iot_linear;
-        _runThresholdHi = _cfg.iot_threshold_hi;
-        if (_runSensorType >= SENSOR_COUNT) _runSensorType = SENSOR_DIGITAL;
-        if (_runModuleType >= MODULE_COUNT) _runModuleType = MODULE_LEVEL;
-        if (_runManual > MANUAL_OFF) _runManual = MANUAL_AUTO;
-        if (!allowedPin(_runSensor)) return;
-        pinMode((uint8_t)_runSensor, INPUT_PULLUP);
-        if (sensorKind(_runSensorType) == KIND_PULSE) {
-            _pulses = 0;
-            attachInterrupt((uint8_t)_runSensor, onPulse, FALLING);
+        _r = _cfg.iot;
+        if (_r.dutyOn > 100) _r.dutyOn = 100;
+        if (_r.dutyOff > 100) _r.dutyOff = 100;
+        if (_r.leds == 0 || _r.leds > MAX_LEDS) _r.leds = MAX_LEDS;
+
+        if (allowedPin(_r.sensorPin)) {
+            _sensor = iot::sensorIndex(_r.sensor);
+            if (_sensor < 0 && _r.sensor[0]) _unknown("sensor");
         }
-        if (_moduleIsOutput()) {
-            bool driveOn = _runManual == MANUAL_ON;
-            if (moduleKind(_runModuleType) == MKIND_SERVO) {
-                _servoOk = _servo.attach((int)_runModule) != 0;
-                if (_servoOk) _writeModule(driveOn);
-                else _log.log(PSTR("IoT: servo indisponivel"));
-                _log.log(PSTR("IoT: sensor GPIO%d servo GPIO%d"), _runSensor, _runModule);
+        if (allowedPin(_r.actuatorPin) && !(_sensor >= 0 && _r.actuatorPin == _r.sensorPin)) {
+            _act = iot::actuatorIndex(_r.actuator);
+            if (_act < 0 && _r.actuator[0]) _unknown("atuador");
+        }
+
+        if (_sensor >= 0) {
+            const iot::SensorDef& s = iot::SENSORS[_sensor];
+            _stateName(_onText, _r.onText, s.on);
+            _stateName(_offText, _r.offText, s.off);
+            pinMode((uint8_t)_r.sensorPin, INPUT_PULLUP);
+            if (s.kind == iot::K_PULSE) attachInterrupt((uint8_t)_r.sensorPin, onPulse, FALLING);
+            _log.log(PSTR("IoT: sensor %s GPIO%d"), s.slug, _r.sensorPin);
+        }
+        if (_act >= 0) {
+            _level = _r.dutyOn;
+            _angle = _r.angleOn;
+            if (_r.restore) _restore();
+            if (capability() == iot::C_POSITION) {
+                _servoOk = _servo.attach((int)_r.actuatorPin) != 0;
+                if (!_servoOk) _log.log(PSTR("IoT: servo indisponivel"));
             } else {
-                pinMode((uint8_t)_runModule, OUTPUT);
-                _writeModule(driveOn);
-                _log.log(PSTR("IoT: sensor GPIO%d modulo GPIO%d"), _runSensor, _runModule);
+                pinMode((uint8_t)_r.actuatorPin, OUTPUT);
             }
-        } else {
-            _log.log(PSTR("IoT: sensor GPIO%d"), _runSensor);
+            _onSince = millis();
+            _drive();
+            _log.log(PSTR("IoT: atuador %s GPIO%d"), iot::ACTUATORS[_act].slug, _r.actuatorPin);
         }
     }
 
     void tick(unsigned long now) {
-        if (!allowedPin(_runSensor)) return;
-        uint8_t kind = sensorKind(_runSensorType);
-        if (kind == KIND_DHT11 || kind == KIND_DHT22) {
-            _tickDht(now);
+        if (_sensor >= 0) _tickSensor(now);
+        if (_act < 0) return;
+        if (_pulsing && (long)(now - _pulseUntil) >= 0) {
+            _pulsing = false;
+            _setOn(false, now);
+            if (hasRule()) {
+                _manual = false;
+                if (_haveRule) _takeRule();
+            }
+            _changed(PSTR("[atuador] %s"));
+            _persist();
+        }
+        if (_on && _r.maxOn && now - _onSince >= (unsigned long)_r.maxOn * 60000UL) {
+            _pulsing = false;
+            _setOn(false, now);
+            _manual = hasRule();
+            _changed(PSTR("[atuador] %s por seguranca"));
+            _persist();
+        }
+    }
+
+    bool hasSensor()   const { return _sensor >= 0; }
+    // Configuração de versão mais nova: a parte fica desligada, o arquivo intacto
+    bool unknownType() const { return _unknownType; }
+    bool hasActuator() const { return _act >= 0; }
+    bool hasRule()     const { return _r.rule && hasSensor() && hasActuator(); }
+    bool manual()      const { return _manual; }
+    bool actuatorOn()  const { return _on; }
+    uint8_t level()    const { return _level; }
+    uint8_t angle()    const { return _on ? _angle : _r.angleOff; }
+    uint32_t color()   const { return _rgb; }
+
+    uint8_t sensorKind() const { return _sensor >= 0 ? iot::SENSORS[_sensor].kind : iot::K_NONE; }
+    uint8_t capability() const { return _act >= 0 ? iot::ACTUATORS[_act].cap : iot::C_NONE; }
+    const iot::SensorDef*   sensorDef()   const { return _sensor >= 0 ? &iot::SENSORS[_sensor] : nullptr; }
+    const iot::ActuatorDef* actuatorDef() const { return _act >= 0 ? &iot::ACTUATORS[_act] : nullptr; }
+
+    // Texto do painel, da API ou do ntfy
+    uint8_t command(const char* text, unsigned long now) {
+        iot::Command c;
+        if (!iot::parseCommand(text, c)) return INVALID;
+        return run(c, now);
+    }
+
+    uint8_t run(const iot::Command& c, unsigned long now) {
+        if (_act < 0) return NO_ACTUATOR;
+        if (!iot::commandAllowed(capability(), c.op)) return UNSUPPORTED;
+        if (c.op == iot::OP_STATUS) return OK;
+        _pulsing = false;
+        if (c.op == iot::OP_AUTO) {
+            _manual = false;
+            if (hasRule() && _haveRule) _takeRule();
+            _changed(PSTR("[atuador] %s"));
+            _persist();
+            return OK;
+        }
+        switch (c.op) {
+            case iot::OP_ON:     _turnOn(now); break;
+            case iot::OP_OFF:    _setOn(false, now); break;
+            case iot::OP_TOGGLE:
+                if (_on) _setOn(false, now);
+                else _turnOn(now);
+                break;
+            case iot::OP_PULSE:
+                _turnOn(now);
+                _pulsing = true;
+                _pulseUntil = now + c.value * 1000UL;
+                break;
+            case iot::OP_LEVEL:
+                _level = (uint8_t)c.value;
+                _setOn(c.value > 0, now);
+                break;
+            case iot::OP_ANGLE:
+                _angle = (uint8_t)c.value;
+                _setOn(c.value != _r.angleOff, now);
+                break;
+            default: // OP_COLOR
+                _rgb = c.value;
+                if (_level == 0) _level = 100;
+                _setOn(true, now);
+                break;
+        }
+        _manual = hasRule();
+        _changed(PSTR("[atuador] %s"));
+        if (!_pulsing) _persist();
+        return OK;
+    }
+
+    // Leitura do sensor em texto curto
+    const char* sensorText() const {
+        if (_sensor < 0) return "nenhum";
+        if (_failing) return "falha";
+        if (!_haveLevel) return "aguardando";
+        return _sensorLine;
+    }
+
+    const char* actuatorText() const {
+        if (_act < 0) return "nenhum";
+        if (capability() == iot::C_POSITION && !_servoOk) return "falha";
+        return _actLine;
+    }
+
+    // Estado em JSON (API e painel). Parte ausente vai como null.
+    size_t stateJson(char* out, size_t n) const {
+        size_t k = (size_t)snprintf(out, n, "{\"api\":1,\"sensor\":");
+        k += _sensorJson(out + k, _left(n, k));
+        k += (size_t)snprintf(out + k, _left(n, k), ",\"actuator\":");
+        k += _actuatorJson(out + k, _left(n, k));
+        k += (size_t)snprintf(out + k, _left(n, k), "}");
+        return k;
+    }
+
+    bool pending() const { return _pending[0] != '\0'; }
+    const char* message() const { return _pending; }
+    void ack() { _pending[0] = '\0'; }
+
+    // Contagem de pulsos. O ISR só incrementa.
+    static void IRAM_ATTR onPulse() { _pulses++; }
+
+private:
+    Config& _cfg;
+    Logger& _log;
+    IoTConfig _r;
+    int8_t  _sensor;
+    int8_t  _act;
+    bool    _unknownType;
+
+    // Sensor
+    bool    _seen;
+    bool    _haveLevel;
+    bool    _failing;
+    bool    _haveRead;
+    bool    _windowOpen;
+    bool    _active;        // digital: estado ativo
+    bool    _edgeReady;
+    int     _candidate;
+    int     _stable;
+    int     _hum;
+    int     _temp;
+    int     _value;         // distância (cm) ou pulsos
+    unsigned long _since;
+    unsigned long _lastRead;
+    unsigned long _owSince;
+    unsigned long _dhtSince;
+    unsigned long _windowStart;
+    uint8_t _owState;
+    bool    _dhtWaking;
+    char    _onText[16];
+    char    _offText[16];
+    char    _sensorLine[32];
+
+    // Atuador
+    bool    _on;
+    bool    _manual;
+    bool    _servoOk;
+    bool    _pulsing;
+    bool    _haveRule;      // a regra já decidiu ao menos uma vez
+    bool    _ruleOn;
+    uint8_t _ruleLevel;
+    uint8_t _level;
+    uint8_t _angle;
+    uint32_t _rgb;
+    unsigned long _pulseUntil;
+    unsigned long _onSince;
+    char    _actLine[28];
+    char    _pending[MSG_LEN];
+    Servo   _servo;
+
+    static inline volatile uint32_t _pulses = 0;
+    static constexpr uint8_t OW_IDLE = 0;
+    static constexpr uint8_t OW_WAIT = 1;
+
+    void _clear() {
+        _sensor = -1;
+        _act = -1;
+        _unknownType = false;
+        _seen = false;
+        _haveLevel = false;
+        _failing = false;
+        _haveRead = false;
+        _windowOpen = false;
+        _active = false;
+        _edgeReady = false;
+        _candidate = HIGH;
+        _stable = HIGH;
+        _hum = 0;
+        _temp = 0;
+        _value = 0;
+        _since = 0;
+        _lastRead = 0;
+        _owSince = 0;
+        _dhtSince = 0;
+        _windowStart = 0;
+        _owState = OW_IDLE;
+        _dhtWaking = false;
+        _onText[0] = '\0';
+        _offText[0] = '\0';
+        _sensorLine[0] = '\0';
+        _on = false;
+        _manual = false;
+        _servoOk = false;
+        _pulsing = false;
+        _haveRule = false;
+        _ruleOn = false;
+        _ruleLevel = 0;
+        _level = 100;
+        _angle = 90;
+        _rgb = 0xFFFFFF;
+        _pulseUntil = 0;
+        _onSince = 0;
+        _actLine[0] = '\0';
+        _pending[0] = '\0';
+        _pulses = 0;
+    }
+
+    void _unknown(const char* part) {
+        _unknownType = true;
+        _log.log(PSTR("IoT: tipo de %s desconhecido"), part);
+    }
+
+    static size_t _left(size_t n, size_t used) { return n > used ? n - used : 0; }
+
+    // Nome do estado digital: o da configuração ou o padrão do tipo
+    static void _stateName(char* dst, const char* custom, PGM_P fallback) {
+        if (custom[0]) {
+            strlcpy(dst, custom, 16);
+        } else if (fallback) {
+            strncpy_P(dst, fallback, 15);
+            dst[15] = '\0';
+        }
+    }
+
+    void _detachSensor() {
+        if (sensorKind() == iot::K_PULSE) detachInterrupt((uint8_t)_r.sensorPin);
+    }
+
+    // GPIO0 e GPIO2 têm de ficar altos no próximo boot
+    void _idleStrappingPin() {
+        if (_r.actuatorPin == 0 || _r.actuatorPin == 2)
+            pinMode((uint8_t)_r.actuatorPin, INPUT_PULLUP);
+    }
+
+    // Deixa a saída anterior desligada antes de reconfigurar. O liga/desliga
+    // segura o nível desligado (pull-up ligaria um módulo que arma em alto).
+    void _release() {
+        if (_act < 0) return;
+        uint8_t cap = capability();
+        _on = false;
+        if (cap == iot::C_ONOFF) {
+            _drive();
             return;
         }
-        if (kind == KIND_DS18) {
-            _tickDs(now);
-            return;
+        if (cap == iot::C_POSITION) {
+            if (_servoOk) _servo.detach();
+            _servoOk = false;
+        } else if (cap == iot::C_LEVEL) {
+            analogWrite((uint8_t)_r.actuatorPin, 0);
+        } else {
+            ws2812Show((uint8_t)_r.actuatorPin, _r.leds, 0);
         }
-        if (kind == KIND_PULSE) {
-            _tickPulse(now);
-            return;
+        _idleStrappingPin();
+    }
+
+    void _restore() {
+        IoTState st;
+        if (!st.load()) return;
+        _on = st.on;
+        _manual = st.manual;
+        _level = st.level > 100 ? 100 : st.level;
+        _angle = st.angle > 180 ? 180 : st.angle;
+        _rgb = st.rgb & 0xFFFFFF;
+    }
+
+    void _persist() const {
+        if (!_r.restore) return;
+        IoTState st;
+        st.manual = _manual;
+        st.on = _on;
+        st.level = _level;
+        st.angle = _angle;
+        st.rgb = _rgb;
+        st.save();
+    }
+
+    void _setOn(bool on, unsigned long now) {
+        if (on && !_on) _onSince = now;
+        _on = on;
+    }
+
+    // Ligar volta à posição ou intensidade de "ligado" quando não há outra
+    void _turnOn(unsigned long now) {
+        uint8_t cap = capability();
+        if (cap == iot::C_POSITION) _angle = _r.angleOn;
+        else if (_level == 0) _level = cap == iot::C_LEVEL ? _r.dutyOn : 100;
+        _setOn(true, now);
+    }
+
+    static uint32_t _scale(uint32_t rgb, uint8_t level) {
+        uint32_t r = ((rgb >> 16) & 0xFF) * level / 100;
+        uint32_t g = ((rgb >> 8) & 0xFF) * level / 100;
+        uint32_t b = (rgb & 0xFF) * level / 100;
+        return (r << 16) | (g << 8) | b;
+    }
+
+    void _drive() {
+        uint8_t pin = (uint8_t)_r.actuatorPin;
+        switch (capability()) {
+            case iot::C_ONOFF:
+                digitalWrite(pin, _on == _r.actuatorHigh ? HIGH : LOW);
+                break;
+            case iot::C_LEVEL:
+                analogWrite(pin, (int)(_on ? _level : _r.dutyOff) * 1023 / 100);
+                break;
+            case iot::C_POSITION:
+                if (_servoOk) _servo.write(angle());
+                break;
+            default: // C_COLOR
+                ws2812Show(pin, _r.leds, _on ? _scale(_rgb, _level) : 0);
+                break;
         }
-        if (kind == KIND_RANGE) {
-            _tickRange(now);
-            return;
+        _describe();
+    }
+
+    void _describe() {
+        uint8_t cap = capability();
+        if (cap == iot::C_LEVEL && _on)
+            snprintf(_actLine, sizeof(_actLine), "ligado %u%%", _level);
+        else if (cap == iot::C_POSITION)
+            snprintf(_actLine, sizeof(_actLine), "%s %u graus", _on ? "aberto" : "fechado", angle());
+        else if (cap == iot::C_COLOR && _on)
+            snprintf(_actLine, sizeof(_actLine), "ligado #%06lx %u%%", (unsigned long)_rgb, _level);
+        else
+            strlcpy(_actLine, _on ? "ligado" : "desligado", sizeof(_actLine));
+    }
+
+    // Saída mudou por comando ou tempo: aplica, registra e avisa
+    void _changed(PGM_P fmt) {
+        _drive();
+        char line[MSG_LEN];
+        snprintf_P(line, sizeof(line), fmt, actuatorText());
+        _log.log(PSTR("IoT: %s"), line);
+        if (_r.notify) strlcpy(_pending, line, sizeof(_pending));
+    }
+
+    // Leva o atuador à última decisão da regra (modo automático). Não
+    // aciona a saída: quem chama decide (_drive ou _changed).
+    bool _takeRule() {
+        uint8_t cap = capability();
+        bool changed = _ruleOn != _on;
+        if (_proportional()) {
+            changed = changed || _ruleLevel != _level;
+            _level = _ruleLevel;
+        } else if (_ruleOn && !_on) {
+            if (cap == iot::C_POSITION) _angle = _r.angleOn;
+            else if (cap == iot::C_LEVEL) _level = _r.dutyOn;
         }
-        int level = digitalRead((uint8_t)_runSensor);
+        _setOn(_ruleOn, millis());
+        return changed;
+    }
+
+    bool _proportional() const {
+        return _r.linear && capability() == iot::C_LEVEL && sensorKind() != iot::K_DIGITAL;
+    }
+
+    // ── Sensor ───────────────────────────────────────────────────────────────
+
+    void _tickSensor(unsigned long now) {
+        switch (sensorKind()) {
+            case iot::K_DHT11:
+            case iot::K_DHT22: _tickDht(now); return;
+            case iot::K_DS18:  _tickDs(now); return;
+            case iot::K_PULSE: _tickPulse(now); return;
+            case iot::K_RANGE: _tickRange(now); return;
+            default: break;
+        }
+        int level = digitalRead((uint8_t)_r.sensorPin);
         if (!_seen || level != _candidate) {
             _seen = true;
             _candidate = level;
@@ -223,315 +509,34 @@ public:
         if (_haveLevel && level == _stable) return;
         _stable = level;
         _haveLevel = true;
-        _apply(level);
+        _onDigital((level == HIGH) == _r.sensorHigh);
     }
 
-    bool pending() const { return _pending[0] != '\0'; }
-    const char* message() const { return _pending; }
-    void ack() { _pending[0] = '\0'; }
-
-    bool moduleOn() const { return _moduleOn; }
-
-    const char* sensorText() const {
-        if (!allowedPin(_runSensor)) return "nenhum";
-        if (sensorKind(_runSensorType) == KIND_DIGITAL) {
-            if (!_haveLevel) return "aguardando";
-            return _stable == HIGH ? "alto" : "baixo";
-        }
-        if (_failing || !_haveLevel) return _failing ? "falha" : "aguardando";
-        return _sensorLine;
-    }
-
-    const char* moduleText() const {
-        if (!_moduleIsOutput()) return "nenhum";
-        uint8_t mk = moduleKind(_runModuleType);
-        if (mk == MKIND_SERVO) {
-            if (!_servoOk) return "falha";
-            return _moduleLine;
-        }
-        if (mk == MKIND_PWM) return _moduleLine;
-        return _moduleOn ? "ligado" : "desligado";
-    }
-
-    // Contagem de pulsos. O ISR só incrementa.
-    static void IRAM_ATTR onPulse() { _pulses++; }
-
-private:
-    Config& _cfg;
-    Logger& _log;
-    bool    _seen;
-    bool    _haveLevel;
-    bool    _moduleOn;
-    bool    _conditionOn;
-    bool    _failing;
-    bool    _haveRead;
-    bool    _windowOpen;
-    bool    _servoOk;
-    int     _candidate;
-    int     _stable;
-    int     _hum;
-    int     _temp;
-    int     _shownAngle;
-    unsigned long _since;
-    unsigned long _lastRead;
-    unsigned long _owSince;
-    unsigned long _dhtSince;
-    unsigned long _windowStart;
-    uint8_t _owState;
-    bool    _dhtWaking;
-    char    _pending[MSG_LEN];
-    char    _sensorLine[40];
-    char    _moduleLine[16];
-    int8_t  _runSensor;
-    int8_t  _runModule;
-    bool    _runSensorHigh;
-    bool    _runModuleHigh;
-    bool    _runNotify;
-    uint8_t _runSensorType;
-    uint8_t _runModuleType;
-    uint8_t _runMetric;
-    bool    _runAbove;
-    int16_t _runThreshold;
-    uint8_t _runMargin;
-    uint8_t _runAngleOn;
-    uint8_t _runAngleOff;
-    uint8_t _runDutyOn;
-    uint8_t _runDutyOff;
-    uint8_t _runManual;
-    bool    _runToggle;
-    bool    _runLinear;
-    int16_t _runThresholdHi;
-    uint8_t _shownDuty;
-    bool    _edgeReady;
-    Servo   _servo;
-
-    struct _Cat {
-        const char* label;
-        uint8_t kind;
-    };
-
-    static const _Cat& _sensorAt(uint8_t type) {
-        static const _Cat items[] = {
-            {"Digital", KIND_DIGITAL},
-            {"DHT11", KIND_DHT11},
-            {"DHT22", KIND_DHT22},
-            {"DS18B20", KIND_DS18},
-            {"Pulsos (10 s)", KIND_PULSE},
-            {"PIR", KIND_DIGITAL},
-            {"Porta", KIND_DIGITAL},
-            {"Chuva", KIND_DIGITAL},
-            {"Chama", KIND_DIGITAL},
-            {"Gas", KIND_DIGITAL},
-            {"Solo", KIND_DIGITAL},
-            {"Luz", KIND_DIGITAL},
-            {"Som", KIND_DIGITAL},
-            {"Boia", KIND_DIGITAL},
-            {"Botao", KIND_DIGITAL},
-            {"Ultrassom", KIND_RANGE},
-        };
-        static_assert(sizeof(items) / sizeof(items[0]) == SENSOR_COUNT, "sensores");
-        if (type >= SENSOR_COUNT) return items[0];
-        return items[type];
-    }
-
-    static const _Cat& _moduleAt(uint8_t type) {
-        static const _Cat items[] = {
-            {"Rele", MKIND_LEVEL},
-            {"Servo", MKIND_SERVO},
-            {"LED", MKIND_LEVEL},
-            {"Buzzer", MKIND_LEVEL},
-            {"Bomba", MKIND_LEVEL},
-            {"Valvula", MKIND_LEVEL},
-            {"Ventilador", MKIND_PWM},
-            {"Motor", MKIND_PWM},
-        };
-        static_assert(sizeof(items) / sizeof(items[0]) == MODULE_COUNT, "modulos");
-        if (type >= MODULE_COUNT) return items[0];
-        return items[type];
-    }
-
-    static uint8_t _clampDuty(uint8_t duty) {
-        return duty > 100 ? 100 : duty;
-    }
-
-    static int _dutyPwm(uint8_t duty) {
-        return (int)duty * 1023 / 100;
-    }
-
-    static inline volatile uint32_t _pulses = 0;
-    static constexpr uint8_t OW_IDLE = 0;
-    static constexpr uint8_t OW_WAIT = 1;
-
-    void _clear() {
-        _seen = false;
-        _haveLevel = false;
-        _moduleOn = false;
-        _conditionOn = false;
-        _failing = false;
-        _haveRead = false;
-        _windowOpen = false;
-        _servoOk = false;
-        _candidate = HIGH;
-        _stable = HIGH;
-        _hum = 0;
-        _temp = 0;
-        _shownAngle = 0;
-        _shownDuty = 0;
-        _edgeReady = false;
-        _since = 0;
-        _lastRead = 0;
-        _owSince = 0;
-        _dhtSince = 0;
-        _windowStart = 0;
-        _owState = OW_IDLE;
-        _dhtWaking = false;
-        _pending[0] = '\0';
-        _sensorLine[0] = '\0';
-        _moduleLine[0] = '\0';
-        _pulses = 0;
-    }
-
-    bool _moduleIsOutput() const {
-        return allowedPin(_runSensor) &&
-               allowedPin(_runModule) &&
-               _runModule != _runSensor;
-    }
-
-    void _detachSensor() {
-        if (sensorKind(_runSensorType) == KIND_PULSE && allowedPin(_runSensor))
-            detachInterrupt((uint8_t)_runSensor);
-    }
-
-    // GPIO0 e GPIO2 têm de ficar altos no próximo boot.
-    void _idleStrappingPin() {
-        if (_runModule == 0 || _runModule == 2)
-            pinMode((uint8_t)_runModule, INPUT_PULLUP);
-    }
-
-    // Segura a saída no nível desligado. Entrada com pull-up ligaria
-    // um módulo que arma em alto. No servo e no PWM, GPIO0 e GPIO2
-    // voltam ao pull-up para continuarem altos no próximo boot.
-    void _releaseOutput() {
-        if (!_moduleIsOutput()) return;
-        uint8_t mk = moduleKind(_runModuleType);
-        if (mk == MKIND_SERVO) {
-            if (_servoOk) _servo.detach();
-            _servoOk = false;
-            _idleStrappingPin();
-            _moduleOn = false;
-            return;
-        }
-        if (mk == MKIND_PWM) {
-            analogWrite((uint8_t)_runModule, 0);
-            _idleStrappingPin();
-            _moduleOn = false;
-            return;
-        }
-        digitalWrite((uint8_t)_runModule, _runModuleHigh ? LOW : HIGH);
-        _moduleOn = false;
-    }
-
-    void _writeModule(bool on) {
-        if (!_moduleIsOutput()) {
-            _moduleOn = false;
-            return;
-        }
-        uint8_t mk = moduleKind(_runModuleType);
-        if (mk == MKIND_SERVO) {
-            if (!_servoOk) {
-                _moduleOn = false;
-                return;
+    void _onDigital(bool active) {
+        _active = active;
+        strlcpy(_sensorLine, active ? _onText : _offText, sizeof(_sensorLine));
+        if (hasRule()) {
+            if (_r.toggle) {
+                if (_edgeReady && active) _ruleOn = !_on;
+                _edgeReady = true;
+            } else {
+                _ruleOn = active;
             }
-            _moduleOn = on;
-            _shownAngle = on ? _runAngleOn : _runAngleOff;
-            _servo.write(_shownAngle);
-            snprintf(_moduleLine, sizeof(_moduleLine), "servo %d", _shownAngle);
-            return;
+            _haveRule = true;
+            if (!_manual && _takeRule()) _drive();
         }
-        if (mk == MKIND_PWM) {
-            _moduleOn = on;
-            uint8_t duty = on ? _runDutyOn : _runDutyOff;
-            _shownDuty = duty;
-            analogWrite((uint8_t)_runModule, _dutyPwm(duty));
-            snprintf(_moduleLine, sizeof(_moduleLine), "pwm %u%%", duty);
-            return;
-        }
-        _moduleOn = on;
-        bool high = on ? _runModuleHigh : !_runModuleHigh;
-        digitalWrite((uint8_t)_runModule, high ? HIGH : LOW);
+        _report(true);
     }
 
-    void _moduleSuffix(char* buf, size_t n) const {
-        buf[0] = '\0';
-        if (!_moduleIsOutput()) return;
-        uint8_t mk = moduleKind(_runModuleType);
-        if (mk == MKIND_SERVO) {
-            if (!_servoOk) snprintf(buf, n, " servo falha");
-            else snprintf(buf, n, " servo %d", _shownAngle);
-            return;
-        }
-        if (mk == MKIND_PWM) {
-            snprintf(buf, n, " pwm %u%%", _shownDuty);
-            return;
-        }
-        snprintf(buf, n, " modulo %s", _moduleOn ? "ligado" : "desligado");
-    }
-
-    bool _outputLocked() const { return _runManual != MANUAL_AUTO; }
-
-    bool _proportional() const {
-        return _runLinear && moduleKind(_runModuleType) == MKIND_PWM;
-    }
-
-    void _command(bool on) {
-        if (_outputLocked()) return;
-        _writeModule(on);
-    }
-
-    void _commandDuty(uint8_t duty) {
-        if (_outputLocked()) return;
-        if (!_moduleIsOutput()) {
-            _moduleOn = false;
-            return;
-        }
-        _shownDuty = duty;
-        _moduleOn = duty != _runDutyOff;
-        analogWrite((uint8_t)_runModule, _dutyPwm(duty));
-        snprintf(_moduleLine, sizeof(_moduleLine), "pwm %u%%", duty);
-    }
-
-    // Limite alto acima do limite: interpola. Faixa vazia vira dois patamares.
-    uint8_t _mapDuty(int value, bool tenths) const {
-        int scale = tenths ? 10 : 1;
-        int lo = (int)_runThreshold * scale;
-        int hi = (int)_runThresholdHi * scale;
-        if (hi <= lo) return value >= lo ? _runDutyOn : _runDutyOff;
-        if (value <= lo) return _runDutyOff;
-        if (value >= hi) return _runDutyOn;
-        int span = hi - lo;
-        int delta = (int)_runDutyOn - (int)_runDutyOff;
-        return (uint8_t)((int)_runDutyOff + delta * (value - lo) / span);
-    }
-
-    void _apply(int level) {
-        bool sensorOn = (level == HIGH) == _runSensorHigh;
-        if (_runToggle) {
-            if (_edgeReady && sensorOn) _command(!_moduleOn);
-            _edgeReady = true;
-        } else {
-            _command(sensorOn);
-        }
-        const char* name = level == HIGH ? "alto" : "baixo";
-        if (_runNotify) {
-            char suffix[24];
-            _moduleSuffix(suffix, sizeof(suffix));
-            snprintf(_pending, sizeof(_pending), "[sensor] GPIO%d %s%s",
-                     _runSensor, name, suffix);
-            _log.log(PSTR("%s"), _pending);
-        } else {
-            _pending[0] = '\0';
-            _log.log(PSTR("IoT: GPIO%d %s"), _runSensor, name);
-        }
+    // Leitura vai ao log e, com o ntfy ligado, ao tópico (com o atuador)
+    void _report(bool log) {
+        char line[MSG_LEN];
+        if (_act >= 0)
+            snprintf(line, sizeof(line), "[sensor] %s | %s", sensorText(), actuatorText());
+        else
+            snprintf(line, sizeof(line), "[sensor] %s", sensorText());
+        if (log) _log.log(PSTR("IoT: %s"), line + 9);
+        if (_r.notify) strlcpy(_pending, line, sizeof(_pending));
     }
 
     void _fail() {
@@ -540,74 +545,76 @@ private:
         _log.log(PSTR("IoT: leitura falhou"));
     }
 
-    void _fmtTenths(char* b, size_t n, int v) const {
-        if (v < 0) {
-            v = -v;
-            snprintf(b, n, "-%d.%d", v / 10, v % 10);
-            return;
-        }
-        snprintf(b, n, "%d.%d", v / 10, v % 10);
+    static void _fmtTenths(char* b, size_t n, int v) {
+        const char* sign = v < 0 ? "-" : "";
+        if (v < 0) v = -v;
+        snprintf(b, n, "%s%d.%d", sign, v / 10, v % 10);
     }
 
-    // value em décimos, exceto pulsos. A margem evita o relé oscilar.
+    // value em décimos, exceto distância e pulsos. A margem evita oscilar.
     bool _rule(int value, bool tenths) const {
         int scale = tenths ? 10 : 1;
-        int limit = (int)_runThreshold * scale;
-        int margin = (int)_runMargin * scale;
-        if (_haveLevel && _conditionOn) {
-            if (_runAbove) return value >= limit - margin;
+        int limit = (int)_r.threshold * scale;
+        int margin = (int)_r.margin * scale;
+        if (_haveRule && _ruleOn) {
+            if (_r.above) return value >= limit - margin;
             return value <= limit + margin;
         }
-        if (_runAbove) return value >= limit;
+        if (_r.above) return value >= limit;
         return value <= limit;
     }
 
+    // Limite alto acima do limite: interpola. Faixa vazia vira dois patamares.
+    uint8_t _mapDuty(int value, bool tenths) const {
+        int scale = tenths ? 10 : 1;
+        int lo = (int)_r.threshold * scale;
+        int hi = (int)_r.thresholdHi * scale;
+        if (hi <= lo) return value >= lo ? _r.dutyOn : _r.dutyOff;
+        if (value <= lo) return _r.dutyOff;
+        if (value >= hi) return _r.dutyOn;
+        int delta = (int)_r.dutyOn - (int)_r.dutyOff;
+        return (uint8_t)((int)_r.dutyOff + delta * (value - lo) / (hi - lo));
+    }
+
+    // Nova leitura numérica: texto, regra e aviso
     void _accept(int value, bool tenths) {
         _failing = false;
-        uint8_t kind = sensorKind(_runSensorType);
-        if (kind == KIND_PULSE) {
-            snprintf(_sensorLine, sizeof(_sensorLine), "pulsos %d", value);
-        } else if (kind == KIND_DS18) {
-            char temp[16];
-            _fmtTenths(temp, sizeof(temp), value);
-            snprintf(_sensorLine, sizeof(_sensorLine), "temp %sC", temp);
-        } else if (kind == KIND_RANGE) {
-            snprintf(_sensorLine, sizeof(_sensorLine), "dist %d cm", value);
+        uint8_t kind = sensorKind();
+        char a[12];
+        char b[12];
+        if (kind == iot::K_PULSE) {
+            snprintf(_sensorLine, sizeof(_sensorLine), "%d pulsos/10 s", value);
+        } else if (kind == iot::K_RANGE) {
+            snprintf(_sensorLine, sizeof(_sensorLine), "%d cm", value);
+        } else if (kind == iot::K_DS18) {
+            _fmtTenths(a, sizeof(a), value);
+            snprintf(_sensorLine, sizeof(_sensorLine), "%s C", a);
         } else {
-            char hum[16];
-            char temp[16];
-            _fmtTenths(hum, sizeof(hum), _hum);
-            _fmtTenths(temp, sizeof(temp), _temp);
-            snprintf(_sensorLine, sizeof(_sensorLine), "umid %s%% temp %sC", hum, temp);
+            _fmtTenths(a, sizeof(a), _temp);
+            _fmtTenths(b, sizeof(b), _hum);
+            snprintf(_sensorLine, sizeof(_sensorLine), "%s C, %s%%", a, b);
         }
-        bool changed;
-        if (_proportional()) {
-            uint8_t duty = _mapDuty(value, tenths);
-            changed = !_haveLevel || duty != _shownDuty;
-            if (changed) _commandDuty(duty);
-            _conditionOn = _shownDuty != _runDutyOff;
-        } else {
-            bool on = _rule(value, tenths);
-            changed = !_haveLevel || on != _conditionOn;
-            if (changed) _command(on);
-            _conditionOn = on;
-        }
+        bool log = !_haveLevel;
         _haveLevel = true;
-        if (!_runNotify) {
-            _pending[0] = '\0';
-            if (changed) _log.log(PSTR("IoT: GPIO%d %s"), _runSensor, _sensorLine);
-            return;
+        if (hasRule()) {
+            if (_proportional()) {
+                _ruleLevel = _mapDuty(value, tenths);
+                _ruleOn = _ruleLevel != _r.dutyOff;
+            } else {
+                _ruleOn = _rule(value, tenths);
+            }
+            _haveRule = true;
+            if (!_manual && _takeRule()) {
+                _drive();
+                log = true;
+            }
         }
-        char suffix[24];
-        _moduleSuffix(suffix, sizeof(suffix));
-        snprintf(_pending, sizeof(_pending), "[sensor] GPIO%d %s%s",
-                 _runSensor, _sensorLine, suffix);
-        if (changed) _log.log(PSTR("%s"), _pending);
+        _report(log);
     }
 
     bool _waitLevel(int level, unsigned long timeoutUs) {
         unsigned long start = micros();
-        while (digitalRead((uint8_t)_runSensor) != level) {
+        while (digitalRead((uint8_t)_r.sensorPin) != level) {
             if ((unsigned long)(micros() - start) > timeoutUs) return false;
         }
         return true;
@@ -632,7 +639,7 @@ private:
 
     // Fase 1: pino em LOW; o tick seguinte que cair na janela lê os bits.
     void _dhtWake(unsigned long now) {
-        uint8_t pin = (uint8_t)_runSensor;
+        uint8_t pin = (uint8_t)_r.sensorPin;
         pinMode(pin, OUTPUT);
         digitalWrite(pin, LOW);
         _dhtWaking = true;
@@ -641,7 +648,7 @@ private:
 
     // Fase 2: solta o pino e lê os 40 bits (µs, com a interrupção fechada)
     bool _readDht(uint8_t data[5]) {
-        uint8_t pin = (uint8_t)_runSensor;
+        uint8_t pin = (uint8_t)_r.sensorPin;
         digitalWrite(pin, HIGH);
         delayMicroseconds(40);
         pinMode(pin, INPUT_PULLUP);
@@ -651,12 +658,11 @@ private:
         interrupts();
         if (!ok) return false;
         uint8_t sum = (uint8_t)(data[0] + data[1] + data[2] + data[3]);
-        if (sum != data[4]) return false;
-        return true;
+        return sum == data[4];
     }
 
     void _decodeDht(const uint8_t d[5]) {
-        if (sensorKind(_runSensorType) == KIND_DHT11) {
+        if (sensorKind() == iot::K_DHT11) {
             _hum = d[0] * 10 + d[1];
             _temp = d[2] * 10 + d[3];
             return;
@@ -670,7 +676,7 @@ private:
     // Sem delay: o pulso de início atravessa dois ticks e o loop segue
     void _tickDht(unsigned long now) {
         if (_dhtWaking) {
-            bool dht11 = sensorKind(_runSensorType) == KIND_DHT11;
+            bool dht11 = sensorKind() == iot::K_DHT11;
             unsigned long held = now - _dhtSince;
             if (held < (dht11 ? DHT11_WAKE_MS : DHT22_WAKE_MS)) return;
             if (held > (dht11 ? DHT11_WAKE_MAX : DHT22_WAKE_MAX)) {
@@ -678,7 +684,13 @@ private:
                 return;
             }
             _dhtWaking = false;
-            _readDhtNow();
+            uint8_t data[5];
+            if (!_readDht(data)) {
+                _fail();
+                return;
+            }
+            _decodeDht(data);
+            _accept(_r.metric == 1 ? _temp : _hum, true);
             return;
         }
         if (_haveRead && now - _lastRead < READ_GAP_MS) return;
@@ -687,19 +699,8 @@ private:
         _dhtWake(now);
     }
 
-    void _readDhtNow() {
-        uint8_t data[5];
-        if (!_readDht(data)) {
-            _fail();
-            return;
-        }
-        _decodeDht(data);
-        int metric = _runMetric == 1 ? _temp : _hum;
-        _accept(metric, true);
-    }
-
     bool _owReset() {
-        uint8_t pin = (uint8_t)_runSensor;
+        uint8_t pin = (uint8_t)_r.sensorPin;
         pinMode(pin, OUTPUT);
         digitalWrite(pin, LOW);
         delayMicroseconds(480);
@@ -711,7 +712,7 @@ private:
     }
 
     void _owWriteByte(uint8_t v) {
-        uint8_t pin = (uint8_t)_runSensor;
+        uint8_t pin = (uint8_t)_r.sensorPin;
         for (int i = 0; i < 8; i++) {
             int bit = v & 1;
             pinMode(pin, OUTPUT);
@@ -724,7 +725,7 @@ private:
     }
 
     uint8_t _owReadByte() {
-        uint8_t pin = (uint8_t)_runSensor;
+        uint8_t pin = (uint8_t)_r.sensorPin;
         uint8_t v = 0;
         for (int i = 0; i < 8; i++) {
             pinMode(pin, OUTPUT);
@@ -752,13 +753,6 @@ private:
         return crc;
     }
 
-    bool _owStart() {
-        if (!_owReset()) return false;
-        _owWriteByte(0xCC);
-        _owWriteByte(0x44);
-        return true;
-    }
-
     bool _owRead(int* tenths) {
         if (!_owReset()) return false;
         _owWriteByte(0xCC);
@@ -780,23 +774,26 @@ private:
                 _fail();
                 return;
             }
+            _temp = tenths;
             _accept(tenths, true);
             return;
         }
         if (_haveRead && now - _lastRead < READ_GAP_MS) return;
         _lastRead = now;
         _haveRead = true;
-        if (!_owStart()) {
+        if (!_owReset()) {
             _fail();
             return;
         }
+        _owWriteByte(0xCC);
+        _owWriteByte(0x44);
         _owState = OW_WAIT;
         _owSince = now;
     }
 
     // HC-SR04 com trig e echo no mesmo pino. A distância sai em cm.
     bool _readRange(int* cm) {
-        uint8_t pin = (uint8_t)_runSensor;
+        uint8_t pin = (uint8_t)_r.sensorPin;
         pinMode(pin, OUTPUT);
         digitalWrite(pin, LOW);
         delayMicroseconds(2);
@@ -822,6 +819,7 @@ private:
             _fail();
             return;
         }
+        _value = cm;
         _accept(cm, false);
     }
 
@@ -838,6 +836,70 @@ private:
         _pulses = 0;
         interrupts();
         _windowStart = now;
+        _value = (int)n;
         _accept((int)n, false);
+    }
+
+    // ── JSON ─────────────────────────────────────────────────────────────────
+    // snprintf direto: o ArduinoJson pediria um documento só para isto.
+
+    size_t _sensorJson(char* out, size_t n) const {
+        if (_sensor < 0) return (size_t)snprintf(out, n, "null");
+        const char* status = _failing ? "error" : (_haveLevel ? "ok" : "waiting");
+        size_t k = (size_t)snprintf(out, n, "{\"type\":\"%s\",\"status\":\"%s\",\"text\":\"%s\"",
+                                    iot::SENSORS[_sensor].slug, status, sensorText());
+        if (!_failing && _haveLevel) {
+            char a[12];
+            char b[12];
+            switch (sensorKind()) {
+                case iot::K_DIGITAL:
+                    k += (size_t)snprintf(out + k, _left(n, k), ",\"active\":%s",
+                                          _active ? "true" : "false");
+                    break;
+                case iot::K_DHT11:
+                case iot::K_DHT22:
+                    _fmtTenths(a, sizeof(a), _temp);
+                    _fmtTenths(b, sizeof(b), _hum);
+                    k += (size_t)snprintf(out + k, _left(n, k),
+                                          ",\"temperature\":%s,\"humidity\":%s", a, b);
+                    break;
+                case iot::K_DS18:
+                    _fmtTenths(a, sizeof(a), _temp);
+                    k += (size_t)snprintf(out + k, _left(n, k), ",\"temperature\":%s", a);
+                    break;
+                case iot::K_RANGE:
+                    k += (size_t)snprintf(out + k, _left(n, k), ",\"distance\":%d", _value);
+                    break;
+                default: // K_PULSE
+                    k += (size_t)snprintf(out + k, _left(n, k), ",\"pulses\":%d", _value);
+                    break;
+            }
+        }
+        return k + (size_t)snprintf(out + k, _left(n, k), "}");
+    }
+
+    size_t _actuatorJson(char* out, size_t n) const {
+        if (_act < 0) return (size_t)snprintf(out, n, "null");
+        uint8_t cap = capability();
+        size_t k = (size_t)snprintf(out, n,
+                                    "{\"type\":\"%s\",\"capability\":\"%s\",\"on\":%s,"
+                                    "\"mode\":\"%s\",\"text\":\"%s\"",
+                                    iot::ACTUATORS[_act].slug, iot::CAP_NAMES[cap],
+                                    _on ? "true" : "false",
+                                    hasRule() && !_manual ? "auto" : "manual", actuatorText());
+        if (cap == iot::C_LEVEL || cap == iot::C_COLOR)
+            k += (size_t)snprintf(out + k, _left(n, k), ",\"level\":%u", _level);
+        if (cap == iot::C_POSITION)
+            k += (size_t)snprintf(out + k, _left(n, k), ",\"angle\":%u,\"ok\":%s",
+                                  angle(), _servoOk ? "true" : "false");
+        if (cap == iot::C_COLOR)
+            k += (size_t)snprintf(out + k, _left(n, k), ",\"color\":\"#%06lx\"",
+                                  (unsigned long)_rgb);
+        if (_pulsing) {
+            long left = (long)(_pulseUntil - millis());
+            if (left < 0) left = 0;
+            k += (size_t)snprintf(out + k, _left(n, k), ",\"pulse\":%ld", (left + 999) / 1000);
+        }
+        return k + (size_t)snprintf(out + k, _left(n, k), "}");
     }
 };
