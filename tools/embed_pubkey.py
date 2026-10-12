@@ -67,6 +67,8 @@ def _require_verifier(source, target, env):
     nm = os.path.join(
         env.PioPlatform().get_package_dir("toolchain-xtensa"),
         "bin", "xtensa-lx106-elf-nm")
+    if os.name == "nt":
+        nm += ".exe"
     if not os.path.isfile(nm):
         sys.stderr.write("OTA: xtensa-lx106-elf-nm não encontrado\n")
         env.Exit(1)
