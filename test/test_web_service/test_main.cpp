@@ -191,6 +191,10 @@ void test_root_modo_configuracao_primeiro_acesso() {
     TEST_ASSERT_TRUE(contains(f.out(), "name='pass1'"));      // define senha do painel
     TEST_ASSERT_TRUE(contains(f.out(), "value='admin'"));
     TEST_ASSERT_TRUE(contains(f.out(), f.web.csrfToken()));
+    // SSID vazio não pode virar pedaço vazio (terminador do chunked)
+    TEST_ASSERT_TRUE(contains(f.out(), "name='ssid' value=''"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='pass'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "</html>"));
 }
 
 void test_root_modo_configuracao_preserva_usuario() {

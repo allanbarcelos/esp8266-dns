@@ -28,9 +28,11 @@ public:
     void send(int c, const char* type, const String& body) {
         code = c; contentType = type; out += body._s;
     }
-    void sendContent(const String& s)   { out += s._s; }
-    void sendContent(const char* s)     { out += s; }
-    void sendContent_P(const char* s)   { out += s; }
+    // Como no core: em resposta chunked, pedaço vazio é o terminador
+    // ("0\r\n\r\n") e o que vier depois não chega ao navegador.
+    void sendContent(const String& s)   { _chunk(s._s); }
+    void sendContent(const char* s)     { _chunk(s); }
+    void sendContent_P(const char* s)   { _chunk(s); }
     void sendHeader(const char* k, const String& v) { headers[k] = v._s; }
 
     bool authenticate(const char* u, const char* p) {
@@ -46,7 +48,7 @@ public:
     bool request(int method, const std::string& path,
                  std::map<std::string, std::string> a = {}) {
         out.clear(); headers.clear(); code = 0; contentType.clear();
-        authRequested = false;
+        authRequested = false; contentLength = 0; ended = false;
         args = std::move(a);
         auto it = routes.find({path, method});
         if (it == routes.end()) return false;
@@ -66,4 +68,15 @@ public:
     int    code          = 0;
     size_t contentLength = 0;
     bool   authRequested = false;
+    bool   ended         = false;
+
+private:
+    void _chunk(const std::string& s) {
+        if (ended) return;
+        if (contentLength == CONTENT_LENGTH_UNKNOWN && s.empty()) {
+            ended = true;
+            return;
+        }
+        out += s;
+    }
 };

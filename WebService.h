@@ -213,24 +213,32 @@ private:
     void _pageBegin(int refreshSec = 0, int code = 200) {
         _server.setContentLength(CONTENT_LENGTH_UNKNOWN);
         _server.send(code, "text/html", "");
-        _server.sendContent_P(_HTML_HEAD_A);
+        _p(_HTML_HEAD_A);
         if (refreshSec > 0) {
             char meta[56];
             snprintf_P(meta, sizeof(meta),
                        PSTR("<meta http-equiv='refresh' content='%d'>"), refreshSec);
-            _server.sendContent(meta);
+            _s(meta);
         }
-        _server.sendContent_P(_HTML_HEAD_B);
-        _server.sendContent_P(_HTML_NAV);
+        _p(_HTML_HEAD_B);
+        _p(_HTML_NAV);
     }
 
     void _pageEnd() {
-        _server.sendContent_P(_HTML_FOOT_A);
-        _server.sendContent(firmware_version);
-        _server.sendContent_P(_HTML_FOOT_B);
+        _p(_HTML_FOOT_A);
+        _s(firmware_version);
+        _p(_HTML_FOOT_B);
     }
 
+    // Pedaço vazio no chunked é o terminador: o core envia "0\r\n\r\n" e o
+    // navegador dá a página por encerrada (o stub de teste faz o mesmo).
+    // Texto fixo e números nunca são vazios; valor do usuário (SSID vazio
+    // no modo AP, usuário, log) vai como String e é filtrado aqui.
     void _p(PGM_P s) { _server.sendContent_P(s); }
+    void _s(const char* s) { _server.sendContent(s); }
+    void _s(const String& s) {
+        if (s.length()) _server.sendContent(s);
+    }
 
     void _box(PGM_P title) {
         _p(PSTR("<div class='card bg-black border-secondary mb-3'>"
@@ -247,13 +255,13 @@ private:
                 "<span class='kv-label small'>"));
         _p(label);
         _p(PSTR("</span><span class='kv-value text-end ms-3'>"));
-        _server.sendContent(escape(value));
+        _s(escape(value));
         _p(PSTR("</span></div>"));
     }
 
     void _csrfField() {
         _p(PSTR("<input type='hidden' name='_csrf' value='"));
-        _server.sendContent(_csrfToken);
+        _s(_csrfToken);
         _p(PSTR("'>"));
     }
 
@@ -266,7 +274,7 @@ private:
     // Texto variável: sempre escapado
     void _alert(PGM_P cls, const String& msg) {
         _alertOpen(cls);
-        _server.sendContent(escape(msg));
+        _s(escape(msg));
         _p(PSTR("</div>"));
     }
 
@@ -287,7 +295,7 @@ private:
         _p(PSTR("</label><input class='" _INPUT_CLS "' name='"));
         _p(name);
         _p(PSTR("' value='"));
-        _server.sendContent(escape(value));
+        _s(escape(value));
         _p(PSTR("' "));
         _p(extra);
         _p(PSTR("></div>"));
@@ -367,16 +375,16 @@ private:
         _p(PSTR("<div class='alert alert-info py-2 mb-3'>"
                 "<div class='d-flex justify-content-between small mb-1'>"
                 "<span>OTA em progresso</span><span>"));
-        _server.sendContent(pct);
+        _s(pct);
         _p(PSTR("%</span></div>"
                 "<div class='progress bg-secondary' style='height:8px'>"
                 "<div class='progress-bar progress-bar-striped progress-bar-animated bg-success' "
                 "style='width:"));
-        _server.sendContent(pct);
+        _s(pct);
         _p(PSTR("%'></div></div><div class='kv-value mt-1'>"));
-        _server.sendContent(formatBytes((uint32_t)_ota.bytesWritten()));
+        _s(formatBytes((uint32_t)_ota.bytesWritten()));
         _p(PSTR(" / "));
-        _server.sendContent(formatBytes((uint32_t)_ota.contentLength()));
+        _s(formatBytes((uint32_t)_ota.contentLength()));
         _p(PSTR("</div></div>"));
     }
 
@@ -456,7 +464,7 @@ private:
         uint8_t cnt   = _log.count();
         uint8_t start = _log.startIndex();
         for (uint8_t i = 0; i < cnt; i++) {
-            _server.sendContent(escape(_log.entry(start + i)));
+            _s(escape(_log.entry(start + i)));
             _p(PSTR("\n"));
         }
         _p(PSTR("</pre>"));
@@ -539,11 +547,11 @@ private:
         for (uint8_t i = 0; i < MAX_RECORDS; i++) {
             String val = (i < _cfg.cf_record_count) ? String(_cfg.cf_records[i]) : String();
             _p(PSTR("<input class='" _INPUT_CLS " mb-1' maxlength='39' name='record"));
-            _server.sendContent(String(i));
+            _s(String(i));
             _p(PSTR("' placeholder='Record ID "));
-            _server.sendContent(String(i + 1));
+            _s(String(i + 1));
             _p(PSTR("' value='"));
-            _server.sendContent(escape(val));
+            _s(escape(val));
             _p(PSTR("'>"));
         }
 
@@ -742,7 +750,7 @@ private:
             char buf[4];
             snprintf(buf, sizeof(buf), "%u",
                      sensors ? IoTService::sensorKind(i) : IoTService::moduleKind(i));
-            _server.sendContent(buf);
+            _s(buf);
         }
     }
 
@@ -802,7 +810,7 @@ private:
                    PSTR("<input class='" _INPUT_CLS "' "
                         "type='number' name='%s' value='%d' min='%d' max='%d'>"),
                    name, value, min, max);
-        _server.sendContent(buf);
+        _s(buf);
     }
 
     void _handleIot() {
@@ -959,7 +967,7 @@ private:
             IoTService::KIND_DIGITAL, IoTService::MKIND_PWM,
             IoTService::KIND_DHT11, IoTService::KIND_DHT22,
             IoTService::MKIND_LEVEL, IoTService::MKIND_SERVO);
-        _server.sendContent(js);
+        _s(js);
         _pageEnd();
     }
 
