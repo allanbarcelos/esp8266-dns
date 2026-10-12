@@ -128,7 +128,7 @@ private:
             return;
         }
         if (_iot && _iot->pending()) {
-            if (_post(_iot->message())) _iot->ack();
+            if (_post(_iot->message(), true)) _iot->ack();
             return;
         }
 
@@ -144,7 +144,7 @@ private:
             strlcpy(_lastSent, ip, sizeof(_lastSent));
     }
 
-    bool _post(const char* body) {
+    bool _post(const char* body, bool actions = false) {
         if (!PublicIPResolver::memoryOk()) {
             _log.log(PSTR("ntfy: memoria insuficiente"));
             return false;
@@ -172,6 +172,7 @@ private:
             auth += _cfg.ntfy_token;
             http.addHeader("Authorization", auth);
         }
+        if (actions) _actions(http);
         int code = http.POST(body);
         http.end();
 
@@ -181,6 +182,55 @@ private:
         }
         _log.log(PSTR("ntfy erro: %d"), code);
         return false;
+    }
+
+    // Botões na notificação do celular: cada um publica um comando no tópico
+    // de comandos (com o token, se houver). No máximo três, pelo que o
+    // atuador faz; com a regra, o terceiro volta ao automático.
+    void _actions(HTTPClient& http) {
+        if (!_cfg.ntfy_cmd[0] || !_iot->hasActuator()) return;
+        const iot::ActuatorDef* a = _iot->actuatorDef();
+        char pulse[12];
+        snprintf(pulse, sizeof(pulse), "pulso %u", a->pulse);
+        const char* labels[3];
+        const char* bodies[3];
+        switch (a->cap) {
+            case iot::C_LEVEL:
+                labels[0] = "Desligar"; bodies[0] = "desligar";
+                labels[1] = "50%";      bodies[1] = "50%";
+                labels[2] = "100%";     bodies[2] = "100%";
+                break;
+            case iot::C_POSITION:
+                labels[0] = "Abrir";    bodies[0] = "abrir";
+                labels[1] = "Fechar";   bodies[1] = "fechar";
+                labels[2] = "Pulso";    bodies[2] = pulse;
+                break;
+            default: // liga/desliga e cor
+                labels[0] = "Ligar";    bodies[0] = "ligar";
+                labels[1] = "Desligar"; bodies[1] = "desligar";
+                labels[2] = "Pulso";    bodies[2] = pulse;
+                break;
+        }
+        if (_iot->hasRule()) {
+            labels[2] = "Auto";
+            bodies[2] = "auto";
+        }
+        String out;
+        for (int i = 0; i < 3; i++) {
+            if (i) out += "; ";
+            out += "http, ";
+            out += labels[i];
+            out += ", https://ntfy.sh/";
+            out += _cfg.ntfy_cmd;
+            out += ", method=POST, body=";
+            out += bodies[i];
+            out += ", clear=true";
+            if (_cfg.ntfy_token[0]) {
+                out += ", headers.Authorization=Bearer ";
+                out += _cfg.ntfy_token;
+            }
+        }
+        http.addHeader("Actions", out);
     }
 
     // ── Comandos ─────────────────────────────────────────────────────────────

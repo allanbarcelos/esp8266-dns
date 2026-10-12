@@ -504,6 +504,91 @@ void test_leitura_periodica_nao_e_urgente() {
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
 }
 
+// ── Botões de ação na notificação ────────────────────────────────────────────
+
+static std::string header(const MockHTTP::Request& r, const char* name) {
+    for (auto& h : r.headers)
+        if (h.first == name) return h.second;
+    return "";
+}
+
+// Publica a mudança de um atuador e devolve o cabeçalho Actions
+static std::string actionsFor(const char* actuator, const char* sensor = "") {
+    resetMocks();
+    logger = Logger();
+    strlcpy(cfg.iot.actuator, actuator, sizeof(cfg.iot.actuator));
+    cfg.iot.actuatorPin = 0;
+    strlcpy(cfg.iot.sensor, sensor, sizeof(cfg.iot.sensor));
+    cfg.iot.sensorPin = sensor[0] ? 2 : -1;
+    cfg.iot.notify = true;
+    Fix f;
+    IoTService iot{cfg, logger};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, &iot};
+    iot.begin();
+    iot.command("ligar", 0);
+    MockHTTP::push(200, "ok");
+    ntfy.tick(0);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+    return header(MockHTTP::requests[0], "Actions");
+}
+
+void test_acoes_pelo_que_o_atuador_faz() {
+    strlcpy(cfg.ntfy_cmd, "cmd-x", sizeof(cfg.ntfy_cmd));
+    TEST_ASSERT_EQUAL_STRING(
+        "http, Ligar, https://ntfy.sh/cmd-x, method=POST, body=ligar, clear=true; "
+        "http, Desligar, https://ntfy.sh/cmd-x, method=POST, body=desligar, clear=true; "
+        "http, Pulso, https://ntfy.sh/cmd-x, method=POST, body=pulso 1, clear=true",
+        actionsFor("rele").c_str());
+
+    std::string level = actionsFor("ventilador");
+    TEST_ASSERT_TRUE(contains(level, "http, Desligar,"));
+    TEST_ASSERT_TRUE(contains(level, "http, 50%, https://ntfy.sh/cmd-x, method=POST, body=50%"));
+    TEST_ASSERT_TRUE(contains(level, "http, 100%,"));
+
+    std::string servo = actionsFor("servo");
+    TEST_ASSERT_TRUE(contains(servo, "http, Abrir,"));
+    TEST_ASSERT_TRUE(contains(servo, "body=fechar"));
+    TEST_ASSERT_TRUE(contains(servo, "body=pulso 3"));
+
+    TEST_ASSERT_TRUE(contains(actionsFor("fita"), "body=pulso 5"));
+
+    // Com a regra, o terceiro botão volta ao automático
+    std::string rule = actionsFor("rele", "pir");
+    TEST_ASSERT_TRUE(contains(rule, "http, Auto, https://ntfy.sh/cmd-x, method=POST, body=auto"));
+    TEST_ASSERT_FALSE(contains(rule, "Pulso"));
+}
+
+void test_acoes_com_token_e_sem_topico_de_comandos() {
+    strlcpy(cfg.ntfy_cmd, "cmd-x", sizeof(cfg.ntfy_cmd));
+    strlcpy(cfg.ntfy_token, "tk_abc", sizeof(cfg.ntfy_token));
+    std::string a = actionsFor("rele");
+    TEST_ASSERT_TRUE(contains(a, "clear=true, headers.Authorization=Bearer tk_abc; http, Desligar"));
+
+    cfg.ntfy_cmd[0] = '\0';
+    TEST_ASSERT_EQUAL_STRING("", actionsFor("rele").c_str());
+}
+
+void test_acoes_so_com_atuador() {
+    strlcpy(cfg.ntfy_cmd, "cmd-x", sizeof(cfg.ntfy_cmd));
+    strlcpy(cfg.iot.sensor, "pir", sizeof(cfg.iot.sensor));
+    cfg.iot.sensorPin = 2;
+    cfg.iot.notify = true;
+    Fix f;
+    IoTService iot{cfg, logger};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, &iot};
+    mock::pinIn[2] = HIGH;
+    iot.begin();
+    iot.tick(0);
+    iot.tick(IoTService::DEBOUNCE_MS);
+    MockHTTP::push(200, "ok");
+    ntfy.tick(0);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+    TEST_ASSERT_EQUAL_STRING("", header(MockHTTP::requests[0], "Actions").c_str());
+
+    // IP e respostas de erro nunca levam botões
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[0].payload, "[sensor] presenca"));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_sem_envio_sem_topico);
@@ -529,5 +614,8 @@ int main() {
     RUN_TEST(test_comandos_pausam_e_desligam);
     RUN_TEST(test_eventos_saem_rapido_leituras_periodicas_nao);
     RUN_TEST(test_leitura_periodica_nao_e_urgente);
+    RUN_TEST(test_acoes_pelo_que_o_atuador_faz);
+    RUN_TEST(test_acoes_com_token_e_sem_topico_de_comandos);
+    RUN_TEST(test_acoes_so_com_atuador);
     return UNITY_END();
 }
