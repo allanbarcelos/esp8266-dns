@@ -50,12 +50,23 @@ public:
     bool   hasArg(const String& k) { return args.count(k._s) > 0; }
     String arg(const String& k)    { auto it = args.find(k._s); return it == args.end() ? String() : String(it->second); }
 
+    // Como no core: só os cabeçalhos pedidos em collectHeaders ficam disponíveis
+    template <typename... Keys>
+    void collectHeaders(const Keys&... keys) { collected = {keys...}; }
+    String header(const String& k) {
+        if (std::find(collected.begin(), collected.end(), k._s) == collected.end()) return String();
+        auto it = reqHeaders.find(k._s);
+        return it == reqHeaders.end() ? String() : String(it->second);
+    }
+
     // ── Controle dos testes ──────────────────────────────────────────────────
     bool request(int method, const std::string& path,
-                 std::map<std::string, std::string> a = {}) {
+                 std::map<std::string, std::string> a = {},
+                 std::map<std::string, std::string> h = {}) {
         out.clear(); headers.clear(); code = 0; contentType.clear();
         authRequested = false; contentLength = 0; ended = false;
         args = std::move(a);
+        reqHeaders = std::move(h);
         auto it = routes.find({path, method});
         if (it == routes.end()) return false;
         it->second();
@@ -70,6 +81,8 @@ public:
     std::map<std::pair<std::string, int>, Handler> routes;
     std::map<std::string, std::string>             args;
     std::map<std::string, std::string>             headers;
+    std::map<std::string, std::string>             reqHeaders;
+    std::vector<std::string>                       collected;
     std::string out, contentType, lastAuthUser, lastAuthPass;
     int    code          = 0;
     size_t contentLength = 0;

@@ -87,7 +87,7 @@ void test_format_bytes() {
 void test_begin_registra_rotas_e_gera_csrf_aleatorio() {
     Fixture f;
     TEST_ASSERT_TRUE(f.srv.started);
-    TEST_ASSERT_EQUAL(20, (int)f.srv.routes.size());
+    TEST_ASSERT_EQUAL(23, (int)f.srv.routes.size());
     TEST_ASSERT_EQUAL(16, (int)std::strlen(f.web.csrfToken()));
 
     std::string first = f.web.csrfToken();
@@ -124,7 +124,7 @@ void test_autenticacao_obrigatoria() {
         TEST_ASSERT_EQUAL(401, f.srv.code);
     }
     const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/password/save",
-                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd"};
+                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token"};
     for (const char* p : posts) {
         f.post(p);
         TEST_ASSERT_EQUAL(401, f.srv.code);
@@ -136,7 +136,7 @@ void test_autenticacao_obrigatoria() {
 void test_csrf_invalido_rejeitado_em_todos_os_posts() {
     Fixture f;
     const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/password/save",
-                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd"};
+                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token"};
     for (const char* p : posts) {
         f.srv.request(HTTP_POST, p, {{"_csrf", "00000000deadbeef"}});
         TEST_ASSERT_EQUAL(403, f.srv.code);
@@ -1002,6 +1002,132 @@ void test_iot_save_falha_ao_gravar() {
     TEST_ASSERT_FALSE(f.iot.hasActuator());            // a saída no ar não muda
 }
 
+// ── API local ────────────────────────────────────────────────────────────────
+
+static const char* TOKEN = "0123456789abcdef0123456789abcdef";
+
+static bool api(Fixture& f, int method, const char* path, const char* auth, Args a = {}) {
+    std::map<std::string, std::string> h;
+    if (auth) h["Authorization"] = auth;
+    return f.srv.request(method, path, a, h);
+}
+
+void test_api_so_existe_com_iot_configurado() {
+    strlcpy(cfg.api_token, TOKEN, sizeof(cfg.api_token));
+    Fixture f;
+    TEST_ASSERT_TRUE(api(f, HTTP_GET, "/api/state", "Bearer 0123456789abcdef0123456789abcdef"));
+    TEST_ASSERT_EQUAL(404, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("{\"error\":\"nenhum sensor ou atuador configurado\"}", f.out().c_str());
+    api(f, HTTP_POST, "/api/cmd", "Bearer 0123456789abcdef0123456789abcdef", {{"cmd", "ligar"}});
+    TEST_ASSERT_EQUAL(404, f.srv.code);
+}
+
+void test_api_exige_o_token() {
+    strlcpy(cfg.api_token, TOKEN, sizeof(cfg.api_token));
+    sensorCfg("pir", 2);
+    Fixture f;
+    f.iot.begin();
+    const char* bad[] = {
+        nullptr,
+        "Bearer 0123456789abcdef0123456789abcdee",     // último caractere
+        "Bearer 0123456789abcdef",                     // curto
+        "Basic 0123456789abcdef0123456789abcdef",      // outro esquema
+        "bearer 0123456789abcdef0123456789abcdef",
+    };
+    for (const char* auth : bad) {
+        api(f, HTTP_GET, "/api/state", auth);
+        TEST_ASSERT_EQUAL(401, f.srv.code);
+        TEST_ASSERT_EQUAL_STRING("Bearer", f.srv.headers["WWW-Authenticate"].c_str());
+        TEST_ASSERT_EQUAL_STRING("{\"error\":\"token invalido\"}", f.out().c_str());
+    }
+    // O login do painel não vale na API
+    TEST_ASSERT_TRUE(f.srv.authOk);
+    api(f, HTTP_GET, "/api/state", nullptr);
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+
+    // Sem token gerado ninguém entra, nem com "Bearer " vazio
+    cfg.api_token[0] = '\0';
+    api(f, HTTP_GET, "/api/state", "Bearer ");
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+}
+
+void test_api_le_e_comanda() {
+    strlcpy(cfg.api_token, TOKEN, sizeof(cfg.api_token));
+    actuatorCfg("rele", 0);
+    Fixture f;
+    f.iot.begin();
+    const char* auth = "Bearer 0123456789abcdef0123456789abcdef";
+
+    api(f, HTTP_GET, "/api/state", auth);
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("application/json", f.srv.contentType.c_str());
+    TEST_ASSERT_EQUAL_STRING("no-store", f.srv.headers["Cache-Control"].c_str());
+    TEST_ASSERT_TRUE(contains(f.out(), "\"api\":1,\"sensor\":null"));
+    TEST_ASSERT_TRUE(contains(f.out(), "\"type\":\"rele\""));
+
+    api(f, HTTP_POST, "/api/cmd", auth, {{"cmd", "ligar"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(f.iot.actuatorOn());
+
+    // curl -d desligar: o core põe o corpo em "plain"
+    api(f, HTTP_POST, "/api/cmd", auth, {{"plain", "desligar"}});
+    TEST_ASSERT_FALSE(f.iot.actuatorOn());
+
+    api(f, HTTP_POST, "/api/cmd", auth, {{"plain", "50%"}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("{\"error\":\"comando nao vale para este atuador\"}", f.out().c_str());
+    api(f, HTTP_POST, "/api/cmd", auth);
+    TEST_ASSERT_EQUAL_STRING("{\"error\":\"comando invalido\"}", f.out().c_str());
+}
+
+void test_api_token_gerado_mostrado_e_trocado() {
+    Fixture f;
+    f.post("/iot/save", iotForm());
+    TEST_ASSERT_EQUAL(32, (int)std::strlen(cfg.api_token));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], cfg.api_token));
+    std::string first = cfg.api_token;
+
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(), "<h2>API local</h2>"));
+    TEST_ASSERT_TRUE(contains(f.out(), ("readonly value='" + first + "'").c_str()));
+    TEST_ASSERT_TRUE(contains(f.out(),
+        ("curl -H 'Authorization: Bearer " + first + "' http://192.168.1.1/api/state").c_str()));
+    TEST_ASSERT_TRUE(contains(f.out(), "' -d ligar http://192.168.1.1/api/cmd"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">Gerar token novo</button>"));
+
+    // Salvar de novo mantém o token
+    f.post("/iot/save", iotForm());
+    TEST_ASSERT_EQUAL_STRING(first.c_str(), cfg.api_token);
+
+    f.post("/iot/token");
+    TEST_ASSERT_TRUE(contains(f.out(), "Token novo gerado"));
+    TEST_ASSERT_EQUAL(32, (int)std::strlen(cfg.api_token));
+    TEST_ASSERT_FALSE(first == cfg.api_token);
+
+    MockFS::failWriteOpen = true;
+    f.post("/iot/token");
+    TEST_ASSERT_TRUE(contains(f.out(), "Falha ao salvar"));
+}
+
+void test_api_sem_token_e_iot_desligado() {
+    // IoT desligado não gera token
+    Fixture f;
+    Args a = iotForm();
+    a["role"] = "n";
+    f.post("/iot/save", a);
+    TEST_ASSERT_EQUAL_STRING("", cfg.api_token);
+    f.get("/iot");
+    TEST_ASSERT_FALSE(contains(f.out(), "API local"));
+
+    // Configurado por migração (sem token): oferece gerar
+    actuatorCfg("rele", 0);
+    f.iot.begin();
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(), "<h2>API local</h2>"));
+    TEST_ASSERT_FALSE(contains(f.out(), "curl"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">Gerar token</button>"));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_escape);
@@ -1062,5 +1188,10 @@ int main() {
     RUN_TEST(test_iot_save_posicao_cor_e_papeis);
     RUN_TEST(test_iot_save_rejeita_valores);
     RUN_TEST(test_iot_save_falha_ao_gravar);
+    RUN_TEST(test_api_so_existe_com_iot_configurado);
+    RUN_TEST(test_api_exige_o_token);
+    RUN_TEST(test_api_le_e_comanda);
+    RUN_TEST(test_api_token_gerado_mostrado_e_trocado);
+    RUN_TEST(test_api_sem_token_e_iot_desligado);
     return UNITY_END();
 }

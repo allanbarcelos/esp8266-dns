@@ -176,6 +176,11 @@ public:
         _server.on("/iot/save",        HTTP_POST, [this]() { _handleIotSave(); });
         _server.on("/iot/now",         HTTP_GET,  [this]() { _handleIotNow(); });
         _server.on("/iot/cmd",         HTTP_POST, [this]() { _handleIotCmd(); });
+        _server.on("/iot/token",       HTTP_POST, [this]() { _handleIotToken(); });
+        // API local: mesma leitura e mesmos comandos, com token em vez do login
+        _server.on("/api/state",       HTTP_GET,  [this]() { _handleApiState(); });
+        _server.on("/api/cmd",         HTTP_POST, [this]() { _handleApiCmd(); });
+        _server.collectHeaders("Authorization");
         _server.on("/update",          HTTP_GET,  [this]() { _handleUpdate(); });
         _server.on("/update/auto",     HTTP_POST, [this]() { _handleUpdateAuto(); });
         _server.on("/update/check",    HTTP_POST, [this]() { _handleUpdateCheck(); });
@@ -1111,6 +1116,7 @@ private:
 
         _switch(PSTR("notify"), PSTR("Enviar leituras e mudancas ao ntfy"), t.notify);
         _button(PSTR("Salvar"));
+        if (live) _apiBox();
 
         _p(PSTR("<script>var SK={"));
         for (uint8_t i = 0; i < iot::SENSOR_COUNT; i++) {
@@ -1261,6 +1267,7 @@ private:
             }
         }
         t.notify = _flag("notify");
+        if ((hs || ha) && !_cfg.api_token[0]) _newToken();
 
         _cfg.iot = t;
         if (!_store.save()) {
@@ -1278,7 +1285,7 @@ private:
             const char* msg = result == IoTService::INVALID ? "comando invalido"
                             : result == IoTService::UNSUPPORTED ? "comando nao vale para este atuador"
                             : "nenhum atuador configurado";
-            _server.send(400, "application/json", String("{\"error\":\"") + msg + "\"}");
+            _jsonError(400, msg);
             return;
         }
         char buf[STATE_JSON_LEN];
@@ -1297,5 +1304,91 @@ private:
         if (!_checkCSRF()) return;
         String cmd = _server.arg("cmd");
         _sendState(_iot.command(cmd.c_str(), millis()));
+    }
+
+    void _jsonError(int code, const char* msg) {
+        _server.send(code, "application/json", String("{\"error\":\"") + msg + "\"}");
+    }
+
+    // 32 hex do RNG de hardware
+    void _newToken() {
+        for (int i = 0; i < 4; i++)
+            snprintf(_cfg.api_token + i * 8, 9, "%08lx", (unsigned long)ESP.random());
+    }
+
+    // Comparação em tempo constante: o tempo da resposta não revela o prefixo
+    bool _bearerOk() {
+        String auth = _server.header("Authorization");
+        size_t n = strlen(_cfg.api_token);
+        if (n == 0 || auth.length() != n + 7 || strncmp(auth.c_str(), "Bearer ", 7) != 0)
+            return false;
+        uint8_t diff = 0;
+        for (size_t i = 0; i < n; i++) diff |= (uint8_t)(auth.c_str()[7 + i] ^ _cfg.api_token[i]);
+        return diff == 0;
+    }
+
+    // A API só existe com sensor ou atuador configurado
+    bool _apiGuard() {
+        _server.sendHeader("Cache-Control", "no-store");
+        if (!_iot.hasSensor() && !_iot.hasActuator()) {
+            _jsonError(404, "nenhum sensor ou atuador configurado");
+            return false;
+        }
+        if (!_bearerOk()) {
+            _server.sendHeader("WWW-Authenticate", "Bearer");
+            _jsonError(401, "token invalido");
+            return false;
+        }
+        return true;
+    }
+
+    void _handleApiState() {
+        if (!_apiGuard()) return;
+        _sendState(IoTService::OK);
+    }
+
+    // Corpo em texto puro (curl -d ligar) ou campo cmd de formulário
+    void _handleApiCmd() {
+        if (!_apiGuard()) return;
+        String cmd = _server.arg("cmd");
+        if (cmd.length() == 0) cmd = _server.arg("plain");
+        _sendState(_iot.command(cmd.c_str(), millis()));
+    }
+
+    void _handleIotToken() {
+        if (!_guard()) return;
+        if (!_checkCSRF()) return;
+        _newToken();
+        if (!_store.save()) {
+            _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/iot"));
+            return;
+        }
+        _savedPage(PSTR("Token novo gerado; o anterior deixou de valer"), PSTR("/iot"));
+    }
+
+    // Token e exemplos para integrar sem internet (scripts, Home Assistant)
+    void _apiBox() {
+        String ip = WiFi.localIP().toString();
+        _box(PSTR("API local"));
+        _p(PSTR("<div class='r'><span>Sem internet, na mesma rede: GET /api/state e "
+                "POST /api/cmd com o cabecalho Authorization: Bearer e o token.</span></div>"));
+        if (_cfg.api_token[0]) {
+            _p(PSTR("<div class='r'><label>Token<input readonly value='"));
+            _s(_cfg.api_token);
+            _p(PSTR("' onclick='this.select()'></label></div><pre>curl -H 'Authorization: Bearer "));
+            _s(_cfg.api_token);
+            _p(PSTR("' http://"));
+            _s(ip);
+            _p(PSTR("/api/state\ncurl -H 'Authorization: Bearer "));
+            _s(_cfg.api_token);
+            _p(PSTR("' -d ligar http://"));
+            _s(ip);
+            _p(PSTR("/api/cmd</pre>"));
+        }
+        _boxEnd();
+        _p(PSTR("<form action='/iot/token' method='POST'>"));
+        _csrfField();
+        _p(_cfg.api_token[0] ? PSTR("<button class='b2'>Gerar token novo</button></form>")
+                             : PSTR("<button class='b2'>Gerar token</button></form>"));
     }
 };

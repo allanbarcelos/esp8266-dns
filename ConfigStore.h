@@ -60,6 +60,7 @@ public:
 
         strlcpy(_cfg.ntfy_topic, doc["ntfy_topic"] | "", sizeof(_cfg.ntfy_topic));
         _cfg.ota_auto = doc["ota_auto"] | true;
+        strlcpy(_cfg.api_token,  doc["api_token"]  | "", sizeof(_cfg.api_token));
         strlcpy(_cfg.cf_token,   doc["cf_token"]   | "", sizeof(_cfg.cf_token));
         strlcpy(_cfg.cf_zone,    doc["cf_zone"]    | "", sizeof(_cfg.cf_zone));
         strlcpy(_cfg.cf_host,    doc["cf_host"]    | "", sizeof(_cfg.cf_host));
@@ -98,6 +99,7 @@ public:
         doc["pass"]       = _cfg.pass;
         doc["ntfy_topic"] = _cfg.ntfy_topic;
         doc["ota_auto"]   = _cfg.ota_auto;
+        doc["api_token"]  = _cfg.api_token;
         doc["cf_token"]   = _cfg.cf_token;
         doc["cf_zone"]    = _cfg.cf_zone;
         doc["cf_host"]    = _cfg.cf_host;

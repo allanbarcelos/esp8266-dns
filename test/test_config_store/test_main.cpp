@@ -282,6 +282,7 @@ void test_roundtrip_completo() {
     strlcpy(config.cf_zone,    "zone_xyz",         sizeof(config.cf_zone));
     strlcpy(config.cf_host,    "home.example.com", sizeof(config.cf_host));
     strlcpy(config.ntfy_topic, "topico",           sizeof(config.ntfy_topic));
+    strlcpy(config.api_token,  "abc123",           sizeof(config.api_token));
     strlcpy(config.cf_records[0], "rec_aaa", sizeof(config.cf_records[0]));
     strlcpy(config.cf_records[1], "rec_bbb", sizeof(config.cf_records[1]));
     config.cf_record_count = 2;
@@ -298,6 +299,7 @@ void test_roundtrip_completo() {
     TEST_ASSERT_EQUAL_STRING("zone_xyz",         config.cf_zone);
     TEST_ASSERT_EQUAL_STRING("home.example.com", config.cf_host);
     TEST_ASSERT_EQUAL_STRING("topico",           config.ntfy_topic);
+    TEST_ASSERT_EQUAL_STRING("abc123",           config.api_token);
     TEST_ASSERT_EQUAL(2,                         config.cf_record_count);
     TEST_ASSERT_EQUAL_STRING("rec_aaa",          config.cf_records[0]);
     TEST_ASSERT_EQUAL_STRING("rec_bbb",          config.cf_records[1]);

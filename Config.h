@@ -63,6 +63,7 @@ struct Config {
 
     char    ntfy_topic[64]            = {};
     bool    ota_auto                  = true; // ausência no JSON mantém o automático ligado
+    char    api_token[33]             = {};   // API local (Bearer); gerado com o IoT
 
     IoTConfig iot;
 
