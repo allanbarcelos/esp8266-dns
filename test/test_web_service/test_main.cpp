@@ -84,7 +84,7 @@ void test_format_bytes() {
 void test_begin_registra_rotas_e_gera_csrf_aleatorio() {
     Fixture f;
     TEST_ASSERT_TRUE(f.srv.started);
-    TEST_ASSERT_EQUAL(18, (int)f.srv.routes.size());
+    TEST_ASSERT_EQUAL(19, (int)f.srv.routes.size());
     TEST_ASSERT_EQUAL(16, (int)std::strlen(f.web.csrfToken()));
 
     std::string first = f.web.csrfToken();
@@ -624,6 +624,7 @@ void test_iot_pagina_inicial() {
     TEST_ASSERT_TRUE(contains(f.out(), "value='0' selected>Baixo"));
     TEST_ASSERT_TRUE(contains(f.out(), "value='1'>Enviar leitura ao ntfy</label>"));
     TEST_ASSERT_FALSE(contains(f.out(), "http-equiv='refresh'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "/iot/now"));   // sem sensor, nada a buscar
     TEST_ASSERT_FALSE(contains(f.out(), "Cadastre o topico"));
 }
 
@@ -637,7 +638,11 @@ void test_iot_pagina_leitura_e_aviso_de_topico() {
     f.iot.tick(0);
     f.iot.tick(IoTService::DEBOUNCE_MS);
     f.get("/iot");
-    TEST_ASSERT_TRUE(contains(f.out(), "http-equiv='refresh' content='5'"));
+    // Sem recarregar a página: o script atualiza só os valores do "Agora"
+    TEST_ASSERT_FALSE(contains(f.out(), "http-equiv='refresh'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "fetch('/iot/now')"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<b id='ns'>baixo</b>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<b id='nm'>desligado</b>"));
     TEST_ASSERT_TRUE(contains(f.out(), "baixo"));
     TEST_ASSERT_TRUE(contains(f.out(), "value='2' selected>GPIO2"));
     TEST_ASSERT_TRUE(contains(f.out(), "value='1' checked>"));
@@ -646,6 +651,25 @@ void test_iot_pagina_leitura_e_aviso_de_topico() {
     strlcpy(cfg.ntfy_topic, "topico", sizeof(cfg.ntfy_topic));
     f.get("/iot");
     TEST_ASSERT_FALSE(contains(f.out(), "Cadastre o topico"));
+}
+
+void test_iot_now_leitura_em_texto() {
+    cfg.iot_sensor_pin = 2;
+    cfg.iot_module_pin = 0;
+    Fixture f;
+    mock::pinIn[2] = LOW;
+    f.iot.begin();
+    f.iot.tick(0);
+    f.iot.tick(IoTService::DEBOUNCE_MS);
+    TEST_ASSERT_TRUE(f.get("/iot/now"));
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("text/plain", f.srv.contentType.c_str());
+    TEST_ASSERT_EQUAL_STRING("no-store", f.srv.headers["Cache-Control"].c_str());
+    TEST_ASSERT_EQUAL_STRING("baixo\ndesligado", f.out().c_str());
+
+    f.srv.authOk = false;   // leitura do aparelho exige login
+    f.get("/iot/now");
+    TEST_ASSERT_EQUAL(401, f.srv.code);
 }
 
 void test_iot_save() {
@@ -991,6 +1015,7 @@ int main() {
     RUN_TEST(test_update_instalar_mostra_progresso);
     RUN_TEST(test_iot_pagina_inicial);
     RUN_TEST(test_iot_pagina_leitura_e_aviso_de_topico);
+    RUN_TEST(test_iot_now_leitura_em_texto);
     RUN_TEST(test_iot_save);
     RUN_TEST(test_iot_pagina_tipos);
     RUN_TEST(test_iot_save_dht_servo_e_pulsos);

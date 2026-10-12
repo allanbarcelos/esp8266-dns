@@ -106,6 +106,7 @@ public:
         _server.on("/password/save",   HTTP_POST, [this]() { _handlePasswordSave(); });
         _server.on("/iot",             HTTP_GET,  [this]() { _handleIot(); });
         _server.on("/iot/save",        HTTP_POST, [this]() { _handleIotSave(); });
+        _server.on("/iot/now",         HTTP_GET,  [this]() { _handleIotNow(); });
         _server.on("/update",          HTTP_GET,  [this]() { _handleUpdate(); });
         _server.on("/update/auto",     HTTP_POST, [this]() { _handleUpdateAuto(); });
         _server.on("/update/check",    HTTP_POST, [this]() { _handleUpdateCheck(); });
@@ -275,10 +276,17 @@ private:
     void _boxEnd() { _p(PSTR("</section>")); }
 
     // Label + valor numa linha com separador (valor sempre escapado)
-    void _row(PGM_P label, const String& value) {
+    // id, se houver, deixa o script atualizar o valor sem recarregar a página
+    void _row(PGM_P label, const String& value, PGM_P id = nullptr) {
         _p(PSTR("<div class='r'><span>"));
         _p(label);
-        _p(PSTR("</span><b>"));
+        if (id) {
+            _p(PSTR("</span><b id='"));
+            _p(id);
+            _p(PSTR("'>"));
+        } else {
+            _p(PSTR("</span><b>"));
+        }
         _s(escape(value));
         _p(PSTR("</b></div>"));
     }
@@ -850,9 +858,20 @@ private:
         _s(buf);
     }
 
+    // Leitura atual em texto puro: sensor na 1ª linha, módulo na 2ª.
+    // O script da página põe em textContent, então não precisa escapar.
+    void _handleIotNow() {
+        if (!_guard()) return;
+        String body(_iot.sensorText());
+        body += '\n';
+        body += _iot.moduleText();
+        _server.sendHeader("Cache-Control", "no-store");
+        _server.send(200, "text/plain", body);
+    }
+
     void _handleIot() {
         if (!_guard()) return;
-        _pageBegin(IoTService::allowedPin(_cfg.iot_sensor_pin) ? 5 : 0);
+        _pageBegin();
         _title(PSTR("IoT"));
         _p(PSTR("<figure><img src='/pinout.svg' width='1040' height='700' "
                 "alt='Pinos do ESP-01, vista de cima: GPIO0, RX (GPIO3), GPIO2, GND; "
@@ -870,9 +889,18 @@ private:
             "cadastrado, com o prefixo [sensor]. O IP sai como [ip].</p>"));
 
         _box(PSTR("Agora"));
-        _row(PSTR("Sensor"), _iot.sensorText());
-        _row(PSTR("Modulo"), _iot.moduleText());
+        _row(PSTR("Sensor"), _iot.sensorText(), PSTR("ns"));
+        _row(PSTR("Modulo"), _iot.moduleText(), PSTR("nm"));
         _boxEnd();
+        // Leitura ao vivo: busca só os dois valores a cada 5 s. Recarregar a
+        // página inteira descartava o que estava sendo editado no formulário.
+        if (IoTService::allowedPin(_cfg.iot_sensor_pin))
+            _p(PSTR("<script>setInterval(function(){fetch('/iot/now')"
+                    ".then(function(r){if(r.ok)return r.text()})"
+                    ".then(function(t){if(!t)return;t=t.split('\\n');"
+                    "document.getElementById('ns').textContent=t[0];"
+                    "document.getElementById('nm').textContent=t[1]})"
+                    ".catch(function(){})},5000)</script>"));
 
         if (_cfg.iot_notify && _cfg.ntfy_topic[0] == '\0')
             _alertP(PSTR("warning"), PSTR("Cadastre o topico ntfy para enviar a leitura"));
