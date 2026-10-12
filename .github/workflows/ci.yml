@@ -21,6 +21,8 @@ concurrency:
 jobs:
   # ── Decide se este push publica release e qual será a versão ──────────────
   plan:
+    # PR de branch deste repositório já roda no push; só PR de fork roda aqui
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     outputs:
       release: ${{ steps.plan.outputs.release }}
@@ -34,26 +36,40 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
-          BEFORE: ${{ github.event.before }}
           FORCE: ${{ inputs.release }}
+          # Tudo o que muda o binário ou o pacote publicado: sketch, chave,
+          # linker, versão do core/bibliotecas e empacotamento OTA
+          FIRMWARE_PATHS: '^([^/]+\.(ino|h)|public\.key|ld/|tools/ota_flash_ld\.py|\.github/(actions/setup-arduino/|scripts/package_ota\.py))'
         run: |
+          # Maior tag vN existente (ordenação numérica, sem limite de paginação)
+          last=$(git tag -l 'v*' | sed -n 's/^v\([0-9][0-9]*\)$/\1/p' | sort -n | tail -1)
+          last_tag="v${last:-0}"
+
+          # Compara com a última tag publicada, não com o push anterior:
+          # um run cancelado na fila ou um release que falhou não perde
+          # as mudanças, o próximo push na main as publica.
           release=false
           if [ "$REF" = "refs/heads/main" ]; then
-            if [ "$EVENT" = "workflow_dispatch" ] && [ "$FORCE" = "true" ]; then
+            if ! git rev-parse -q --verify "refs/tags/$last_tag" >/dev/null; then
+              changed=true
+            elif [ "$(git rev-parse "$last_tag^{commit}")" = "$GITHUB_SHA" ]; then
+              changed=already # re-run de um commit já publicado
+            elif git diff --name-only "$last_tag" "$GITHUB_SHA" \
+                 | grep -qE "$FIRMWARE_PATHS"; then
+              changed=true
+            else
+              changed=false
+            fi
+
+            if [ "$changed" = "already" ]; then
+              echo "::notice::$GITHUB_SHA já publicado como $last_tag"
+            elif [ "$EVENT" = "workflow_dispatch" ] && [ "$FORCE" = "true" ]; then
               release=true
-            elif [ "$EVENT" = "push" ]; then
-              # Só arquivos do firmware (raiz) disparam release; testes e docs não
-              if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-                release=true
-              elif git diff --name-only "$BEFORE" "$GITHUB_SHA" \
-                   | grep -qE '^([^/]+\.(ino|h)|public\.key|ld/)'; then
-                release=true
-              fi
+            elif [ "$EVENT" = "push" ] && [ "$changed" = "true" ]; then
+              release=true
             fi
           fi
 
-          # Maior tag vN existente (ordenação numérica, sem limite de paginação)
-          last=$(git tag -l 'v*' | sed -n 's/^v\([0-9][0-9]*\)$/\1/p' | sort -n | tail -1)
           if [ "$release" = "true" ]; then
             version="v$(( ${last:-0} + 1 ))"
           else
@@ -62,10 +78,11 @@ jobs:
 
           echo "release=$release" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Release: $release — versão: $version (última tag: v${last:-0})"
+          echo "Release: $release — versão: $version (última tag: $last_tag)"
 
   # ── Testes nativos com cobertura obrigatória de 100% ──────────────────────
   test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

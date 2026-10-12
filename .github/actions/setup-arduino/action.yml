@@ -3,7 +3,10 @@ description: Instala arduino-cli, o core ESP8266 3.1.2 e as bibliotecas do firmw
 runs:
   using: composite
   steps:
+    # Versão fixa: um arduino-cli novo não pode quebrar o build sem commit
     - uses: arduino/setup-arduino-cli@v2
+      with:
+        version: "1.5.1"
 
     - name: Cache do core e bibliotecas
       uses: actions/cache@v6
@@ -11,7 +14,8 @@ runs:
         path: |
           ~/.arduino15
           ~/Arduino/libraries
-        key: arduino-esp8266-3.1.2-arduinojson-6.21.4
+        # Muda sozinha quando core, biblioteca ou arduino-cli mudam neste arquivo
+        key: arduino-${{ hashFiles('.github/actions/setup-arduino/action.yml') }}
 
     - name: Instala core e bibliotecas
       shell: bash
@@ -20,4 +24,4 @@ runs:
         arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
         arduino-cli core update-index
         arduino-cli core install esp8266:esp8266@3.1.2
-        arduino-cli lib install "ArduinoJson@6.21.4"
+        arduino-cli lib install "ArduinoJson@6.21.6"
