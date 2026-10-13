@@ -131,6 +131,13 @@ jobs:
             --output-dir build
           cp build/esp8266-dns.ino.bin build/firmware.raw.bin
 
+      # Regra do projeto: nenhuma funcionalidade ou correção passa o firmware
+      # de 500.000 bytes (folga para a reserva OTA e para o que vier depois)
+      - name: Firmware dentro do limite de 500.000 bytes
+        run: |
+          set -o pipefail
+          python3 tools/firmware_limit.py build/firmware.raw.bin | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Verifica que a checagem de assinatura foi embutida
         run: grep -q "updaterSigningVerifier" build/esp8266-dns.ino.map
 

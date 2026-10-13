@@ -233,11 +233,11 @@ gh secret set OTA_SIGNING_KEY < private.key
 
 ## 📏 Orçamento de flash
 
-A flash de 1 MB guarda o firmware, uma **reserva OTA de 400 KB** (o próximo firmware, comprimido) e um **LittleFS de 64 KB** para a configuração. Toda função precisa caber na área de programa e, comprimida, na reserva OTA.
+A flash de 1 MB guarda o firmware, uma **reserva OTA de 400 KB** (o próximo firmware, comprimido) e um **LittleFS de 64 KB** para a configuração. Toda função precisa caber na área de programa e, comprimida, na reserva OTA. Nenhuma funcionalidade ou correção pode levar o firmware além de **500.000 bytes**: o `tools/firmware_limit.py` faz o build do PlatformIO e o CI falharem acima disso.
 
 | Item | Tamanho |
 | --- | --- |
-| Firmware | ~496 KB de 549 KB (cerca de 56 KB livres) |
+| Firmware | ~496 KB de 549 KB (cerca de 56 KB livres); **limite de 500.000 bytes** |
 | Pacote OTA assinado | ~356 KB de 400 KB (cerca de 44 KB livres) |
 | Imagens embutidas | foto de 5,4 KB (WebP) + pinos de 1,2 KB (SVG com gzip) |
 | Sistema de arquivos da configuração | 64 KB, sem mudança |
