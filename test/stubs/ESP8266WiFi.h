@@ -182,6 +182,7 @@ public:
     virtual int    connect(const char*, uint16_t) { return 0; }
     void setTimeout(unsigned long ms);
     virtual void stop(unsigned int = 0) {}
+    size_t write_P(const char* p, size_t n) { return write(reinterpret_cast<const uint8_t*>(p), n); }
 protected:
     WiFiClient* _owned = nullptr;
 };

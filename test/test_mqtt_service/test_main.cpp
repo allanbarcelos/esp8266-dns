@@ -6,6 +6,7 @@
 #include "Config.h"
 #include "IoTService.h"
 #include "MqttService.h"
+#include <ArduinoJson.h>
 
 static Logger logger;
 static Config cfg;
@@ -484,6 +485,187 @@ void test_pausa_wifi_e_reconexao() {
     TEST_ASSERT_EQUAL(c + 1, f.net.connects);
 }
 
+// ── Discovery do Home Assistant ──────────────────────────────────────────────
+
+static const char* DISCOVERY_TOPIC = "homeassistant/device/esp8266iot_00dead/config";
+static const char* KEYS = "thdnbslcg";
+
+// Último discovery publicado, já analisado
+static bool discovery(const std::string& out, DynamicJsonDocument& doc, size_t nth = 0) {
+    const Packet* p = published(out, DISCOVERY_TOPIC, nth);
+    if (!p) return false;
+    TEST_ASSERT_EQUAL_HEX8(0x01, p->flags);                   // retido
+    std::string body = payloadOf(*p);
+    TEST_ASSERT_FALSE(deserializeJson(doc, body.c_str()));     // JSON válido
+    return true;
+}
+
+// Entidades ativas (com uniq_id), na ordem de KEYS
+static std::string active(DynamicJsonDocument& doc) {
+    std::string s;
+    JsonObject cmps = doc["cmps"];
+    TEST_ASSERT_EQUAL(9, (int)cmps.size());
+    for (const char* k = KEYS; *k; k++) {
+        char key[2] = {*k, 0};
+        JsonObject e = cmps[key];
+        TEST_ASSERT_FALSE(e.isNull());
+        TEST_ASSERT_FALSE(e["p"].isNull());
+        if (e.containsKey("uniq_id")) {
+            TEST_ASSERT_EQUAL_STRING((std::string("esp8266iot_00dead_") + *k).c_str(), e["uniq_id"].as<const char*>());
+            s += *k;
+        } else {
+            TEST_ASSERT_EQUAL(1, (int)e.size());               // só a plataforma: remove do HA
+        }
+    }
+    return s;
+}
+
+static void configure(const char* sensor, const char* actuator) {
+    strlcpy(cfg.iot.sensor, sensor, sizeof(cfg.iot.sensor));
+    cfg.iot.sensorPin = sensor[0] ? 2 : -1;
+    strlcpy(cfg.iot.actuator, actuator, sizeof(cfg.iot.actuator));
+    cfg.iot.actuatorPin = actuator[0] ? 0 : -1;
+}
+
+void test_discovery_aparelho_e_topicos() {
+    Fix f;
+    configure("dht22", "rele");
+    f.iot.begin();
+    f.up();
+    DynamicJsonDocument doc(4096);
+    TEST_ASSERT_TRUE(discovery(f.net.out, doc));
+    TEST_ASSERT_EQUAL_STRING("esp8266iot_00dead", doc["dev"]["ids"]);
+    TEST_ASSERT_EQUAL_STRING("ESP8266 IoT", doc["dev"]["name"]);
+    TEST_ASSERT_EQUAL_STRING("ESP-01", doc["dev"]["mdl"]);
+    TEST_ASSERT_EQUAL_STRING(firmware_version, doc["dev"]["sw"]);
+    TEST_ASSERT_EQUAL_STRING("esp8266-dns", doc["o"]["name"]);
+    TEST_ASSERT_EQUAL_STRING("esp8266iot/00dead/state", doc["stat_t"]);
+    TEST_ASSERT_EQUAL_STRING("esp8266iot/00dead/avail", doc["avty_t"]);
+    TEST_ASSERT_EQUAL_STRING("esp8266iot/00dead/cmd", doc["cmd_t"]);
+    TEST_ASSERT_EQUAL_STRING("ths", active(doc).c_str());
+
+    JsonObject t = doc["cmps"]["t"];
+    TEST_ASSERT_EQUAL_STRING("sensor", t["p"]);
+    TEST_ASSERT_EQUAL_STRING("temperature", t["dev_cla"]);
+    TEST_ASSERT_EQUAL_STRING("\xc2\xb0" "C", t["unit_of_meas"]);
+    TEST_ASSERT_EQUAL_STRING("{{value_json.sensor.temperature|default(none)}}", t["val_tpl"]);
+    TEST_ASSERT_EQUAL_STRING("humidity", doc["cmps"]["h"]["dev_cla"]);
+    JsonObject s = doc["cmps"]["s"];
+    TEST_ASSERT_EQUAL_STRING("switch", s["p"]);
+    TEST_ASSERT_TRUE(s["name"].isNull() && s.containsKey("name"));
+    TEST_ASSERT_EQUAL_STRING("ligar", s["pl_on"]);
+    TEST_ASSERT_EQUAL_STRING("desligar", s["pl_off"]);
+
+    // Ordem: disponibilidade, discovery, depois o estado
+    auto v = packets(f.net.out);
+    int avail = -1, disc = -1, state = -1;
+    for (int i = 0; i < (int)v.size(); i++) {
+        if (v[i].type != 3) continue;
+        std::string tp = topicOf(v[i]);
+        if (tp == "esp8266iot/00dead/avail") avail = i;
+        if (tp == DISCOVERY_TOPIC) disc = i;
+        if (tp == "esp8266iot/00dead/state") state = i;
+    }
+    TEST_ASSERT_TRUE(avail < disc && disc < state);
+}
+
+void test_discovery_por_tipo_de_modulo() {
+    struct Case { const char* sensor; const char* actuator; const char* active; };
+    const Case cases[] = {
+        {"ds18b20", "", "t"}, {"distancia", "", "d"}, {"pulsos", "", "n"},
+        {"pir", "led", "bl"}, {"contato", "fita", "bc"}, {"botao", "servo", "bg"},
+        {"digital", "bomba", "bs"}, {"", "ventilador", "l"}, {"", "", ""},
+    };
+    for (const Case& c : cases) {
+        setUp();
+        Fix f;
+        configure(c.sensor, c.actuator);
+        f.iot.begin();
+        f.up();
+        DynamicJsonDocument doc(4096);
+        TEST_ASSERT_TRUE(discovery(f.net.out, doc));
+        TEST_ASSERT_EQUAL_STRING(c.active, active(doc).c_str());
+    }
+}
+
+void test_discovery_detalhes_das_entidades() {
+    Fix f;
+    configure("pir", "led");
+    f.iot.begin();
+    f.up();
+    DynamicJsonDocument doc(4096);
+    TEST_ASSERT_TRUE(discovery(f.net.out, doc));
+    JsonObject b = doc["cmps"]["b"];
+    TEST_ASSERT_EQUAL_STRING("binary_sensor", b["p"]);
+    TEST_ASSERT_EQUAL_STRING("motion", b["dev_cla"]);
+    TEST_ASSERT_EQUAL_STRING("{{'ON' if value_json.sensor.active|default(0) else 'OFF'}}", b["val_tpl"]);
+    JsonObject l = doc["cmps"]["l"];
+    TEST_ASSERT_EQUAL_STRING("light", l["p"]);
+    TEST_ASSERT_EQUAL_STRING("template", l["schema"]);
+    TEST_ASSERT_EQUAL_STRING("desligar", l["cmd_off_tpl"]);
+    TEST_ASSERT_TRUE(contains(l["cmd_on_tpl"].as<std::string>(), "nivel {{(brightness/2.55)|round|int}}"));
+    TEST_ASSERT_EQUAL_STRING("{{(value_json.actuator.level*2.55)|round|int}}", l["bri_tpl"]);
+    TEST_ASSERT_FALSE(l.containsKey("r_tpl"));
+
+    setUp();
+    Fix g;
+    configure("contato", "fita");
+    g.iot.begin();
+    g.up();
+    TEST_ASSERT_TRUE(discovery(g.net.out, doc));
+    TEST_ASSERT_EQUAL_STRING("door", doc["cmps"]["b"]["dev_cla"]);
+    JsonObject c = doc["cmps"]["c"];
+    TEST_ASSERT_EQUAL_STRING("light", c["p"]);
+    TEST_ASSERT_TRUE(contains(c["cmd_on_tpl"].as<std::string>(), "cor #{{'%02x%02x%02x'|format(red,green,blue)}}"));
+    TEST_ASSERT_EQUAL_STRING("{{value_json.actuator.color[1:3]|int(base=16)}}", c["r_tpl"]);
+    TEST_ASSERT_EQUAL_STRING("{{value_json.actuator.color[5:7]|int(base=16)}}", c["b_tpl"]);
+
+    setUp();
+    Fix h;
+    configure("botao", "servo");
+    h.iot.begin();
+    h.up();
+    TEST_ASSERT_TRUE(discovery(h.net.out, doc));
+    TEST_ASSERT_FALSE(doc["cmps"]["b"].containsKey("dev_cla"));
+    JsonObject g2 = doc["cmps"]["g"];
+    TEST_ASSERT_EQUAL_STRING("number", g2["p"]);
+    TEST_ASSERT_EQUAL(0, (int)g2["min"]);
+    TEST_ASSERT_EQUAL(180, (int)g2["max"]);
+    TEST_ASSERT_EQUAL_STRING("angulo {{value}}", g2["cmd_tpl"]);
+
+    setUp();
+    Fix k;
+    configure("pulsos", "");
+    k.iot.begin();
+    k.up();
+    TEST_ASSERT_TRUE(discovery(k.net.out, doc));
+    TEST_ASSERT_EQUAL_STRING("Pulsos", doc["cmps"]["n"]["name"]);
+}
+
+// Trocar o módulo no painel republica: a entidade antiga sai, a nova entra
+void test_discovery_republica_quando_o_modulo_muda() {
+    Fix f;
+    configure("", "rele");
+    f.iot.begin();
+    f.up();
+    f.net.out.clear();
+    f.mqtt.tick(10);
+    TEST_ASSERT_NULL(published(f.net.out, DISCOVERY_TOPIC));
+
+    configure("dht11", "led");
+    f.iot.begin();
+    f.mqtt.tick(11);
+    DynamicJsonDocument doc(4096);
+    TEST_ASSERT_TRUE(discovery(f.net.out, doc));
+    TEST_ASSERT_EQUAL_STRING("thl", active(doc).c_str());
+    TEST_ASSERT_EQUAL_STRING("switch", doc["cmps"]["s"]["p"]);       // marcada para remoção
+    TEST_ASSERT_NOT_NULL(published(f.net.out, "esp8266iot/00dead/state"));
+
+    f.net.out.clear();
+    f.mqtt.tick(12);
+    TEST_ASSERT_NULL(published(f.net.out, DISCOVERY_TOPIC));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_parse_broker);
@@ -503,5 +685,9 @@ int main() {
     RUN_TEST(test_estado_longo_usa_tamanho_de_dois_bytes);
     RUN_TEST(test_ping_e_broker_parado);
     RUN_TEST(test_pausa_wifi_e_reconexao);
+    RUN_TEST(test_discovery_aparelho_e_topicos);
+    RUN_TEST(test_discovery_por_tipo_de_modulo);
+    RUN_TEST(test_discovery_detalhes_das_entidades);
+    RUN_TEST(test_discovery_republica_quando_o_modulo_muda);
     return UNITY_END();
 }

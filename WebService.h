@@ -725,7 +725,8 @@ private:
         _passwordInput(PSTR("Senha <span class='m'>(em branco mantem)</span>"), PSTR("pass"),
                        PSTR("maxlength='63'"));
         _switch(PSTR("pass_clear"), PSTR("Apagar a senha salva"), false);
-        _p(PSTR("<p class='m'>Publica o estado (o mesmo JSON da API) e recebe comandos (o mesmo "
+        _p(PSTR("<p class='m'>O Home Assistant encontra o aparelho sozinho (discovery). "
+                "Publica o estado (o mesmo JSON da API) e recebe comandos (o mesmo "
                 "texto do painel). Sem TLS: use um broker na rede local, com usuario e senha; "
                 "quem publicar no broker comanda o atuador. Use o IP do broker (nomes .local "
                 "nao resolvem). Em branco, desativado.</p>"));

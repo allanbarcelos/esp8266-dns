@@ -147,7 +147,7 @@ curl -H 'Authorization: Bearer <token>' -d 'cmd=pulso 5' http://192.168.1.50/api
 - The token (32 hex characters from the hardware RNG) is separate from the panel password. It is created when IoT is first configured and shown on the IoT page with these examples; **Generate new token** invalidates the old one. It is compared in constant time.
 - `sensor` or `actuator` is `null` when not in use. `status` is `ok`, `waiting` or `error`. Extra fields per type: `active`, `temperature`, `humidity`, `distance`, `pulses`, `level`, `angle`, `color`, `pulse` (seconds left).
 - A command that does not parse or does not fit the actuator returns **400** with `{"error":"..."}`; nothing changes.
-- Home Assistant reads it with the `rest` sensor and sends commands with `rest_command`.
+- In Home Assistant, prefer [MQTT](#-mqtt): the device shows up on its own. Without a broker, HA reads it with the `rest` sensor and sends commands with `rest_command`.
 
 > The panel and the API are plain HTTP (the ESP-01 has no memory for a TLS server). Use them on a trusted network and do not forward port 80 to the device.
 
@@ -186,6 +186,25 @@ For Home Assistant, Node-RED or scripts on the local network. Set it on the **MQ
 - Use the broker's IP: `.local` names (mDNS) do not resolve.
 - A command that arrives retained (from before the connection) is ignored: it would repeat on every reconnect.
 - Own minimal client (MQTT 3.1.1, QoS 0, no library). The connection only closes during the OTA download. Failures retry from 5 s up to 5 min.
+
+### Home Assistant (discovery)
+
+With the broker set, the device shows up in Home Assistant on its own (MQTT integration), as an **ESP8266 IoT** device with the entities of the configured module:
+
+| Module | Entity |
+| --- | --- |
+| DHT11, DHT22 | temperature and humidity `sensor` |
+| DS18B20 | temperature `sensor` |
+| Distance, pulses | `sensor` |
+| PIR, contact, button, digital | `binary_sensor` (motion for PIR, door for contact) |
+| Relay, pump, valve, lock, buzzer | `switch` |
+| LED, fan, motor | `light` with brightness |
+| LED strip | `light` with color and brightness |
+| Servo | `number` (0 to 180°) |
+
+- A single retained message per device, at `homeassistant/device/esp8266iot_<id>/config`. Changing the module on the panel republishes it and removes from HA the entities that no longer exist.
+- Commands from HA become the same text as the panel (`ligar`, `nivel 50`, `cor #ff0000`, `angulo 120`). A sensor with no reading yet is *unknown*.
+- To remove the device from HA, delete it in the MQTT integration and clear the broker on the MQTT page.
 
 ---
 
@@ -256,8 +275,8 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | ~496 KB of 549 KB (about 56 KB free); **limit 500,000 bytes** |
-| Signed OTA package | ~356 KB of 400 KB (about 44 KB free) |
+| Firmware | ~498 KB of 549 KB (about 51 KB free); **limit 500,000 bytes** |
+| Signed OTA package | ~358 KB of 400 KB (about 42 KB free) |
 | Embedded images | 5.4 KB photo (WebP) + 1.2 KB pinout (gzipped SVG) |
 | Configuration filesystem | 64 KB, unchanged |
 

@@ -23,6 +23,9 @@
 //   esp8266iot/<id>/cmd    comandos, com o mesmo texto do painel e da API.
 //                          Mensagem retida é ignorada: seria repetida a
 //                          cada conexão.
+//
+// E o discovery do Home Assistant (abaixo): o aparelho aparece sozinho,
+// com as entidades do sensor e do atuador configurados.
 class MqttService {
 public:
     MqttService(Config& cfg, Logger& log, IoTService& iot, WiFiClient& net)
@@ -79,6 +82,10 @@ public:
         if (now - _lastOut >= KEEPALIVE_S * 500UL) {   // PINGREQ na metade
             static const uint8_t PING[] = {0xC0, 0x00};
             _write(PING, sizeof(PING), now);
+        }
+        if (_shapeNow() != _shape) {                   // módulo trocado no painel
+            _announce(now);
+            _publishState(true, now);
         }
         if (now - _lastState >= STATE_MS) {
             _lastState = now;
@@ -144,6 +151,9 @@ private:
     unsigned long _next = 0, _lastIn = 0, _lastOut = 0, _lastState = 0;
     uint16_t      _backoff = BACKOFF_MIN_S;
     uint32_t      _sum = 0;              // estado já publicado (FNV-1a)
+    uint32_t      _shape = 0;            // módulo anunciado no discovery
+    size_t        _count = 0;            // discovery: tamanho medido
+    bool          _counting = false;
 
     // Pacote que chega: cabeçalho, tamanho (até 4 bytes) e corpo
     uint8_t  _rxState = RX_HEADER, _rxHeader = 0, _rxShift = 0;
@@ -216,6 +226,7 @@ private:
         static const uint8_t QOS0[] = {0};
         _write(QOS0, sizeof(QOS0), now);
 
+        _announce(now);
         _publishState(true, now);
     }
 
@@ -307,6 +318,147 @@ private:
             _command(now);
         }
         // SUBACK, PINGRESP: o _lastIn já marcou atividade
+    }
+
+    // ── Discovery do Home Assistant ──────────────────────────────────────────
+    //
+    // Uma mensagem por aparelho (device discovery, HA 2024.12+), retida, em
+    // homeassistant/device/esp8266iot_<id>/config. Lista todas as entidades
+    // possíveis: as que o módulo configurado não tem vão só com a plataforma,
+    // o que as remove do HA. Assim, trocar o módulo no painel republica e
+    // limpa o que sobrou. O texto fica na flash e sai em pedaços; uma
+    // primeira passada só mede o tamanho.
+
+    struct Entity {
+        char  key;
+        PGM_P platform;
+        PGM_P body;     // depois do uniq_id
+    };
+
+    bool _has(char key) const {
+        uint8_t k = _iot.sensorKind();
+        uint8_t c = _iot.capability();
+        switch (key) {
+            case 't': return k == iot::K_DHT11 || k == iot::K_DHT22 || k == iot::K_DS18;
+            case 'h': return k == iot::K_DHT11 || k == iot::K_DHT22;
+            case 'd': return k == iot::K_RANGE;
+            case 'n': return k == iot::K_PULSE;
+            case 'b': return k == iot::K_DIGITAL;
+            case 's': return c == iot::C_ONOFF;
+            case 'l': return c == iot::C_LEVEL;
+            case 'c': return c == iot::C_COLOR;
+            default:  return c == iot::C_POSITION;   // 'g'
+        }
+    }
+
+    // Módulo configurado: muda quando o painel troca o sensor ou o atuador
+    uint32_t _shapeNow() const {
+        return (uint32_t)(uintptr_t)_iot.sensorDef() * 31u + (uint32_t)(uintptr_t)_iot.actuatorDef();
+    }
+
+    void _announce(unsigned long now) {
+        _shape = _shapeNow();
+        char topic[64];
+        size_t tl = (size_t)snprintf_P(topic, sizeof(topic),
+                                       PSTR("homeassistant/device/esp8266iot_%s/config"), base() + 11);
+        _count = 0;
+        _counting = true;
+        _discovery();
+        _header(0x31, 2 + tl + _count, now);
+        _string(topic, now);
+        _counting = false;
+        _discovery();
+    }
+
+    void _out(const char* s) {
+        size_t n = strlen(s);
+        if (_counting) _count += n;
+        else _net.write((const uint8_t*)s, n);
+    }
+
+    void _outP(PGM_P s) {
+        size_t n = strlen_P(s);
+        if (_counting) _count += n;
+        else _net.write_P(s, n);
+    }
+
+    void _discovery() {
+        static const char P_SENSOR[] PROGMEM = "sensor";
+        static const char P_BINARY[] PROGMEM = "binary_sensor";
+        static const char P_SWITCH[] PROGMEM = "switch";
+        static const char P_LIGHT[]  PROGMEM = "light";
+        static const char P_NUMBER[] PROGMEM = "number";
+        static const char STATE_ON[] PROGMEM =
+            ",\"name\":null,\"stat_tpl\":\"{{'on' if value_json.actuator.on else 'off'}}\","
+            "\"cmd_off_tpl\":\"desligar\",\"schema\":\"template\"";
+        // Na pilha: PSTR não serve para inicializar um static. Sensor sem
+        // leitura ainda não traz o campo no JSON: |default evita o aviso de
+        // variável indefinida no log do HA (o estado fica desconhecido).
+        const Entity ENTITIES[] = {
+            {'t', P_SENSOR, PSTR(",\"dev_cla\":\"temperature\",\"unit_of_meas\":\"\xc2\xb0" "C\","
+                                 "\"stat_cla\":\"measurement\",\"val_tpl\":\"{{value_json.sensor.temperature|default(none)}}\"")},
+            {'h', P_SENSOR, PSTR(",\"dev_cla\":\"humidity\",\"unit_of_meas\":\"%\","
+                                 "\"stat_cla\":\"measurement\",\"val_tpl\":\"{{value_json.sensor.humidity|default(none)}}\"")},
+            {'d', P_SENSOR, PSTR(",\"dev_cla\":\"distance\",\"unit_of_meas\":\"cm\","
+                                 "\"stat_cla\":\"measurement\",\"val_tpl\":\"{{value_json.sensor.distance|default(none)}}\"")},
+            {'n', P_SENSOR, PSTR(",\"name\":\"Pulsos\",\"stat_cla\":\"measurement\","
+                                 "\"val_tpl\":\"{{value_json.sensor.pulses|default(none)}}\"")},
+            {'b', P_BINARY, PSTR(",\"name\":\"Sensor\","
+                                 "\"val_tpl\":\"{{'ON' if value_json.sensor.active|default(0) else 'OFF'}}\"")},
+            {'s', P_SWITCH, PSTR(",\"name\":null,\"pl_on\":\"ligar\",\"pl_off\":\"desligar\","
+                                 "\"val_tpl\":\"{{'ligar' if value_json.actuator.on else 'desligar'}}\"")},
+            {'l', P_LIGHT,  PSTR(",\"cmd_on_tpl\":\"{%if brightness is defined%}nivel {{(brightness/2.55)|round|int}}"
+                                 "{%else%}ligar{%endif%}\","
+                                 "\"bri_tpl\":\"{{(value_json.actuator.level*2.55)|round|int}}\"")},
+            {'c', P_LIGHT,  PSTR(",\"cmd_on_tpl\":\"{%if red is defined%}cor #{{'%02x%02x%02x'|format(red,green,blue)}}"
+                                 "{%elif brightness is defined%}nivel {{(brightness/2.55)|round|int}}"
+                                 "{%else%}ligar{%endif%}\","
+                                 "\"bri_tpl\":\"{{(value_json.actuator.level*2.55)|round|int}}\","
+                                 "\"r_tpl\":\"{{value_json.actuator.color[1:3]|int(base=16)}}\","
+                                 "\"g_tpl\":\"{{value_json.actuator.color[3:5]|int(base=16)}}\","
+                                 "\"b_tpl\":\"{{value_json.actuator.color[5:7]|int(base=16)}}\"")},
+            {'g', P_NUMBER, PSTR(",\"name\":null,\"min\":0,\"max\":180,\"unit_of_meas\":\"\xc2\xb0\","
+                                 "\"cmd_tpl\":\"angulo {{value}}\",\"val_tpl\":\"{{value_json.actuator.angle}}\"")},
+        };
+
+        const char* id = base() + 11;
+        _outP(PSTR("{\"dev\":{\"ids\":\"esp8266iot_"));
+        _out(id);
+        _outP(PSTR("\",\"name\":\"ESP8266 IoT\",\"mf\":\"esp8266-dns\",\"mdl\":\"ESP-01\",\"sw\":\""));
+        _out(firmware_version);
+        _outP(PSTR("\"},\"o\":{\"name\":\"esp8266-dns\","
+                   "\"url\":\"https://github.com/allanbarcelos/esp8266-dns\"},\"stat_t\":\""));
+        _out(_base);
+        _outP(PSTR("/state\",\"avty_t\":\""));
+        _out(_base);
+        _outP(PSTR("/avail\",\"cmd_t\":\""));
+        _out(_base);
+        _outP(PSTR("/cmd\",\"cmps\":{"));
+        for (const Entity& e : ENTITIES) {
+            char head[8] = {',', '"', e.key, '"', ':', '{', '\0'};
+            _out(e.key == 't' ? head + 1 : head);
+            _outP(PSTR("\"p\":\""));
+            _outP(e.platform);
+            _outP(PSTR("\""));
+            if (_has(e.key)) {
+                _outP(PSTR(",\"uniq_id\":\"esp8266iot_"));
+                _out(id);
+                const char tail[4] = {'_', e.key, '"', '\0'};
+                _out(tail);
+                if (e.key == 'b') _binaryClass();
+                if (e.platform == P_LIGHT) _outP(STATE_ON);
+                _outP(e.body);
+            }
+            _outP(PSTR("}"));
+        }
+        _outP(PSTR("}}"));
+    }
+
+    // PIR é movimento e contato é porta; botão e digital ficam sem classe
+    void _binaryClass() {
+        const char* slug = _iot.sensorDef()->slug;
+        if (!strcmp(slug, "pir")) _outP(PSTR(",\"dev_cla\":\"motion\""));
+        else if (!strcmp(slug, "contato")) _outP(PSTR(",\"dev_cla\":\"door\""));
     }
 
     void _command(unsigned long now) {
