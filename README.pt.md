@@ -35,6 +35,7 @@ Cada serviço é um header com dependências injetadas por referência, composta
 | `Ws2812.h`           | Driver WS2812 de uma cor, sem biblioteca                                         |
 | `WebService.h`       | Painel HTTP (Basic Auth + CSRF + escape de HTML) e API local (token Bearer)     |
 | `Assets.h`           | Imagens do painel embutidas no firmware (geradas por `tools/embed_assets.py`)   |
+| `WebAssets.h`        | CSS e JavaScript do painel, em gzip (gerados de `web/` por `tools/embed_web.py`) |
 | `Version.h`          | `firmware_version` (injetado pelo CI; `"dev"` em build local)                    |
 
 ---
@@ -235,7 +236,7 @@ A flash de 1 MB guarda o firmware, uma **reserva OTA de 400 KB** (o próximo fir
 
 | Item | Tamanho |
 | --- | --- |
-| Firmware | ~541 KB de 549 KB (cerca de 11 KB livres) |
+| Firmware | ~539 KB de 549 KB (cerca de 14 KB livres) |
 | Pacote OTA assinado | ~388 KB de 400 KB (cerca de 21 KB livres) |
 | Imagens embutidas | foto de 5,4 KB (WebP) + pinos de 1,2 KB (SVG com gzip) |
 | Sistema de arquivos da configuração | 64 KB, sem mudança |
@@ -322,6 +323,8 @@ arduino-cli monitor -p /dev/ttyUSB0 --config 115200
 ```
 
 Builds locais têm versão `dev` e atualizam para o último release na primeira checagem OTA (se a atualização automática estiver ligada). Depois de mudar `docs/esp-01.jpg` ou `docs/esp01-pinout.svg`, rode `python3 tools/embed_assets.py` (requer Pillow) e faça commit do `Assets.h`.
+
+O estilo do painel e o script da página IoT ficam em `web/panel.css` e `web/iot.js`. O aparelho entrega os dois em gzip (`/s.css`, `/iot.js`): o navegador descomprime e guarda no cache, e a URL leva um hash do conteúdo, então uma versão nova nunca usa cópia antiga. Depois de editar, rode `python3 tools/embed_web.py` e faça commit do `WebAssets.h`; o CI roda `python3 tools/embed_web.py --check`.
 
 ---
 

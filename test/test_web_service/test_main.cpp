@@ -91,7 +91,7 @@ void test_format_bytes() {
 void test_begin_registra_rotas_e_gera_csrf_aleatorio() {
     Fixture f;
     TEST_ASSERT_TRUE(f.srv.started);
-    TEST_ASSERT_EQUAL(24, (int)f.srv.routes.size());
+    TEST_ASSERT_EQUAL(26, (int)f.srv.routes.size());
     TEST_ASSERT_EQUAL(16, (int)std::strlen(f.web.csrfToken()));
 
     std::string first = f.web.csrfToken();
@@ -202,9 +202,8 @@ void test_root_modo_configuracao_primeiro_acesso() {
     TEST_ASSERT_TRUE(contains(f.out(), "name='ssid' value=''"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='pass'"));
     TEST_ASSERT_TRUE(contains(f.out(), "</html>"));
-    // Modo AP não tem internet: estilo embutido, nenhum recurso obrigatório de fora
-    TEST_ASSERT_TRUE(contains(f.out(), "<style>"));
-    TEST_ASSERT_FALSE(contains(f.out(), "<link"));
+    // Modo AP não tem internet: o estilo sai do próprio aparelho, nada de fora
+    TEST_ASSERT_TRUE(contains(f.out(), "<link rel='stylesheet' href='/s.css?v=" WEB_CSS_TAG "'>"));
     TEST_ASSERT_FALSE(contains(f.out(), "<script src"));
     TEST_ASSERT_FALSE(contains(f.out(), "https://"));
 }
@@ -313,6 +312,27 @@ void test_imagem_do_aparelho_embutida() {
     TEST_ASSERT_EQUAL(0u, f.srv.headers.count("Content-Encoding"));
 }
 
+// CSS e JS do painel: gzip, públicos (a página de configuração inicial usa)
+static void assetGz(const char* path, const char* type, size_t len) {
+    cfg.webpss = "";
+    Fixture f;
+    TEST_ASSERT_TRUE(f.get(path));
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING(type, f.srv.contentType.c_str());
+    TEST_ASSERT_EQUAL_STRING("gzip", f.srv.headers["Content-Encoding"].c_str());
+    TEST_ASSERT_EQUAL_STRING("max-age=604800", f.srv.headers["Cache-Control"].c_str());
+    TEST_ASSERT_EQUAL(len, f.out().size());
+    TEST_ASSERT_EQUAL_HEX8(0x1f, (uint8_t)f.out()[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x8b, (uint8_t)f.out()[1]);
+}
+
+void test_css_e_js_em_gzip() {
+    assetGz("/s.css", "text/css", sizeof(WEB_CSS_GZ));
+    assetGz("/iot.js", "text/javascript", sizeof(WEB_IOT_GZ));
+    TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_CSS_TAG));
+    TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_IOT_TAG));
+}
+
 void test_pinos_embutidos_em_svg_gzip() {
     Fixture f;
     TEST_ASSERT_TRUE(f.get("/pinout.svg"));
@@ -359,8 +379,7 @@ void test_status_conectado() {
     TEST_ASSERT_TRUE(contains(f.out(), "AA:BB:CC:DD:EE:FF"));
     TEST_ASSERT_TRUE(contains(f.out(), "Fatal &lt;exception&gt;"));
     TEST_ASSERT_TRUE(contains(f.out(), "<section class='c'><h2>Memoria</h2>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<style>"));
-    TEST_ASSERT_FALSE(contains(f.out(), "<link"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<link rel='stylesheet' href='/s.css?v=" WEB_CSS_TAG "'>"));
     TEST_ASSERT_FALSE(contains(f.out(), "Temp"));
 }
 
@@ -526,8 +545,7 @@ void test_update_pagina_inicial() {
     TEST_ASSERT_TRUE(contains(f.out(), " checked"));
     TEST_ASSERT_TRUE(contains(f.out(), "ligada"));
     TEST_ASSERT_TRUE(contains(f.out(), "Verificar agora"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<style>"));
-    TEST_ASSERT_FALSE(contains(f.out(), "<link"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<link rel='stylesheet' href='/s.css?v=" WEB_CSS_TAG "'>"));
     TEST_ASSERT_FALSE(contains(f.out(), "http-equiv='refresh'"));
     TEST_ASSERT_FALSE(contains(f.out(), "Instalar esta versao"));
 }
@@ -644,10 +662,11 @@ void test_iot_pagina_sem_nada_configurado() {
     TEST_ASSERT_TRUE(contains(f.out(), "var SK={dht22:3,dht11:2"));
     TEST_ASSERT_TRUE(contains(f.out(), "fita:4},T='"));
     TEST_ASSERT_TRUE(contains(f.out(), f.web.csrfToken()));
-    TEST_ASSERT_TRUE(contains(f.out(), "function f()"));
-    // Sem nada ligado: sem cartão "Agora" nem leitura ao vivo
+    TEST_ASSERT_TRUE(contains(f.out(), "';</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script>"));
+    // Sem nada ligado: sem cartão "Agora" (o iot.js só lê ao vivo com ns/na)
     TEST_ASSERT_FALSE(contains(f.out(), "<h2>Agora</h2>"));
-    TEST_ASSERT_FALSE(contains(f.out(), "setInterval"));
+    TEST_ASSERT_FALSE(contains(f.out(), "id='ns'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "id='na'"));
     TEST_ASSERT_FALSE(contains(f.out(), "http-equiv='refresh'"));
     TEST_ASSERT_FALSE(contains(f.out(), "Cadastre o topico"));
     TEST_ASSERT_FALSE(contains(f.out(), "Tipo desconhecido"));
@@ -674,8 +693,7 @@ void test_iot_pagina_sensor_e_atuador_com_leitura_ao_vivo() {
     TEST_ASSERT_TRUE(contains(f.out(), "id='pd' min='1' max='3600' value='1'"));
     TEST_ASSERT_TRUE(contains(f.out(), "onclick=\"c('auto')\" hidden>"));
     TEST_ASSERT_TRUE(contains(f.out(), "role='status' aria-live='polite'"));
-    TEST_ASSERT_TRUE(contains(f.out(), "setInterval"));
-    TEST_ASSERT_TRUE(contains(f.out(), "fetch('/iot/cmd'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<script src='/iot.js?v=" WEB_IOT_TAG "'>"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='rule' value='1' checked>"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='notify' value='1' checked>"));
 
@@ -700,7 +718,6 @@ void test_iot_pagina_so_sensor_e_so_atuador() {
     TEST_ASSERT_TRUE(contains(f.out(), "<b id='ns'>"));
     TEST_ASSERT_FALSE(contains(f.out(), "id='na'"));
     TEST_ASSERT_FALSE(contains(f.out(), "id='sw'"));
-    TEST_ASSERT_TRUE(contains(f.out(), "setInterval"));
 
     cfg = Config{};
     cfg.webusr = "admin";
@@ -1262,6 +1279,7 @@ int main() {
     RUN_TEST(test_save_wifi_primeiro_acesso_exige_senha_do_painel);
     RUN_TEST(test_save_wifi_falha_ao_gravar);
     RUN_TEST(test_imagem_do_aparelho_embutida);
+    RUN_TEST(test_css_e_js_em_gzip);
     RUN_TEST(test_pinos_embutidos_em_svg_gzip);
     RUN_TEST(test_log_escapa_conteudo);
     RUN_TEST(test_status_conectado);

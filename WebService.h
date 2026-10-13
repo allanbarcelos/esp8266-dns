@@ -13,11 +13,12 @@
 #include "IoTService.h"
 #include "NtfyNotifier.h"
 #include "Assets.h"
+#include "WebAssets.h"
 
 // ── PROGMEM ───────────────────────────────────────────────────────────────────
 // Cabeçalho dividido para permitir injeção de <meta refresh> antes de </head>.
-// O CSS vem embutido: no modo AP não há internet para buscar um framework.
-// Contraste AA no tema escuro; botão verde escuro para o branco passar 4.5:1.
+// O CSS (web/panel.css) sai do próprio aparelho, em gzip e com cache: no
+// modo AP não há internet para buscar um framework.
 
 static const char _HTML_HEAD_A[] PROGMEM =
     "<!DOCTYPE html><html lang='pt'><head><meta charset='utf-8'>"
@@ -25,55 +26,8 @@ static const char _HTML_HEAD_A[] PROGMEM =
     "<title>ESP8266 DNS</title>";
 
 static const char _HTML_HEAD_B[] PROGMEM =
-    "<style>"
-    ":root{color-scheme:dark;--bg:#0d1117;--cd:#161b22;--ln:#30363d;--fg:#e6edf3;"
-    "--mu:#9da7b3;--ok:#3fb950;--wa:#d29922;--er:#f85149;--in:#58a6ff}"
-    "*{box-sizing:border-box}"
-    "body{margin:0;background:var(--bg);color:var(--fg);"
-    "font:15px/1.5 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}"
-    "header{background:var(--cd);border-bottom:1px solid var(--ln);padding:10px 16px}"
-    "header b{color:var(--ok)}"
-    "nav{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}"
-    "nav a{color:var(--fg);text-decoration:none;padding:3px 10px;"
-    "border:1px solid var(--ln);border-radius:6px;font-size:14px}"
-    "nav a:hover{border-color:var(--ok)}"
-    "main,footer{max-width:640px;margin:auto;padding:16px}"
-    "footer,.m{color:var(--mu);font-size:13px}"
-    "h1{font-size:20px;margin:0 0 16px}"
-    "h2{font-size:16px;margin:20px 0 0}"
-    ".c{background:var(--cd);border:1px solid var(--ln);border-radius:8px;margin-bottom:16px}"
-    ".c h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);"
-    "margin:0;padding:8px 16px;border-bottom:1px solid var(--ln)}"
-    ".r{display:flex;justify-content:space-between;gap:16px;padding:8px 16px;"
-    "border-bottom:1px solid var(--ln)}"
-    ".r:last-child{border:0}.r span{color:var(--mu)}"
-    ".r b{text-align:right;overflow-wrap:anywhere}"
-    "label{display:block;margin-top:12px;font-size:14px}"
-    "input,select{display:block;width:100%;margin-top:4px;padding:8px 10px;"
-    "background:var(--bg);color:var(--fg);border:1px solid var(--ln);border-radius:6px;font:inherit}"
-    ".sw{display:flex;align-items:center;gap:8px}"
-    ".sw input{width:auto;margin:0;accent-color:var(--ok)}"
-    "button,.b{display:block;width:100%;margin-top:16px;padding:10px;border:0;"
-    "border-radius:6px;background:#238636;color:#fff;font:inherit;font-weight:600;"
-    "text-align:center;text-decoration:none;cursor:pointer}"
-    ".b2{background:none;border:1px solid var(--ln);color:var(--fg)}"
-    ":focus-visible{outline:2px solid var(--in);outline-offset:2px}"
-    ".a{background:var(--cd);border-left:4px solid var(--in);border-radius:6px;"
-    "padding:10px 14px;margin-bottom:16px}"
-    ".success{border-color:var(--ok)}.warning{border-color:var(--wa)}"
-    ".danger{border-color:var(--er)}.bx{background:#da3633}"
-    "progress{display:block;width:100%;accent-color:var(--ok)}"
-    "pre{background:#010409;border:1px solid var(--ln);border-radius:8px;padding:12px;"
-    "font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}"
-    "img{max-width:100%;height:auto;border-radius:6px}"
-    "figure{margin:0 0 16px;text-align:center}"
-    "fieldset{border:1px solid var(--ln);border-radius:8px;margin:0 0 16px;padding:4px 16px 16px}"
-    "legend{padding:0 6px;font-weight:600}[hidden]{display:none!important}"
-    ".ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:8px}"
-    ".ctl button,.ctl input{width:auto;margin:0}.ctl label{margin:0}"
-    "button[aria-checked=false]{background:none;border:1px solid var(--ln);color:var(--fg)}"
-    "input[type=range]{padding:0}input[type=color]{height:40px;padding:2px}"
-    "</style></head><body><header><b>&#9679; ESP8266 DNS</b>"
+    "<link rel='stylesheet' href='/s.css?v=" WEB_CSS_TAG "'>"
+    "</head><body><header><b>&#9679; ESP8266 DNS</b>"
     "<nav aria-label='Menu'><a href='/'>Home</a><a href='/status'>Status</a>"
     "<a href='/log'>Logs</a><a href='/cloudflare'>Cloudflare</a><a href='/ntfy'>Ntfy</a>"
     "<a href='/iot'>IoT</a><a href='/update'>Atualizar</a><a href='/password'>Senha</a>"
@@ -82,64 +36,6 @@ static const char _HTML_HEAD_B[] PROGMEM =
 static const char _HTML_FOOT_A[] PROGMEM = "</main><footer>Firmware: ";
 
 static const char _HTML_FOOT_B[] PROGMEM = "</footer></body></html>";
-
-
-// Página IoT: mostra só os campos do papel e dos tipos escolhidos, a dica
-// de ligação de cada tipo e a regra escrita como frase. SK e AC (tipo →
-// Kind/Cap) e T (CSRF) vêm antes, gerados do catálogo.
-static const char _IOT_JS[] PROGMEM =
-    "function $(i){return document.getElementById(i)}"
-    "function V(n){return document.querySelector('[name='+n+']')}"
-    "var SH=['','Modulo com saida digital (D0); a sensibilidade se ajusta no trimpot.',"
-    "'DHT11: pull-up de 4,7 a 10 kOhm entre dados e 3,3 V; uma leitura a cada 2 s.',"
-    "'DHT22: pull-up de 4,7 a 10 kOhm entre dados e 3,3 V; uma leitura a cada 2 s.',"
-    "'DS18B20: pull-up de 4,7 kOhm entre dados e 3,3 V.',"
-    "'HC-SR04: trig e echo juntos no mesmo pino, com 1 kOhm no echo; ate 400 cm.',"
-    "'Conta pulsos a cada 10 s (YF-S201: cerca de 75 pulsos por L/min).'],"
-    "AH=['','Modulos de rele costumam ligar em nivel baixo.',"
-    "'PWM no pino: use MOSFET ou driver de motor, nunca a carga direto no pino.',"
-    "'Servo com 5 V separado e GND em comum com o ESP.',"
-    "'WS2812 em 5 V: resistor de 330 Ohm na linha de dados; ate 60 LEDs.'],"
-    "P=' GPIO0 e GPIO2 precisam estar altos no boot; TX e RX deixam de ser serial.';"
-    "function f(){var r=(document.querySelector('[name=role]:checked')||{}).value||'n',"
-    "hs=r.indexOf('s')>=0,ha=r.indexOf('a')>=0,k=SK[V('sensor').value],"
-    "p=AC[V('actuator').value],d=k==1,h=k==2||k==3,"
-    "u=h?(V('metric').value=='1'?'\\u00b0C':'%'):k==4?'\\u00b0C':k==5?'cm':'pulsos',"
-    "a=V('actuator').selectedOptions[0].text.toLowerCase(),t=+V('threshold').value,"
-    "m=+V('margin').value,ab=V('above').value=='1',ru=V('rule').checked,"
-    "ln=p==2&&!d&&V('linear').value=='1',s;"
-    "$('fs').hidden=!hs;$('fa').hidden=!ha;$('fr').hidden=!(hs&&ha);"
-    "$('sd').hidden=!d;$('sm').hidden=!h;$('al').hidden=p!=1;$('ap').hidden=p!=2;"
-    "$('aa').hidden=p!=3;$('ac').hidden=p!=4;"
-    "$('rd').hidden=!d||!ru;$('rn').hidden=d||!ru;$('rl').hidden=!(p==2&&!d);$('rh').hidden=!ln;"
-    "$('sh').textContent=SH[k]+P;$('ah').textContent=AH[p]+P;"
-    "if(!ru)s='Sem regra: o atuador so obedece comandos.';"
-    "else if(d){var o=V('sensor_on').value||'ativo';"
-    "s=V('toggle').value=='1'?'Cada vez que o sensor ficar '+o+', o '+a+' inverte.'"
-    ":'Liga o '+a+' enquanto o sensor estiver '+o+'.'}"
-    "else if(ln)s='Intensidade proporcional de '+t+' a '+V('threshold_hi').value+' '+u+'.';"
-    "else s='Liga o '+a+' quando o valor ficar '+(ab?'acima de ':'abaixo de ')+t+' '+u"
-    "+' e desliga ao voltar '+(ab?'abaixo de ':'acima de ')+(ab?t-m:t+m)+' '+u+'.';"
-    "$('rs').textContent=s}"
-    "document.querySelectorAll('form input,form select').forEach(function(e){"
-    "e.addEventListener('input',f)});f();";
-
-// Cartão "Agora": comandos sem recarregar e leitura a cada 5 s
-static const char _IOT_LIVE_JS[] PROGMEM =
-    "function u(s){var a=s.actuator,e=s.sensor,w;if(e)$('ns').textContent=e.text;"
-    "if(a){$('na').textContent=a.text;"
-    "if(w=$('sw'))w.setAttribute('aria-checked',a.on);"
-    "if(w=$('nm'))w.textContent=a.mode=='auto'?'automatico':'manual';"
-    "if(w=$('au'))w.hidden=a.mode=='auto';"
-    "if(a.level!=null&&(w=$('lv'))){w.value=a.level;$('lvo').value=a.level}"
-    "if(a.angle!=null&&(w=$('ag'))){w.value=a.angle;$('ago').value=a.angle}"
-    "if(a.color&&(w=$('co')))w.value=a.color}}"
-    "function c(x){$('msg').textContent='';fetch('/iot/cmd',{method:'POST',"
-    "body:new URLSearchParams({cmd:x,_csrf:T})}).then(function(r){return r.json()})"
-    ".then(function(s){if(s.error)$('msg').textContent=s.error;else u(s)})"
-    ".catch(function(){$('msg').textContent='Sem resposta do aparelho'})}"
-    "setInterval(function(){fetch('/iot/now').then(function(r){if(r.ok)return r.json()})"
-    ".then(function(s){if(s)u(s)}).catch(function(){})},5000);";
 
 // Texto fixo das páginas fica na flash (PSTR/PROGMEM) e sai por
 // sendContent_P: literal comum ocupa RAM no ESP8266, e a heap livre é o
@@ -190,6 +86,12 @@ public:
         // Imagens embutidas (Assets.h): públicas, sem dado do aparelho
         _server.on("/esp01.webp",      HTTP_GET,  [this]() {
             _asset("image/webp", ASSET_PHOTO, sizeof(ASSET_PHOTO), false);
+        });
+        _server.on("/s.css",           HTTP_GET,  [this]() {
+            _asset("text/css", WEB_CSS_GZ, sizeof(WEB_CSS_GZ), true);
+        });
+        _server.on("/iot.js",          HTTP_GET,  [this]() {
+            _asset("text/javascript", WEB_IOT_GZ, sizeof(WEB_IOT_GZ), true);
         });
         _server.on("/pinout.svg",      HTTP_GET,  [this]() {
             _asset("image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ), true);
@@ -822,8 +724,9 @@ private:
         _savedPage(PSTR("Senha atualizada!"), PSTR("/"));
     }
 
-    // Sai direto da flash; o cache evita reenviar a cada página. O tipo vai
-    // em RAM: send_P faz String(content_type), que não lê da flash.
+    // Sai direto da flash; o cache evita reenviar a cada página (CSS e JS
+    // levam o hash do conteúdo na URL: versão nova não usa o cache antigo).
+    // O tipo vai em RAM: send_P faz String(content_type), que não lê da flash.
     void _asset(const char* type, const uint8_t* data, size_t len, bool gz) {
         _server.sendHeader("Cache-Control", "max-age=604800");
         if (gz) _server.sendHeader("Content-Encoding", "gzip");
@@ -1186,10 +1089,7 @@ private:
         }
         _p(PSTR("},T='"));
         _s(_csrfToken);
-        _p(PSTR("';"));
-        _p(_IOT_JS);
-        if (live) _p(_IOT_LIVE_JS);
-        _p(PSTR("</script>"));
+        _p(PSTR("';</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script>"));
         _pageEnd();
     }
 

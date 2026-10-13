@@ -1,0 +1,146 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+ */
+
+/*
+ * Estilo do painel. Vai embutido no firmware em gzip (tools/embed_web.py →
+ * WebAssets.h) e sai do próprio aparelho: no modo AP não há internet para
+ * buscar um framework. Contraste AA no tema escuro; botão verde escuro para
+ * o branco passar 4.5:1.
+ */
+
+:root {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --cd: #161b22;
+    --ln: #30363d;
+    --fg: #e6edf3;
+    --mu: #9da7b3;
+    --ok: #3fb950;
+    --wa: #d29922;
+    --er: #f85149;
+    --in: #58a6ff;
+}
+* { box-sizing: border-box; }
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Cabeçalho e menu */
+header { background: var(--cd); border-bottom: 1px solid var(--ln); padding: 10px 16px; }
+header b { color: var(--ok); }
+nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+nav a {
+    color: var(--fg);
+    text-decoration: none;
+    padding: 3px 10px;
+    border: 1px solid var(--ln);
+    border-radius: 6px;
+    font-size: 14px;
+}
+nav a:hover { border-color: var(--ok); }
+main, footer { max-width: 640px; margin: auto; padding: 16px; }
+footer, .m { color: var(--mu); font-size: 13px; }
+h1 { font-size: 20px; margin: 0 0 16px; }
+h2 { font-size: 16px; margin: 20px 0 0; }
+
+/* Cartão (.c) com linhas rótulo/valor (.r) */
+.c {
+    background: var(--cd);
+    border: 1px solid var(--ln);
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+.c h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--mu);
+    margin: 0;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--ln);
+}
+.r {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--ln);
+}
+.r:last-child { border: 0; }
+.r span { color: var(--mu); }
+.r b { text-align: right; overflow-wrap: anywhere; }
+
+/* Formulários */
+label { display: block; margin-top: 12px; font-size: 14px; }
+input, select {
+    display: block;
+    width: 100%;
+    margin-top: 4px;
+    padding: 8px 10px;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--ln);
+    border-radius: 6px;
+    font: inherit;
+}
+.sw { display: flex; align-items: center; gap: 8px; }
+.sw input { width: auto; margin: 0; accent-color: var(--ok); }
+button, .b {
+    display: block;
+    width: 100%;
+    margin-top: 16px;
+    padding: 10px;
+    border: 0;
+    border-radius: 6px;
+    background: #238636;
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+}
+.b2 { background: none; border: 1px solid var(--ln); color: var(--fg); }
+:focus-visible { outline: 2px solid var(--in); outline-offset: 2px; }
+
+/* Alertas */
+.a {
+    background: var(--cd);
+    border-left: 4px solid var(--in);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+}
+.success { border-color: var(--ok); }
+.warning { border-color: var(--wa); }
+.danger { border-color: var(--er); }
+.bx { background: #da3633; }
+
+progress { display: block; width: 100%; accent-color: var(--ok); }
+pre {
+    background: #010409;
+    border: 1px solid var(--ln);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+img { max-width: 100%; height: auto; border-radius: 6px; }
+figure { margin: 0 0 16px; text-align: center; }
+fieldset { border: 1px solid var(--ln); border-radius: 8px; margin: 0 0 16px; padding: 4px 16px 16px; }
+legend { padding: 0 6px; font-weight: 600; }
+[hidden] { display: none !important; }
+
+/* Controles do cartão "Agora" na página IoT */
+.ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-bottom: 8px; }
+.ctl button, .ctl input { width: auto; margin: 0; }
+.ctl label { margin: 0; }
+button[aria-checked=false] { background: none; border: 1px solid var(--ln); color: var(--fg); }
+input[type=range] { padding: 0; }
+input[type=color] { height: 40px; padding: 2px; }

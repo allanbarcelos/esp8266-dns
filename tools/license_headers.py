@@ -26,12 +26,13 @@ MARCA = "SPDX-License-Identifier:"
 
 # Extensão (ou nome de arquivo) → como comentar.
 LINHA = {
-    ".h": "// {}", ".cpp": "// {}", ".ino": "// {}",
+    ".h": "// {}", ".cpp": "// {}", ".ino": "// {}", ".js": "// {}",
     ".py": "# {}", ".sh": "# {}", ".yml": "# {}", ".yaml": "# {}",
     ".ini": "; {}",
 }
 BLOCO = {
     ".ld": ("/*", " * {}", " */"),
+    ".css": ("/*", " * {}", " */"),
     ".svg": ("<!--", "  {}", "-->"),
 }
 NOMES = {".gitignore": "# {}", "requirements.txt": "# {}"}

@@ -103,6 +103,9 @@ jobs:
       - name: Instala PlatformIO e gcovr
         run: pip install -r requirements.txt
 
+      - name: Confere CSS e JS embutidos (WebAssets.h igual a web/)
+        run: python3 tools/embed_web.py --check
+
       - name: Testes + cobertura (100% linhas/funções/branches)
         run: ./test/coverage.sh
 

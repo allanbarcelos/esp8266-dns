@@ -1,0 +1,158 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+
+"""Gera WebAssets.h com o CSS e o JavaScript do painel, minificados e em gzip.
+
+O aparelho entrega cada arquivo como está, com Content-Encoding: gzip: o
+navegador descomprime sozinho e guarda no cache. A URL leva um pedaço do
+SHA-256 do conteúdo (?v=), então uma versão nova nunca usa o cache antiga.
+
+    python tools/embed_web.py           regenera WebAssets.h a partir de web/
+    python tools/embed_web.py --check   só confere (o CI usa); sai com erro se
+                                        o WebAssets.h não corresponder a web/
+
+A conferência compara o conteúdo descomprimido, não os bytes do gzip: outra
+versão da zlib comprime diferente sem estar errada.
+"""
+import gzip
+import hashlib
+import os
+import re
+import sys
+
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+OUT = os.path.join(ROOT, "WebAssets.h")
+
+# (arquivo em web/, nome no C++)
+FILES = (("panel.css", "WEB_CSS"), ("iot.js", "WEB_IOT"))
+
+
+def minify_css(src):
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    src = re.sub(r"\s+", " ", src)
+    src = re.sub(r"\s*([{};:,>!])\s*", r"\1", src)
+    return src.replace(";}", "}").strip()
+
+
+def minify_js(src):
+    """Tira comentários e espaços fora das aspas.
+
+    Espaço só fica entre duas letras/dígitos (else if, return x). Não entende
+    regex literal nem template string: o código de web/ não usa.
+    """
+    word = re.compile(r"[\w$]")
+    out = []
+    i, n = 0, len(src)
+    gap = False
+    while i < n:
+        ch = src[i]
+        if ch in "'\"":
+            j = i + 1
+            while src[j] != ch:
+                if src[j] == "\n":
+                    raise SystemExit("aspas sem fechar na mesma linha")
+                j += 2 if src[j] == "\\" else 1
+            tok, i = src[i:j + 1], j + 1
+        elif src.startswith("//", i):
+            i = src.find("\n", i)
+            i = n if i < 0 else i
+            gap = True
+            continue
+        elif ch == "/" or ch == "`":
+            raise SystemExit(f"'{ch}' fora de aspas: o minificador não trata")
+        elif ch.isspace():
+            gap = True
+            i += 1
+            continue
+        else:
+            tok, i = ch, i + 1
+        if gap and out and word.match(out[-1][-1]) and word.match(tok[0]):
+            out.append(" ")
+        out.append(tok)
+        gap = False
+    js = "".join(out)
+    # ;} → } fora das aspas: separa nas aspas e troca só nos pedaços de código
+    parts = re.split(r"('(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")", js)
+    return "".join(p if k % 2 else p.replace(";}", "}") for k, p in enumerate(parts))
+
+
+def build():
+    out = {}
+    for name, sym in FILES:
+        with open(os.path.join(ROOT, "web", name), encoding="utf-8") as f:
+            src = f.read()
+        text = (minify_css if name.endswith(".css") else minify_js)(src).encode("utf-8")
+        out[sym] = (name, text)
+    return out
+
+
+def array(name, data):
+    rows = [", ".join(f"0x{b:02x}" for b in data[i:i + 16])
+            for i in range(0, len(data), 16)]
+    body = ",\n    ".join(rows)
+    return f"static const uint8_t {name}[] PROGMEM = {{\n    {body}\n}};\n"
+
+
+def tag(text):
+    return hashlib.sha256(text).hexdigest()[:8]
+
+
+def header(assets):
+    text = (
+        "// SPDX-License-Identifier: MIT\n"
+        "// Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: "
+        "https://github.com/allanbarcelos/esp8266-iot\n\n"
+        "#pragma once\n"
+        "// Gerado por tools/embed_web.py a partir de web/. Não edite.\n"
+        "#include <Arduino.h>\n"
+    )
+    for sym, (name, data) in assets.items():
+        gz = gzip.compress(data, 9, mtime=0)
+        text += (
+            f"\n// web/{name}: {len(data)} bytes minificado, {len(gz)} em gzip\n"
+            f'#define {sym}_TAG "{tag(data)}"\n'
+            + array(sym + "_GZ", gz)
+        )
+    return text
+
+
+def check(assets):
+    try:
+        with open(OUT, encoding="utf-8") as f:
+            have = f.read()
+    except FileNotFoundError:
+        return ["WebAssets.h não existe"]
+    errors = []
+    for sym, (name, data) in assets.items():
+        m = re.search(r'#define %s_TAG "(\w+)"' % sym, have)
+        a = re.search(r"%s_GZ\[\] PROGMEM = \{(.*?)\};" % sym, have, re.S)
+        if not m or not a:
+            errors.append(f"{sym} não está no WebAssets.h")
+            continue
+        gz = bytes(int(x, 16) for x in re.findall(r"0x([0-9a-f]{2})", a.group(1)))
+        if gzip.decompress(gz) != data:
+            errors.append(f"web/{name} mudou: o WebAssets.h está desatualizado")
+        elif m.group(1) != tag(data):
+            errors.append(f"{sym}_TAG não corresponde a web/{name}")
+    return errors
+
+
+def main():
+    assets = build()
+    if "--check" in sys.argv[1:]:
+        errors = check(assets)
+        for e in errors:
+            print(e)
+        if errors:
+            print("Rode: python tools/embed_web.py")
+            sys.exit(1)
+        print("WebAssets.h confere com web/")
+        return
+    with open(OUT, "w", encoding="utf-8", newline="\n") as f:
+        f.write(header(assets))
+    for sym, (name, data) in assets.items():
+        print(f"web/{name}: {len(data)} B, gzip {len(gzip.compress(data, 9, mtime=0))} B")
+
+
+if __name__ == "__main__":
+    main()
