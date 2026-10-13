@@ -23,42 +23,36 @@ void setUp() {
 void tearDown() {}
 
 struct Fix {
-    Clock            clock{fakeTime};
-    PublicIPResolver resolver{logger, clock};
-    NtfyNotifier     ntfy{cfg, logger, resolver, clock};
+    Clock        clock{fakeTime};
+    NtfyNotifier ntfy{cfg, logger, clock};
 };
 
 void test_sem_envio_sem_topico() {
     cfg.ntfy_topic[0] = '\0';
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
     Fix f;
     f.ntfy.tick(0);
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
 }
 
-void test_sem_relogio_nao_envia() {
-    fakeNow = 1000;
+// O IP vem do PublicIPResolver: sem IP conhecido, nada a publicar
+void test_sem_ip_nao_envia() {
     Fix f;
     f.ntfy.tick(0);
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
-    TEST_ASSERT_TRUE(logHas(logger, "relogio nao sincronizado"));
-    TEST_ASSERT_EQUAL_STRING("", cfg.publicIP);
 }
 
 void test_envia_no_boot_sem_cloudflare() {
     TEST_ASSERT_EQUAL_STRING("", cfg.cf_token);
-    strlcpy(cfg.publicIP, "9.9.9.9", sizeof(cfg.publicIP));
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
     Fix f;
-    MockHTTP::push(200, "1.2.3.4");
+    MockHTTP::push(200);
     f.ntfy.tick(0);
 
-    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
-    TEST_ASSERT_EQUAL_STRING("https://api4.ipify.org", MockHTTP::requests[0].url.c_str());
-    TEST_ASSERT_EQUAL_STRING("GET", MockHTTP::requests[0].method.c_str());
-    TEST_ASSERT_EQUAL_STRING("https://ntfy.sh/meu-topico", MockHTTP::requests[1].url.c_str());
-    TEST_ASSERT_EQUAL_STRING("POST", MockHTTP::requests[1].method.c_str());
-    TEST_ASSERT_TRUE(contains(MockHTTP::requests[1].payload, "[ip] 1.2.3.4"));
-    TEST_ASSERT_FALSE(contains(MockHTTP::requests[1].payload, "9.9.9.9"));
-    TEST_ASSERT_EQUAL_STRING("1.2.3.4", cfg.publicIP);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+    TEST_ASSERT_EQUAL_STRING("https://ntfy.sh/meu-topico", MockHTTP::requests[0].url.c_str());
+    TEST_ASSERT_EQUAL_STRING("POST", MockHTTP::requests[0].method.c_str());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[0].payload, "[ip] 1.2.3.4"));
     TEST_ASSERT_TRUE(logHas(logger, "ntfy enviado (200)"));
     for (auto& r : MockHTTP::requests) {
         TEST_ASSERT_TRUE(cloudflareTrust(r.trust));
@@ -69,100 +63,94 @@ void test_envia_no_boot_sem_cloudflare() {
 }
 
 void test_nao_reenvia_mesmo_ip() {
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
     Fix f;
-    MockHTTP::push(200, "1.2.3.4");
+    MockHTTP::push(200);
     f.ntfy.tick(0);
-    MockHTTP::push(200, "1.2.3.4");
     f.ntfy.tick(NtfyNotifier::RETRY_INTERVAL);
-    TEST_ASSERT_EQUAL(3, (int)MockHTTP::requests.size());
-    TEST_ASSERT_EQUAL_STRING("GET", MockHTTP::requests[2].method.c_str());
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
 }
 
 void test_reenvia_quando_ip_muda() {
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
     Fix f;
-    MockHTTP::push(200, "1.2.3.4");
+    MockHTTP::push(200);
     f.ntfy.tick(0);
-    MockHTTP::push(200, "5.6.7.8");
+    strlcpy(cfg.publicIP, "5.6.7.8", sizeof(cfg.publicIP));
+    MockHTTP::push(200);
     f.ntfy.tick(NtfyNotifier::RETRY_INTERVAL);
-    TEST_ASSERT_EQUAL(4, (int)MockHTTP::requests.size());
-    TEST_ASSERT_EQUAL_STRING("POST", MockHTTP::requests[3].method.c_str());
-    TEST_ASSERT_TRUE(contains(MockHTTP::requests[3].payload, "5.6.7.8"));
-    TEST_ASSERT_EQUAL_STRING("5.6.7.8", cfg.publicIP);
+    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[1].payload, "[ip] 5.6.7.8"));
 }
 
 void test_falha_aguarda_intervalo_para_retentar() {
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
     Fix f;
-    MockHTTP::push(200, "1.2.3.4");
     MockHTTP::push(500);
     f.ntfy.tick(1000);
     TEST_ASSERT_TRUE(logHas(logger, "ntfy erro: 500"));
 
     f.ntfy.tick(1000 + NtfyNotifier::RETRY_INTERVAL - 1);
-    TEST_ASSERT_EQUAL(2, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
 
-    MockHTTP::push(200, "1.2.3.4");
+    MockHTTP::push(200);
     f.ntfy.tick(1000 + NtfyNotifier::RETRY_INTERVAL);
-    TEST_ASSERT_EQUAL(4, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_EQUAL(2, (int)MockHTTP::calledURLs.size());
     TEST_ASSERT_TRUE(logHas(logger, "ntfy enviado (200)"));
 }
 
 void test_erro_de_conexao() {
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
     Fix f;
-    MockHTTP::push(200, "1.2.3.4");
-    MockHTTP::beginResults = {true, false};
+    MockHTTP::failNextBegin();
     f.ntfy.tick(0);
     TEST_ASSERT_TRUE(logHas(logger, "ntfy: falha ao conectar"));
-    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
-    TEST_ASSERT_EQUAL_STRING("GET", MockHTTP::requests[0].method.c_str());
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::requests.size());
 }
 
 void test_codigo_negativo() {
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
     Fix f;
-    MockHTTP::push(200, "1.2.3.4");
     MockHTTP::push(-1);
     f.ntfy.tick(0);
     TEST_ASSERT_TRUE(logHas(logger, "ntfy erro: -1"));
 }
 
 void test_memoria_insuficiente_nao_envia() {
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
     Fix f;
-    MockHTTP::push(200, "1.2.3.4");
-    char ip[16];
-    TEST_ASSERT_TRUE(f.resolver.resolve(ip, sizeof(ip), 0));
     ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;
     f.ntfy.tick(0);
     TEST_ASSERT_TRUE(logHas(logger, "ntfy: memoria insuficiente"));
-    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
 }
 
 void test_tls_indisponivel_nao_envia() {
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
     Fix f;
-    MockHTTP::push(200, "1.2.3.4");
-    char ip[16];
-    TEST_ASSERT_TRUE(f.resolver.resolve(ip, sizeof(ip), 0));
     MockTLS::nullOwned = true;
     MockTLS::bufIn = 0;
     f.ntfy.tick(0);
     TEST_ASSERT_TRUE(logHas(logger, "ntfy: TLS indisponivel"));
-    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
     TEST_ASSERT_EQUAL(0, MockTLS::bufIn);
 }
 
 void test_iot_sem_leitura_ainda_envia_ip() {
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
     Fix f;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
-    MockHTTP::push(200, "1.2.3.4");
+    NtfyNotifier ntfy{cfg, logger, f.clock, &iot};
     MockHTTP::push(200, "ok");
     ntfy.tick(0);
-    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
-    TEST_ASSERT_TRUE(contains(MockHTTP::requests[1].payload, "[ip] 1.2.3.4"));
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[0].payload, "[ip] 1.2.3.4"));
 }
 
 void test_sensor_no_mesmo_topico() {
     Fix f;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.clock, &iot};
     strlcpy(cfg.iot.sensor, "digital", sizeof(cfg.iot.sensor));
     cfg.iot.sensorPin = 2;
     cfg.iot.notify = true;
@@ -207,9 +195,8 @@ static const char* OK_HDR = "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjs
 
 struct Cmd {
     Clock            clock{fakeTime};
-    PublicIPResolver resolver{logger, clock};
     IoTService       iot{cfg, logger};
-    NtfyNotifier     ntfy{cfg, logger, resolver, clock, &iot};
+    NtfyNotifier     ntfy{cfg, logger, clock, &iot};
 
     Cmd() {
         cfg.ntfy_topic[0] = '\0';               // só comandos: nada a publicar
@@ -457,7 +444,7 @@ void test_comandos_pausam_e_desligam() {
     cfg.iot.actuatorPin = -1;
     c.iot.begin();
     TEST_ASSERT_EQUAL_STRING("desligado", c.ntfy.commandStatus());
-    NtfyNotifier semIot{cfg, logger, c.resolver, c.clock};
+    NtfyNotifier semIot{cfg, logger, c.clock};
     TEST_ASSERT_EQUAL_STRING("desligado", semIot.commandStatus());
 }
 
@@ -468,21 +455,21 @@ void test_eventos_saem_rapido_leituras_periodicas_nao() {
     cfg.iot.actuatorPin = 0;
     cfg.iot.notify = true;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.clock, &iot};
     iot.begin();
-    MockHTTP::push(200, "1.2.3.4");
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
     MockHTTP::push(200, "ok");
     ntfy.tick(0);                                     // IP no boot
-    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
 
     iot.command("ligar", 100);
     TEST_ASSERT_TRUE(iot.urgent());
     ntfy.tick(NtfyNotifier::POST_GAP - 1);
-    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
     MockHTTP::push(200, "ok");
     ntfy.tick(NtfyNotifier::POST_GAP);
-    TEST_ASSERT_EQUAL(3, (int)MockHTTP::requests.size());
-    TEST_ASSERT_TRUE(contains(MockHTTP::requests[2].payload, "[atuador] ligado"));
+    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[1].payload, "[atuador] ligado"));
     TEST_ASSERT_FALSE(iot.urgent());
 }
 
@@ -493,7 +480,7 @@ void test_leitura_periodica_nao_e_urgente() {
     cfg.iot.sensorPin = 2;
     cfg.iot.notify = true;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.clock, &iot};
     iot.begin();
     iot.tick(0);
     iot.tick(IoTService::PULSE_WINDOW_MS);            // 1ª leitura: urgente
@@ -528,7 +515,7 @@ static std::string actionsFor(const char* actuator, const char* sensor = "") {
     cfg.iot.notify = true;
     Fix f;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.clock, &iot};
     iot.begin();
     iot.command("ligar", 0);
     MockHTTP::push(200, "ok");
@@ -582,7 +569,7 @@ void test_acoes_so_com_atuador() {
     cfg.iot.notify = true;
     Fix f;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.clock, &iot};
     mock::pinIn[2] = HIGH;
     iot.begin();
     iot.tick(0);
@@ -615,7 +602,7 @@ void test_envio_valida_o_certificado() {
     strlcpy(cfg.ntfy_token, "tk_segredo", sizeof(cfg.ntfy_token));
     Fix f;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.clock, &iot};
     eventoDoSensor(iot);
     MockHTTP::push(200, "ok");
     ntfy.tick(0);
@@ -639,7 +626,7 @@ void test_envio_espera_o_relogio() {
     strlcpy(cfg.ntfy_token, "tk_segredo", sizeof(cfg.ntfy_token));
     Fix f;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.clock, &iot};
     eventoDoSensor(iot);
     ntfy.tick(0);
 
@@ -665,7 +652,7 @@ void test_envio_relogio_no_limite() {
     fakeNow = Clock::MIN_VALID_EPOCH;
     Fix f;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.clock, &iot};
     eventoDoSensor(iot);
     ntfy.tick(0);
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
@@ -682,7 +669,7 @@ void test_envio_relogio_no_limite() {
 void test_envio_certificado_recusado_tenta_de_novo() {
     Fix f;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.clock, &iot};
     eventoDoSensor(iot);
     MockHTTP::push(-1);
     ntfy.tick(0);
@@ -701,7 +688,7 @@ void test_envio_sem_memoria_antes_do_relogio() {
     fakeNow = 1000;
     Fix f;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.clock, &iot};
     eventoDoSensor(iot);
     ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;
     ntfy.tick(0);
@@ -717,10 +704,10 @@ void test_nenhum_caminho_usa_tls_sem_validacao() {
     strlcpy(cfg.ntfy_topic, "dados", sizeof(cfg.ntfy_topic));
     cfg.iot.notify = true;
     c.iot.begin();                                     // o IoT copia a config no begin
-    MockHTTP::push(200, "1.2.3.4");                   // IP no boot
-    MockHTTP::push(200, "ok");
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
+    MockHTTP::push(200, "ok");                        // IP no boot
     c.ntfy.tick(0);
-    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
 
     c.open(1);                                         // fluxo de comandos
     TEST_ASSERT_EQUAL_STRING("conectado", c.ntfy.commandStatus());
@@ -730,15 +717,15 @@ void test_nenhum_caminho_usa_tls_sem_validacao() {
     c.ntfy.tick(3);
     MockHTTP::push(200, "ok");
     c.ntfy.tick(NtfyNotifier::POST_GAP);
-    TEST_ASSERT_EQUAL(3, (int)MockHTTP::requests.size());
-    TEST_ASSERT_TRUE(contains(MockHTTP::requests[2].payload, "[erro]"));
+    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[1].payload, "[erro]"));
 
     c.iot.command("ligar", NtfyNotifier::POST_GAP);    // mudança do atuador
     MockHTTP::push(200, "ok");
     c.ntfy.tick(NtfyNotifier::POST_GAP * 2);
-    TEST_ASSERT_EQUAL(4, (int)MockHTTP::requests.size());
-    TEST_ASSERT_TRUE(contains(MockHTTP::requests[3].payload, "[atuador] ligado"));
-    TEST_ASSERT_FALSE(header(MockHTTP::requests[3], "Actions").empty());
+    TEST_ASSERT_EQUAL(3, (int)MockHTTP::requests.size());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[2].payload, "[atuador] ligado"));
+    TEST_ASSERT_FALSE(header(MockHTTP::requests[2], "Actions").empty());
 
     for (auto& r : MockHTTP::requests) {
         TEST_ASSERT_TRUE(cloudflareTrust(r.trust));
@@ -751,7 +738,7 @@ void test_nenhum_caminho_usa_tls_sem_validacao() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_sem_envio_sem_topico);
-    RUN_TEST(test_sem_relogio_nao_envia);
+    RUN_TEST(test_sem_ip_nao_envia);
     RUN_TEST(test_envia_no_boot_sem_cloudflare);
     RUN_TEST(test_nao_reenvia_mesmo_ip);
     RUN_TEST(test_reenvia_quando_ip_muda);

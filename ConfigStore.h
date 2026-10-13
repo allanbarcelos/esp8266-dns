@@ -86,13 +86,10 @@ public:
         strlcpy(_cfg.cf_zone,    doc["cf_zone"]    | "", sizeof(_cfg.cf_zone));
         strlcpy(_cfg.cf_host,    doc["cf_host"]    | "", sizeof(_cfg.cf_host));
 
-        uint8_t count = 0;
-        for (JsonVariantConst item : doc["cf_records"].as<JsonArrayConst>()) {
-            if (count == MAX_RECORDS) break;
-            const char* rec = item.as<const char*>(); // nullptr se não for texto
-            strlcpy(_cfg.cf_records[count++], rec ? rec : "", sizeof(_cfg.cf_records[0]));
-        }
-        _cfg.cf_record_count = count;
+        // Antes eram até 5 IDs em cf_records: fica o primeiro
+        const char* rec = doc["cf_record"];
+        if (!rec) rec = doc["cf_records"][0] | "";
+        strlcpy(_cfg.cf_record, rec, sizeof(_cfg.cf_record));
 
         int version = doc["v"] | 1;
         if (version == 1) {
@@ -129,11 +126,7 @@ public:
         doc["cf_token"]   = _cfg.cf_token;
         doc["cf_zone"]    = _cfg.cf_zone;
         doc["cf_host"]    = _cfg.cf_host;
-
-        JsonArray arr = doc.createNestedArray("cf_records");
-        for (uint8_t i = 0; i < _cfg.cf_record_count; i++) {
-            arr.add(_cfg.cf_records[i]);
-        }
+        doc["cf_record"]  = _cfg.cf_record;
 
         const IoTConfig& t = _cfg.iot;
         doc["sensor"]        = t.sensor;

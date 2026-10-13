@@ -19,11 +19,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     strlcpy(cfg.iot.actuator, "rele", sizeof(cfg.iot.actuator));
     cfg.iot.actuatorPin = 0;
 
-    Clock            clock{fakeTime};
-    PublicIPResolver resolver{log, clock};
-    IoTService       iot{cfg, log};
+    Clock        clock{fakeTime};
+    IoTService   iot{cfg, log};
     iot.begin();
-    NtfyNotifier     ntfy{cfg, log, resolver, clock, &iot};
+    NtfyNotifier ntfy{cfg, log, clock, &iot};
 
     MockHTTP::keepOpen = true;
     MockHTTP::rawHttp = "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\n\r\n";

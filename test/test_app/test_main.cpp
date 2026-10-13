@@ -91,20 +91,28 @@ void test_tick_pausa_dns_durante_ota() {
     TEST_ASSERT_EQUAL((int)before, (int)MockHTTP::calledURLs.size());
 }
 
-// DNS vai usar TLS: o fluxo de comandos do ntfy solta a sessão antes
-void test_tick_solta_o_ntfy_antes_do_dns() {
+// Consulta do IP e DNS usam TLS: o fluxo de comandos do ntfy solta a sessão antes
+void test_tick_solta_o_ntfy_antes_do_ip_e_do_dns() {
     MockFS::put("/config.json", R"({"v":2,"ssid":"Rede","pass":"12345678",
         "webpss":"senha-forte","ota_auto":false,"cf_token":"T","cf_zone":"Z",
         "cf_records":["R"],"ntfy_cmd":"cmd-x","actuator":"rele","actuator_pin":0})");
     App app;
     app.begin();
-    TEST_ASSERT_FALSE(app.ota.wantsNet(CloudflareDNS::CHECK_INTERVAL));
-    setMillis(CloudflareDNS::CHECK_INTERVAL - 1);
+    TEST_ASSERT_FALSE(app.ota.wantsNet(1000));
+    setMillis(1000);
+    app.tick();                                    // IP público primeiro
+    TEST_ASSERT_EQUAL_STRING("pausado", app.ntfy.commandStatus());
+    TEST_ASSERT_TRUE(contains(MockHTTP::calledURLs[0], "ipify"));
+
+    setMillis(2000);                               // falhou: tenta em 1 min
     app.tick();
     TEST_ASSERT_EQUAL_STRING("conectando", app.ntfy.commandStatus());
-    setMillis(CloudflareDNS::CHECK_INTERVAL);
+
+    strlcpy(app.config.publicIP, "1.2.3.4", sizeof(app.config.publicIP));
+    setMillis(3000);                               // IP conhecido: DNS
     app.tick();
     TEST_ASSERT_EQUAL_STRING("pausado", app.ntfy.commandStatus());
+    TEST_ASSERT_TRUE(contains(MockHTTP::calledURLs.back(), "/dns_records/R"));
 }
 
 int main() {
@@ -116,6 +124,6 @@ int main() {
     RUN_TEST(test_begin_recuperacao_ota);
     RUN_TEST(test_tick_em_recuperacao_so_roda_ota);
     RUN_TEST(test_tick_pausa_dns_durante_ota);
-    RUN_TEST(test_tick_solta_o_ntfy_antes_do_dns);
+    RUN_TEST(test_tick_solta_o_ntfy_antes_do_ip_e_do_dns);
     return UNITY_END();
 }

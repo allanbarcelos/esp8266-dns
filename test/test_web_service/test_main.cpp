@@ -20,8 +20,7 @@ struct Fixture {
     OTAService  ota{logger, wifi};
     IoTService  iot{cfg, logger};
     Clock            clock;
-    PublicIPResolver resolver{logger, clock};
-    NtfyNotifier     ntfy{cfg, logger, resolver, clock, &iot};
+    NtfyNotifier     ntfy{cfg, logger, clock, &iot};
     WiFiClient       mqttNet;
     MqttService      mqtt{cfg, logger, iot, mqttNet};
     WebService  web;
@@ -426,21 +425,41 @@ void test_status_desconectado_e_ota() {
     TEST_ASSERT_FALSE(contains(f.out(), "192.168.1.1"));
 }
 
+// IP público consultado pelo aparelho, com o reverso e os horários
+void test_status_ip_publico() {
+    Fixture f;
+    f.get("/status");
+    TEST_ASSERT_TRUE(contains(f.out(), "<h2>IP Publico</h2>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Reverso</span><b>-</b>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Ultima verificacao</span><b>nunca</b>"));
+
+    strlcpy(cfg.publicIP, "200.1.2.3", sizeof(cfg.publicIP));
+    strlcpy(cfg.publicHost, "200-1-2-3.isp<x>.net", sizeof(cfg.publicHost));
+    cfg.ipChanged = 1000;
+    cfg.ipChecked = 241000;
+    setMillis(301000);
+    f.get("/status");
+    TEST_ASSERT_TRUE(contains(f.out(), "IP</span><b>200.1.2.3</b>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Reverso</span><b>200-1-2-3.isp&lt;x&gt;.net</b>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Mudou</span><b>0h 05m 00s atras</b>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Ultima verificacao</span><b>0h 01m 00s atras</b>"));
+}
+
 // ── /cloudflare ──────────────────────────────────────────────────────────────
 
 void test_cloudflare_sem_token() {
     Fixture f;
     f.get("/cloudflare");
     TEST_ASSERT_TRUE(contains(f.out(), "Token nao configurado"));
-    TEST_ASSERT_TRUE(contains(f.out(), "name='record4'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='record'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "name='record1'"));
 }
 
 void test_cloudflare_com_token_mascarado_e_valores_escapados() {
     Fixture f;
     strlcpy(cfg.cf_token, "segredo-abcd", sizeof(cfg.cf_token));
     strlcpy(cfg.cf_zone, "z'1", sizeof(cfg.cf_zone));
-    strlcpy(cfg.cf_records[0], "r<0>", sizeof(cfg.cf_records[0]));
-    cfg.cf_record_count = 1;
+    strlcpy(cfg.cf_record, "r<0>", sizeof(cfg.cf_record));
     f.get("/cloudflare");
     TEST_ASSERT_TRUE(contains(f.out(), "****abcd"));
     TEST_ASSERT_FALSE(contains(f.out(), "segredo"));
@@ -448,37 +467,35 @@ void test_cloudflare_com_token_mascarado_e_valores_escapados() {
     TEST_ASSERT_TRUE(contains(f.out(), "value='r&lt;0&gt;'"));
 }
 
-void test_cloudflare_save_ok_compacta_records() {
+void test_cloudflare_save_ok() {
     Fixture f;
     f.post("/cloudflare/save", {
-        {"token", "NOVO_TOKEN"}, {"zone", " ZONA "}, {"host", "h.com"},
-        {"record0", ""}, {"record1", "R1"}, {"record3", "R3"}});
+        {"token", "NOVO_TOKEN"}, {"zone", " ZONA "}, {"host", "h.com"}, {"record", " R1 "}});
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL_STRING("NOVO_TOKEN", cfg.cf_token);
     TEST_ASSERT_EQUAL_STRING("ZONA", cfg.cf_zone);
     TEST_ASSERT_EQUAL_STRING("h.com", cfg.cf_host);
-    TEST_ASSERT_EQUAL(2, cfg.cf_record_count);
-    TEST_ASSERT_EQUAL_STRING("R1", cfg.cf_records[0]);
-    TEST_ASSERT_EQUAL_STRING("R3", cfg.cf_records[1]);
+    TEST_ASSERT_EQUAL_STRING("R1", cfg.cf_record);
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"cf_record\":\"R1\""));
     TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "NOVO_TOKEN"));
 }
 
 void test_cloudflare_save_token_vazio_mantem_atual() {
     Fixture f;
     strlcpy(cfg.cf_token, "ANTIGO", sizeof(cfg.cf_token));
-    f.post("/cloudflare/save", {{"zone", "Z"}, {"record0", "R"}});
+    f.post("/cloudflare/save", {{"zone", "Z"}, {"record", "R"}});
     TEST_ASSERT_EQUAL_STRING("ANTIGO", cfg.cf_token);
 }
 
 void test_cloudflare_save_valor_longo_rejeitado_sem_alterar() {
     Fixture f;
     strlcpy(cfg.cf_zone, "ORIGINAL", sizeof(cfg.cf_zone));
-    f.post("/cloudflare/save", {{"zone", "Z"}, {"record2", std::string(40, 'r')}});
+    f.post("/cloudflare/save", {{"zone", "Z"}, {"record", std::string(40, 'r')}});
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "muito longo"));
     TEST_ASSERT_EQUAL_STRING("ORIGINAL", cfg.cf_zone);
 
-    const char* fields[] = {"token", "zone", "host"};
+    const char* fields[] = {"token", "zone", "host", "record"};
     for (const char* k : fields) {
         f.post("/cloudflare/save", {{k, std::string(64, 'x')}});
         TEST_ASSERT_EQUAL(400, f.srv.code);
@@ -1546,9 +1563,10 @@ int main() {
     RUN_TEST(test_log_escapa_conteudo);
     RUN_TEST(test_status_conectado);
     RUN_TEST(test_status_desconectado_e_ota);
+    RUN_TEST(test_status_ip_publico);
     RUN_TEST(test_cloudflare_sem_token);
     RUN_TEST(test_cloudflare_com_token_mascarado_e_valores_escapados);
-    RUN_TEST(test_cloudflare_save_ok_compacta_records);
+    RUN_TEST(test_cloudflare_save_ok);
     RUN_TEST(test_cloudflare_save_token_vazio_mantem_atual);
     RUN_TEST(test_cloudflare_save_valor_longo_rejeitado_sem_alterar);
     RUN_TEST(test_cloudflare_save_falha_ao_gravar);

@@ -4,8 +4,6 @@
 #pragma once
 #include <Arduino.h>
 
-#define MAX_RECORDS 5
-
 // Rede de configuração (modo AP). A senha é sorteada por aparelho no
 // primeiro boot (WiFiService::apPassword); -DAP_PASSWORD=\"...\" no build
 // fixa uma senha (o WPA2 exige no mínimo 8 caracteres).
@@ -55,8 +53,7 @@ struct Config {
 
     char    cf_token[48]              = {};
     char    cf_zone[40]               = {};
-    char    cf_records[MAX_RECORDS][40] = {};
-    uint8_t cf_record_count           = 0;
+    char    cf_record[40]             = {};  // ID do registro A atualizado
     char    cf_host[64]               = {};  // apenas exibição no painel
 
     char    ntfy_topic[64]            = {};
@@ -71,6 +68,9 @@ struct Config {
     IoTConfig iot;
 
     // Estado em runtime — escrito pelos serviços, lido pelo WebService
-    char          publicIP[16]  = {};
-    unsigned long lastDnsUpdate = 0;  // millis() da última sincronização bem-sucedida
+    char          publicIP[16]  = {};   // PublicIPResolver, a cada 5 min
+    char          publicHost[64] = {};  // nome reverso (PTR) do IP público
+    unsigned long ipChanged     = 0;    // millis() da última mudança do IP público
+    unsigned long ipChecked     = 0;    // millis() da última consulta que deu certo
+    unsigned long lastDnsUpdate = 0;    // millis() da última sincronização bem-sucedida
 };

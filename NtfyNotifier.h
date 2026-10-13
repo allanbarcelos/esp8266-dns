@@ -14,8 +14,8 @@
 // ntfy.sh nos dois sentidos.
 //
 // Envio (tópico de dados): o IP público no boot e quando muda, e as
-// leituras e mudanças do IoT ([sensor], [atuador]). Descobre o IP sozinho:
-// não depende do Cloudflare. O certificado também é validado aqui: o envio
+// leituras e mudanças do IoT ([sensor], [atuador]). O IP vem do
+// PublicIPResolver (Config): não depende do Cloudflare. O certificado também é validado aqui: o envio
 // leva o token e os botões levam o tópico de comandos, que um intermediário
 // usaria para acionar o equipamento.
 //
@@ -29,9 +29,8 @@
 // comando forjado no caminho ligaria o equipamento.
 class NtfyNotifier {
 public:
-    NtfyNotifier(Config& cfg, Logger& log, PublicIPResolver& resolver,
-                 Clock& clock, IoTService* iot = nullptr)
-        : _cfg(cfg), _log(log), _resolver(resolver), _iot(iot), _clock(clock),
+    NtfyNotifier(Config& cfg, Logger& log, Clock& clock, IoTService* iot = nullptr)
+        : _cfg(cfg), _log(log), _iot(iot), _clock(clock),
           _lastAttempt(0), _attempted(false) {
         _lastSent[0] = '\0';
         _lastId[0] = '\0';
@@ -84,7 +83,6 @@ public:
 private:
     Config&           _cfg;
     Logger&           _log;
-    PublicIPResolver& _resolver;
     IoTService*       _iot;
     Clock&            _clock;
 
@@ -134,11 +132,9 @@ private:
             return;
         }
 
-        char ip[16];
-        if (!_resolver.resolve(ip, sizeof(ip), now)) return;
-
-        strlcpy(_cfg.publicIP, ip, sizeof(_cfg.publicIP));
-        if (strcmp(ip, _lastSent) == 0) return;
+        // IP do PublicIPResolver: vai ao tópico no boot e quando muda
+        const char* ip = _cfg.publicIP;
+        if (!ip[0] || strcmp(ip, _lastSent) == 0) return;
 
         char body[24];
         snprintf(body, sizeof(body), "[ip] %s", ip);

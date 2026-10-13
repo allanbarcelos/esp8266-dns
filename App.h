@@ -31,11 +31,11 @@ public:
     WiFiService wifi{config, logger};
 
     // Camada 2 — dependem de WiFi + acima
-    PublicIPResolver resolver{logger, clock};
-    CloudflareDNS    dns{config, logger, wifi, resolver, clock};
+    PublicIPResolver resolver{config, logger, clock};
+    CloudflareDNS    dns{config, logger, wifi, clock};
     OTAService       ota{logger, wifi};
     IoTService       iot{config, logger};
-    NtfyNotifier     ntfy{config, logger, resolver, clock, &iot};
+    NtfyNotifier     ntfy{config, logger, clock, &iot};
     WiFiClient       mqttNet;
     MqttService      mqtt{config, logger, iot, mqttNet};
 
@@ -79,10 +79,14 @@ public:
         clock.tick(now);
 
         // Uma sessão TLS por vez: o fluxo de comandos do ntfy solta a dele
-        // antes de o DNS ou o OTA usarem a rede neste mesmo tick
-        if (!ota.slim()) ntfy.hold(ota.wantsNet(now) || dns.due(now));
+        // antes de a consulta do IP, o DNS ou o OTA usarem a rede neste tick
+        if (!ota.slim()) ntfy.hold(ota.wantsNet(now) || resolver.due(now) || dns.due(now));
 
-        if (!ota.slim() && !ota.busy()) dns.tick(now);
+        // O IP novo chega ao DNS no mesmo tick
+        if (!ota.slim() && !ota.busy()) {
+            resolver.tick(now);
+            dns.tick(now);
+        }
         ota.tick(now);
         if (!ota.slim() && !ota.inProgress()) iot.tick(now);
         // ntfy abre outra sessão TLS: espera o OTA soltar a dele (heap)

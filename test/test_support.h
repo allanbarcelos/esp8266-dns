@@ -3,6 +3,7 @@
 
 #pragma once
 // Utilitários compartilhados pelas suítes de teste nativas.
+#include <lwip/udp.h>
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
@@ -33,6 +34,7 @@ inline void resetMocks() {
     WiFi.reset();
     ESP.reset();
     Update.reset();
+    MockUDP::reset();
     mock::configTimeCalls = 0;
     mock::failMallocSize = 0;
     Serial.last.clear();

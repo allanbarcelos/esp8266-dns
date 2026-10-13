@@ -90,6 +90,12 @@ class IPAddress {
 public:
     uint32_t _addr = 0x0101A8C0; // 192.168.1.1
 
+    IPAddress() = default;
+    explicit IPAddress(uint32_t a) : _addr(a) {}
+    bool     isSet() const             { return _addr != 0; }
+    uint8_t  operator[](int i) const   { return (uint8_t)(_addr >> (8 * i)); }
+    operator uint32_t() const          { return _addr; }
+
     String toString() const {
         char b[16];
         std::snprintf(b, sizeof(b), "%u.%u.%u.%u",
@@ -124,6 +130,7 @@ public:
 class WiFiClass {
 public:
     wl_status_t _status = WL_CONNECTED;
+    IPAddress   _dns;                 // servidor DNS da rede (192.168.1.1)
     WiFiMode_t  _mode   = WIFI_STA;
 
     int         beginCalls      = 0;
@@ -155,7 +162,7 @@ public:
     IPAddress localIP()     { return IPAddress(); }
     IPAddress gatewayIP()   { return IPAddress(); }
     IPAddress subnetMask()  { return IPAddress(); }
-    IPAddress dnsIP()       { return IPAddress(); }
+    IPAddress dnsIP()       { return _dns; }
     String    macAddress()  { return String("AA:BB:CC:DD:EE:FF"); }
     int32_t   RSSI()        { return -70; }
 

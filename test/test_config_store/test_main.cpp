@@ -76,7 +76,7 @@ void test_load_defaults() {
     TEST_ASSERT_EQUAL_STRING("admin", config.webusr.c_str());
     TEST_ASSERT_EQUAL_STRING("", config.webpss.c_str());
     TEST_ASSERT_EQUAL_STRING("", config.pass.c_str());
-    TEST_ASSERT_EQUAL(0, config.cf_record_count);
+    TEST_ASSERT_EQUAL_STRING("", config.cf_record);
     TEST_ASSERT_TRUE(config.ota_auto);
     const IoTConfig& t = config.iot;
     TEST_ASSERT_EQUAL_STRING("", t.sensor);
@@ -282,20 +282,27 @@ void test_ota_auto_persiste() {
     TEST_ASSERT_FALSE(config.ota_auto);
 }
 
-void test_load_limita_quantidade_de_records() {
-    MockFS::put("/config.json",
-        R"({"v":2,"cf_records":["a","b","c","d","e","f","g"]})");
+// Antes eram até 5 IDs (cf_records): fica o primeiro, e o save grava o novo
+void test_load_record_da_lista_antiga() {
+    MockFS::put("/config.json", R"({"v":2,"cf_records":["a","b","c"]})");
     TEST_ASSERT_TRUE(store.load());
-    TEST_ASSERT_EQUAL(MAX_RECORDS, config.cf_record_count);
-    TEST_ASSERT_EQUAL_STRING("e", config.cf_records[MAX_RECORDS - 1]);
+    TEST_ASSERT_EQUAL_STRING("a", config.cf_record);
+    TEST_ASSERT_TRUE(store.save());
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"cf_record\":\"a\""));
+    TEST_ASSERT_FALSE(contains(MockFS::files["/config.json"], "cf_records"));
+
+    MockFS::put("/config.json", R"({"v":2,"cf_record":"novo","cf_records":["velho"]})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_STRING("novo", config.cf_record);
 }
 
 void test_load_record_nao_texto_vira_vazio() {
     MockFS::put("/config.json", R"({"v":2,"cf_records":[123,"ok"]})");
     TEST_ASSERT_TRUE(store.load());
-    TEST_ASSERT_EQUAL(2, config.cf_record_count);
-    TEST_ASSERT_EQUAL_STRING("", config.cf_records[0]);
-    TEST_ASSERT_EQUAL_STRING("ok", config.cf_records[1]);
+    TEST_ASSERT_EQUAL_STRING("", config.cf_record);
+    MockFS::put("/config.json", R"({"v":2,"cf_record":5,"cf_records":["ok"]})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_STRING("ok", config.cf_record);
 }
 
 void test_roundtrip_completo() {
@@ -308,9 +315,7 @@ void test_roundtrip_completo() {
     strlcpy(config.cf_host,    "home.example.com", sizeof(config.cf_host));
     strlcpy(config.ntfy_topic, "topico",           sizeof(config.ntfy_topic));
     strlcpy(config.api_token,  "abc123",           sizeof(config.api_token));
-    strlcpy(config.cf_records[0], "rec_aaa", sizeof(config.cf_records[0]));
-    strlcpy(config.cf_records[1], "rec_bbb", sizeof(config.cf_records[1]));
-    config.cf_record_count = 2;
+    strlcpy(config.cf_record,  "rec_aaa",          sizeof(config.cf_record));
 
     TEST_ASSERT_TRUE(store.save());
     config = Config{};
@@ -325,9 +330,7 @@ void test_roundtrip_completo() {
     TEST_ASSERT_EQUAL_STRING("home.example.com", config.cf_host);
     TEST_ASSERT_EQUAL_STRING("topico",           config.ntfy_topic);
     TEST_ASSERT_EQUAL_STRING("abc123",           config.api_token);
-    TEST_ASSERT_EQUAL(2,                         config.cf_record_count);
-    TEST_ASSERT_EQUAL_STRING("rec_aaa",          config.cf_records[0]);
-    TEST_ASSERT_EQUAL_STRING("rec_bbb",          config.cf_records[1]);
+    TEST_ASSERT_EQUAL_STRING("rec_aaa",          config.cf_record);
 }
 
 // Todos os campos no tamanho máximo devem caber no documento JSON
@@ -345,9 +348,7 @@ void test_save_pior_caso_cabe() {
     std::memset(config.mqtt_host,  'm', sizeof(config.mqtt_host) - 1);
     std::memset(config.mqtt_user,  'u', sizeof(config.mqtt_user) - 1);
     std::memset(config.mqtt_pass,  'p', sizeof(config.mqtt_pass) - 1);
-    for (int i = 0; i < MAX_RECORDS; i++)
-        std::memset(config.cf_records[i], 'r', sizeof(config.cf_records[0]) - 1);
-    config.cf_record_count = MAX_RECORDS;
+    std::memset(config.cf_record,  'r', sizeof(config.cf_record) - 1);
     std::memset(config.iot.sensor,   's', sizeof(config.iot.sensor) - 1);
     std::memset(config.iot.actuator, 'a', sizeof(config.iot.actuator) - 1);
     std::memset(config.iot.onText,   'o', sizeof(config.iot.onText) - 1);
@@ -359,7 +360,7 @@ void test_save_pior_caso_cabe() {
     config = Config{};
     TEST_ASSERT_TRUE(store.load());
     TEST_ASSERT_EQUAL(63, (int)std::strlen(config.cf_host));
-    TEST_ASSERT_EQUAL(MAX_RECORDS, config.cf_record_count);
+    TEST_ASSERT_EQUAL(39, (int)std::strlen(config.cf_record));
     TEST_ASSERT_EQUAL(15, (int)std::strlen(config.iot.offText));
     TEST_ASSERT_EQUAL(63, (int)std::strlen(config.mqtt_host));
     TEST_ASSERT_EQUAL(31, (int)std::strlen(config.mqtt_user));
@@ -414,7 +415,7 @@ int main() {
     RUN_TEST(test_migracao_sem_conseguir_gravar_segue_com_a_config);
     RUN_TEST(test_versao_mais_nova_nao_e_regravada);
     RUN_TEST(test_ota_auto_persiste);
-    RUN_TEST(test_load_limita_quantidade_de_records);
+    RUN_TEST(test_load_record_da_lista_antiga);
     RUN_TEST(test_load_record_nao_texto_vira_vazio);
     RUN_TEST(test_roundtrip_completo);
     RUN_TEST(test_save_pior_caso_cabe);

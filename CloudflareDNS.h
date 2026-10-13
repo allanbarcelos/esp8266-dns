@@ -10,85 +10,65 @@
 #include "Clock.h"
 #include "CloudflareCA.h"
 #include "WiFiService.h"
-#include "PublicIPResolver.h"
+#include "PublicIPResolver.h"  // TlsClient
 
-// Mantém os registros A do Cloudflare apontando para o IP público.
+// Mantém o registro A do Cloudflare apontando para o IP público.
 //
-// O IP já sincronizado é guardado em memória: não dependemos do resolver DNS
-// local (que tem cache/TTL e devolve IPs da Cloudflare em registros proxied).
-// Após um boot, a primeira verificação sempre envia um PATCH (idempotente).
+// O IP vem do PublicIPResolver (Config::publicIP). O já sincronizado fica
+// em memória: não dependemos do resolver DNS local (que tem cache/TTL e
+// devolve IPs da Cloudflare em registros proxied). Após um boot, o
+// primeiro IP conhecido sempre gera um PATCH (idempotente); falha tenta de
+// novo a cada RETRY_INTERVAL.
 class CloudflareDNS {
 public:
-    CloudflareDNS(Config& cfg, Logger& log, WiFiService& wifi,
-                  PublicIPResolver& resolver, Clock& clock)
-        : _cfg(cfg), _log(log), _wifi(wifi), _resolver(resolver), _clock(clock),
-          _lastCheck(0) {
+    CloudflareDNS(Config& cfg, Logger& log, WiFiService& wifi, Clock& clock)
+        : _cfg(cfg), _log(log), _wifi(wifi), _clock(clock) {
         _syncedIP[0] = '\0';
     }
 
     void tick(unsigned long now) {
-        if (!configured()) return;
-        if (now - _lastCheck < CHECK_INTERVAL) return;
-        if (!_wifi.isConnected()) return;
-        if (!_clock.synced()) return; // TLS precisa de relógio válido
-        _lastCheck = now;
-        _update(now);
+        if (!due(now)) return;
+        _attempted   = true;
+        _lastAttempt = now;
+        _sync();
     }
 
     // A próxima chamada de tick vai usar a rede (TLS)
     bool due(unsigned long now) const {
-        return configured() && now - _lastCheck >= CHECK_INTERVAL &&
-               _wifi.isConnected() && _clock.synced();
+        return configured() && _cfg.publicIP[0] && strcmp(_cfg.publicIP, _syncedIP) != 0 &&
+               (!_attempted || now - _lastAttempt >= RETRY_INTERVAL) &&
+               _wifi.isConnected() && _clock.synced();  // TLS precisa de relógio válido
     }
 
     bool configured() const {
-        return _cfg.cf_token[0] && _cfg.cf_zone[0] && _cfg.cf_record_count > 0;
+        return _cfg.cf_token[0] && _cfg.cf_zone[0] && _cfg.cf_record[0];
     }
 
     const char* syncedIP() const { return _syncedIP; }
 
-    static constexpr unsigned long CHECK_INTERVAL = 60000UL;
+    static constexpr unsigned long RETRY_INTERVAL = 60000UL;
 
 private:
-    Config&           _cfg;
-    Logger&           _log;
-    WiFiService&      _wifi;
-    PublicIPResolver& _resolver;
-    Clock&            _clock;
-    unsigned long     _lastCheck;
-    char              _syncedIP[16];
+    Config&       _cfg;
+    Logger&       _log;
+    WiFiService&  _wifi;
+    Clock&        _clock;
+    unsigned long _lastAttempt = 0;
+    bool          _attempted   = false;
+    char          _syncedIP[16];
 
-    void _update(unsigned long now) {
+    void _sync() {
         char ip[16];
-        if (!_resolver.resolve(ip, sizeof(ip), now)) {
-            _log.log(PSTR("Falha ao obter IP publico"));
-            return;
-        }
-        strlcpy(_cfg.publicIP, ip, sizeof(_cfg.publicIP));
-
-        if (strcmp(ip, _syncedIP) == 0) return;
-
+        strlcpy(ip, _cfg.publicIP, sizeof(ip));
         _log.log(PSTR("Atualizando DNS para %s"), ip);
-        if (_patchRecords(ip)) {
+        BearSSL::X509List trust;
+        cloudflareRoots(trust);
+        if (_patchRecord(trust, _cfg.cf_record, ip)) {
             strlcpy(_syncedIP, ip, sizeof(_syncedIP));
             _cfg.lastDnsUpdate = millis();
             _wifi.notifySuccess();
             _log.log(PSTR("DNS atualizado!"));
         }
-    }
-
-    // Retorna true somente se TODOS os registros foram atualizados;
-    // caso contrário a próxima verificação tenta de novo.
-    bool _patchRecords(const char* ip) {
-        BearSSL::X509List trust;
-        cloudflareRoots(trust);
-        bool allOk = true;
-
-        for (uint8_t i = 0; i < _cfg.cf_record_count; i++) {
-            if (!_patchRecord(trust, _cfg.cf_records[i], ip)) allOk = false;
-            yield();
-        }
-        return allOk;
     }
 
     bool _patchRecord(const BearSSL::X509List& trust, const char* record, const char* ip) {

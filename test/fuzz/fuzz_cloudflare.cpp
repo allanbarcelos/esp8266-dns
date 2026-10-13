@@ -7,7 +7,6 @@
 #include "Clock.h"
 #include "Config.h"
 #include "WiFiService.h"
-#include "PublicIPResolver.h"
 #include "CloudflareDNS.h"
 
 static time_t fakeTime() { return Clock::MIN_VALID_EPOCH + 100; }
@@ -19,17 +18,15 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     Config cfg;
     strlcpy(cfg.cf_token, "TOKEN", sizeof(cfg.cf_token));
     strlcpy(cfg.cf_zone, "ZONE", sizeof(cfg.cf_zone));
-    strlcpy(cfg.cf_records[0], "REC0", sizeof(cfg.cf_records[0]));
-    cfg.cf_record_count = 1;
+    strlcpy(cfg.cf_record, "REC0", sizeof(cfg.cf_record));
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
 
-    Clock            clock{fakeTime};
-    WiFiService      wifi{cfg, log};
-    PublicIPResolver resolver{log, clock};
-    CloudflareDNS    dns{cfg, log, wifi, resolver, clock};
+    Clock         clock{fakeTime};
+    WiFiService   wifi{cfg, log};
+    CloudflareDNS dns{cfg, log, wifi, clock};
 
     static const int CODES[] = {200, 400, 403, 500};
-    MockHTTP::push(200, "1.2.3.4");
     MockHTTP::push(CODES[data[0] % 4], std::string(reinterpret_cast<const char*>(data) + 1, size - 1));
-    dns.tick(CloudflareDNS::CHECK_INTERVAL);
+    dns.tick(0);
     return 0;
 }

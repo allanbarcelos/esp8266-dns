@@ -493,9 +493,7 @@ private:
 
             _box(PSTR("DNS Cloudflare"));
             _row(PSTR("Host"), _cfg.cf_host[0] ? String(_cfg.cf_host) : String("-"));
-            _row(PSTR("Ultima atualizacao"), _cfg.lastDnsUpdate == 0
-                    ? String("nunca")
-                    : formatDuration(millis() - _cfg.lastDnsUpdate) + " atras");
+            _row(PSTR("Ultima atualizacao"), _ago(_cfg.lastDnsUpdate != 0, _cfg.lastDnsUpdate));
             _boxEnd();
         }
 
@@ -595,6 +593,15 @@ private:
         _row(PSTR("RSSI"),    String(WiFi.RSSI()) + " dBm");
         _boxEnd();
 
+        // Consultado a cada 5 min (PublicIPResolver); reverso via DNS da rede
+        _box(PSTR("IP Publico"));
+        bool ip = _cfg.publicIP[0];
+        _row(PSTR("IP"),      ip ? String(_cfg.publicIP) : String("-"));
+        _row(PSTR("Reverso"), _cfg.publicHost[0] ? String(_cfg.publicHost) : String("-"));
+        _row(PSTR("Mudou"),   _ago(ip, _cfg.ipChanged));
+        _row(PSTR("Ultima verificacao"), _ago(ip, _cfg.ipChecked));
+        _boxEnd();
+
         _pageEnd();
     }
 
@@ -616,16 +623,7 @@ private:
                        PSTR("token"), PSTR("placeholder='Novo token' maxlength='47'"));
         _input(PSTR("Zone ID"), PSTR("zone"), _cfg.cf_zone, PSTR("maxlength='39'"));
         _input(PSTR("Hostname (exibicao)"), PSTR("host"), _cfg.cf_host, PSTR("maxlength='63'"));
-        for (uint8_t i = 0; i < MAX_RECORDS; i++) {
-            String val = (i < _cfg.cf_record_count) ? String(_cfg.cf_records[i]) : String();
-            _p(PSTR("<label>Record ID "));
-            _s(String(i + 1));
-            _p(PSTR("<input maxlength='39' name='record"));
-            _s(String(i));
-            _p(PSTR("' value='"));
-            _s(escape(val));
-            _p(PSTR("'></label>"));
-        }
+        _input(PSTR("Record ID"), PSTR("record"), _cfg.cf_record, PSTR("maxlength='39'"));
 
         _button(PSTR("Salvar"));
         _pageEnd();
@@ -639,23 +637,17 @@ private:
         char token[sizeof(_cfg.cf_token)];
         char zone[sizeof(_cfg.cf_zone)];
         char host[sizeof(_cfg.cf_host)];
-        char records[MAX_RECORDS][sizeof(_cfg.cf_records[0])];
-        uint8_t count = 0;
+        char record[sizeof(_cfg.cf_record)];
 
         if (!_argInto("token", token, sizeof(token), "/cloudflare")) return;
         if (!_argInto("zone",  zone,  sizeof(zone),  "/cloudflare")) return;
         if (!_argInto("host",  host,  sizeof(host),  "/cloudflare")) return;
-        for (uint8_t i = 0; i < MAX_RECORDS; i++) {
-            String key = "record" + String(i);
-            if (!_argInto(key.c_str(), records[count], sizeof(records[0]), "/cloudflare")) return;
-            if (records[count][0]) count++;
-        }
+        if (!_argInto("record", record, sizeof(record), "/cloudflare")) return;
 
         if (token[0]) strlcpy(_cfg.cf_token, token, sizeof(_cfg.cf_token));
         strlcpy(_cfg.cf_zone, zone, sizeof(_cfg.cf_zone));
         strlcpy(_cfg.cf_host, host, sizeof(_cfg.cf_host));
-        memcpy(_cfg.cf_records, records, sizeof(records));
-        _cfg.cf_record_count = count;
+        strlcpy(_cfg.cf_record, record, sizeof(_cfg.cf_record));
 
         if (!_store.save()) {
             _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/cloudflare"));
@@ -853,6 +845,11 @@ private:
         _server.sendHeader("Cache-Control", "max-age=604800");
         if (gz) _server.sendHeader("Content-Encoding", "gzip");
         _server.send_P(200, type, reinterpret_cast<PGM_P>(data), len);
+    }
+
+    // "há quanto tempo" a partir de um millis(); "nunca" se não aconteceu
+    static String _ago(bool happened, unsigned long at) {
+        return happened ? formatDuration(millis() - at) + " atras" : String("nunca");
     }
 
     void _go(const char* href) {
