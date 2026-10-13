@@ -9,6 +9,7 @@
 #include "OTAService.h"
 #include "WebService.h"
 #include "../web_browser.h"
+#include "../i2c_sim.h"
 
 using Args = std::map<std::string, std::string>;
 
@@ -26,12 +27,13 @@ struct Fixture {
     NtfyNotifier     ntfy{cfg, logger, clock, &iot};
     WiFiClient       mqttNet;
     MqttService      mqtt{cfg, logger, iot, mqttNet};
+    PowerService     power{cfg, logger};
     WebService  web;
     MockBrowser srv{[this]() { web.tick(); }};
 
-    explicit Fixture(bool withNtfy = true, bool withMqtt = true)
+    explicit Fixture(bool withNtfy = true, bool withMqtt = true, bool withPower = true)
         : web(cfg, logger, store, wifi, ota, iot, withNtfy ? &ntfy : nullptr,
-              withMqtt ? &mqtt : nullptr) { web.begin(); }
+              withMqtt ? &mqtt : nullptr, withPower ? &power : nullptr) { web.begin(); }
 
     bool get(const char* path)              { return srv.request(HTTP_GET, path); }
     bool post(const char* path, Args a = {}) {
@@ -657,6 +659,104 @@ void test_iot_sht3x_usa_dois_pinos() {
     f.get("/iot");
     TEST_ASSERT_TRUE(contains(f.out(), "<option value='sht3x' selected>Temperatura e umidade (SHT30/SHT31, I2C)"));
     TEST_ASSERT_TRUE(contains(f.out(), "sht3x:7"));
+}
+
+// ── Energia: medidor de bateria ──────────────────────────────────────────────
+
+// MAX17048 simulado em RX (SDA) e TX (SCL)
+struct Gauge {
+    I2cSim   sim{3, 1};
+    uint16_t soc = 0x4C00, rate = 0, cell = 51200;
+    Gauge() {
+        sim.present = {PowerService::ADDR};
+        sim.reply = [this](uint8_t, const std::vector<uint8_t>& w) {
+            uint16_t v = w[1] == 0x04 ? soc : w[1] == 0x16 ? rate : cell;
+            return std::vector<uint8_t>{(uint8_t)(v >> 8), (uint8_t)v};
+        };
+    }
+};
+
+void test_energia_no_topo() {
+    Fixture f;
+    f.get("/status");                                     // sem medidor: na fonte
+    TEST_ASSERT_TRUE(contains(f.out(), "</b><span class='pw' title='Na fonte'>&#9889; Energia</span><nav"));
+    TEST_ASSERT_FALSE(contains(f.out(), "<h2>Bateria</h2>"));
+
+    cfg.bat_sda = 3;
+    f.power.begin();
+    f.get("/status");
+    TEST_ASSERT_TRUE(contains(f.out(), "title='Medidor sem resposta'>&#128267; Bateria ?</span>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Situacao</span><b>medidor sem resposta"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Carga</span><b>-"));
+
+    Gauge g;
+    g.rate = (uint16_t)-25;
+    f.power.tick(0);
+    f.get("/status");
+    TEST_ASSERT_TRUE(contains(f.out(), "<span class='pw' title='Na bateria'>&#128267; Bateria 76%</span>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Situacao</span><b>na bateria"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Carga</span><b>76%"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Tensao</span><b>4.00 V"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Taxa</span><b>-5.2 %/h"));
+
+    g.soc = 0x1300;                                       // 19 %: em destaque
+    f.power.tick(PowerService::READ_MS);
+    f.get("/");
+    TEST_ASSERT_TRUE(contains(f.out(), "<span class='pw lo' title='Na bateria'>&#128267; Bateria 19%</span>"));
+
+    g.rate = 50;
+    f.power.tick(2 * PowerService::READ_MS);
+    f.get("/status");
+    TEST_ASSERT_TRUE(contains(f.out(), "<span class='pw' title='Bateria carregando'>&#9728; Carregando 19%</span>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Taxa</span><b>10.4 %/h"));
+
+    // Sem o serviço (recuperação do OTA), nada no topo
+    Fixture semEnergia(true, true, false);
+    semEnergia.get("/status");
+    TEST_ASSERT_FALSE(contains(semEnergia.out(), "class='pw"));
+}
+
+void test_aparelho_salva_o_medidor() {
+    Fixture f;
+    f.get("/");
+    TEST_ASSERT_TRUE(contains(f.out(), "<select name='bat_sda'><option value='-1' selected>Nenhum</option>"));
+    f.post("/device/save", {{"name", ""}, {"hostname", ""}, {"bat_sda", "3"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL(3, cfg.bat_sda);
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"bat_sda\":3"));
+    TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[1]);   // begin de novo: SCL solto
+
+    // Pino inválido ou ocupado pelo IoT
+    f.post("/device/save", {{"name", ""}, {"hostname", ""}, {"bat_sda", "7"}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    cfg.iot.actuatorPin = 1;
+    f.post("/device/save", {{"name", ""}, {"hostname", ""}, {"bat_sda", "3"}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Pinos do medidor ocupados"));
+    f.post("/device/save", {{"name", ""}, {"hostname", ""}, {"bat_sda", "-1"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL(-1, cfg.bat_sda);
+    f.post("/device/save", {{"name", ""}, {"hostname", ""}});   // sem o campo: sem medidor
+    TEST_ASSERT_EQUAL(-1, cfg.bat_sda);
+
+    Fixture semEnergia(true, true, false);
+    semEnergia.post("/device/save", {{"name", "x"}, {"hostname", ""}});
+    TEST_ASSERT_EQUAL(200, semEnergia.srv.code);
+}
+
+// O IoT não pode tomar os pinos do medidor, a não ser o SHT3x no mesmo par
+void test_iot_respeita_o_medidor() {
+    cfg.bat_sda = 3;
+    Fixture f;
+    Args a = {{"role", "a"}, {"actuator", "rele"}, {"actuator_pin", "1"}, {"max_on", "0"}};
+    f.post("/iot/save", a);
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Pino usado pelo medidor de bateria"));
+    a["actuator_pin"] = "0";
+    f.post("/iot/save", a);
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    f.post("/iot/save", {{"role", "s"}, {"sensor", "sht3x"}, {"sensor_pin", "3"}, {"metric", "0"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
 }
 
 void test_cloudflare_save_ok() {
@@ -1766,6 +1866,9 @@ int main() {
     RUN_TEST(test_hora_local_no_status);
     RUN_TEST(test_iot_janela_de_horario);
     RUN_TEST(test_iot_sht3x_usa_dois_pinos);
+    RUN_TEST(test_energia_no_topo);
+    RUN_TEST(test_aparelho_salva_o_medidor);
+    RUN_TEST(test_iot_respeita_o_medidor);
     RUN_TEST(test_cloudflare_save_ok);
     RUN_TEST(test_cloudflare_save_token_vazio_mantem_atual);
     RUN_TEST(test_cloudflare_save_valor_longo_rejeitado_sem_alterar);

@@ -14,6 +14,7 @@
 #include "IoTService.h"
 #include "NtfyNotifier.h"
 #include "MqttService.h"
+#include "PowerService.h"
 #include "Assets.h"
 #include "WebAssets.h"
 
@@ -32,7 +33,7 @@ static const char _HTML_HEAD_B[] PROGMEM =
     "</head><body><header><b>&#9679; ";
 
 static const char _HTML_HEAD_C[] PROGMEM =
-    "</b><nav aria-label='Menu'><a href='/'>Home</a><a href='/status'>Status</a>"
+    "<nav aria-label='Menu'><a href='/'>Home</a><a href='/status'>Status</a>"
     "<a href='/log'>Logs</a><a href='/cloudflare'>Cloudflare</a><a href='/ntfy'>Ntfy</a><a href='/mqtt'>MQTT</a>"
     "<a href='/iot'>IoT</a><a href='/update'>Atualizar</a><a href='/password'>Senha</a>"
     "</nav></header><main>";
@@ -58,9 +59,10 @@ public:
 
     WebService(Config& cfg, Logger& log, ConfigStore& store,
                WiFiService& wifi, OTAService& ota, IoTService& iot,
-               NtfyNotifier* ntfy = nullptr, MqttService* mqtt = nullptr)
+               NtfyNotifier* ntfy = nullptr, MqttService* mqtt = nullptr,
+               PowerService* power = nullptr)
         : _server(80), _cfg(cfg), _log(log), _store(store),
-          _wifi(wifi), _ota(ota), _iot(iot), _ntfy(ntfy), _mqtt(mqtt) {
+          _wifi(wifi), _ota(ota), _iot(iot), _ntfy(ntfy), _mqtt(mqtt), _power(power) {
         _csrfToken[0] = '\0';
     }
 
@@ -144,6 +146,7 @@ private:
     IoTService&      _iot;
     NtfyNotifier*    _ntfy;
     MqttService*     _mqtt;
+    PowerService*    _power;
     uint8_t          _loginFails = 0;
     unsigned long    _loginWaitUntil = 0;
 
@@ -281,7 +284,29 @@ private:
         }
         _p(_HTML_HEAD_B);
         _name();
+        _p(PSTR("</b>"));
+        _powerMark();
         _p(_HTML_HEAD_C);
+    }
+
+    // Canto direito do topo: na fonte, na bateria (%) ou carregando
+    void _powerMark() {
+        if (!_power) return;
+        PowerService::Source s = _power->source();
+        _p(s == PowerService::BATTERY && _power->percent() < 20 ? PSTR("<span class='pw lo'")
+                                                                 : PSTR("<span class='pw'"));
+        if (s == PowerService::MAINS) {
+            _p(PSTR(" title='Na fonte'>&#9889; Energia</span>"));
+            return;
+        }
+        if (s == PowerService::UNKNOWN) {
+            _p(PSTR(" title='Medidor sem resposta'>&#128267; Bateria ?</span>"));
+            return;
+        }
+        _p(s == PowerService::CHARGING ? PSTR(" title='Bateria carregando'>&#9728; Carregando ")
+                                       : PSTR(" title='Na bateria'>&#128267; Bateria "));
+        _s(String(_power->percent()));
+        _p(PSTR("%</span>"));
     }
 
     // Nome do aparelho no título e no topo; sem nome, o do projeto
@@ -519,6 +544,9 @@ private:
             _input(PSTR("Fuso horario <span class='m'>(horas do UTC: -3, 0, 5:30)</span>"),
                    PSTR("tz"), _tzText(_cfg.tz),
                    PSTR("maxlength='6' pattern='[+\\-]?[0-9]{1,2}(:[0-5][0-9])?'"));
+            _pinSelect(PSTR("Medidor de bateria MAX17048 <span class='m'>(SDA; o SCL vai no par: "
+                            "GPIO0 com GPIO2, RX com TX)</span>"), PSTR("bat_sda"), _cfg.bat_sda,
+                       PSTR("Nenhum"));
             _button(PSTR("Salvar"));
             _boxEnd();
         }
@@ -565,6 +593,12 @@ private:
             _errorPage(PSTR("Fuso invalido (de -12 a 14 horas, como -3 ou 5:30)"), PSTR("/"));
             return;
         }
+        int8_t bat = -1;
+        String batArg = _server.arg("bat_sda");
+        if (batArg.length() && (!IoTService::parsePin(batArg, bat) || !PowerService::pinsFree(bat, _cfg.iot))) {
+            _errorPage(PSTR("Pinos do medidor ocupados pelo sensor ou pelo atuador"), PSTR("/"));
+            return;
+        }
         name.trim();
         host.trim();
         bool ok = name.length() < sizeof(_cfg.dev_name);
@@ -589,12 +623,14 @@ private:
         strlcpy(_cfg.dev_name, name.c_str(), sizeof(_cfg.dev_name));
         strlcpy(_cfg.hostname, host.c_str(), sizeof(_cfg.hostname));
         _cfg.tz = tz;
+        _cfg.bat_sda = bat;
         if (!_store.save()) {
             _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/"));
             return;
         }
         if (_cfg.hostname[0]) WiFi.hostname(_cfg.hostname);
         if (_mqtt) _mqtt->reconnect();   // o discovery leva o nome novo
+        if (_power) _power->begin();
         _savedPage(PSTR("Aparelho salvo!"), PSTR("/"));
     }
 
@@ -665,6 +701,21 @@ private:
         _row(PSTR("MAC"),     WiFi.macAddress());
         _row(PSTR("RSSI"),    String(WiFi.RSSI()) + " dBm");
         _boxEnd();
+
+        if (_power && _power->configured()) {
+            _box(PSTR("Bateria"));
+            bool ok = _power->source() != PowerService::UNKNOWN;
+            _row(PSTR("Situacao"), PowerService::name(_power->source()));
+            _row(PSTR("Carga"),  ok ? String(_power->percent()) + "%" : String("-"));
+            char b[16];
+            snprintf(b, sizeof(b), "%u.%02u V", _power->millivolts() / 1000u,
+                     (_power->millivolts() % 1000u) / 10u);
+            _row(PSTR("Tensao"), ok ? String(b) : String("-"));
+            int r = _power->rateTenths();
+            snprintf(b, sizeof(b), "%s%d.%d %%/h", r < 0 ? "-" : "", abs(r) / 10, abs(r) % 10);
+            _row(PSTR("Taxa"), ok ? String(b) : String("-"));
+            _boxEnd();
+        }
 
         // Consultado a cada 5 min (PublicIPResolver); reverso via DNS da rede
         _box(PSTR("IP Publico"));
@@ -1086,14 +1137,16 @@ private:
         _selectEnd();
     }
 
-    void _pinSelect(PGM_P label, PGM_P name, int8_t current) {
+    // none: o texto do -1 ("Escolha" no IoT, "Nenhum" no medidor)
+    void _pinSelect(PGM_P label, PGM_P name, int8_t current, PGM_P none = nullptr) {
+        if (!none) none = PSTR("Escolha");   // PSTR não vale como argumento padrão
         static const int8_t pins[] = {-1, 2, 0, 1, 3};
         static const char* const values[] = {"-1", "2", "0", "1", "3"};
         static const char* const labels[] = {
-            "Escolha", "GPIO2", "GPIO0", "TX (GPIO1)", "RX (GPIO3)"
+            nullptr, "GPIO2", "GPIO0", "TX (GPIO1)", "RX (GPIO3)"
         };
         _selectOpen(label, name);
-        for (int i = 0; i < 5; i++) _option(values[i], labels[i], current == pins[i]);
+        for (int i = 0; i < 5; i++) _option(values[i], i ? labels[i] : none, current == pins[i]);
         _selectEnd();
     }
 
@@ -1501,6 +1554,10 @@ private:
             }
         }
         t.notify = _flag("notify");
+        if (!PowerService::pinsFree(_cfg.bat_sda, t)) {
+            _errorPage(PSTR("Pino usado pelo medidor de bateria"), PSTR("/iot"));
+            return;
+        }
         if ((hs || ha) && !_cfg.api_token[0]) _newToken();
 
         _cfg.iot = t;

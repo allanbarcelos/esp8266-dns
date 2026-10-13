@@ -26,6 +26,16 @@ void test_begin_inicializa_servicos() {
     TEST_ASSERT_TRUE(app.ota.automatic());
 }
 
+// Medidor de bateria configurado e sem resposta: o tick lê e avisa
+void test_tick_le_o_medidor_de_bateria() {
+    MockFS::put("/config.json", R"({"ssid":"Rede","pass":"12345678","webpss":"senha-forte","bat_sda":3})");
+    App app;
+    app.begin();
+    TEST_ASSERT_TRUE(app.power.configured());
+    app.tick();
+    TEST_ASSERT_TRUE(logHas(app.logger, "Energia: medidor sem resposta"));
+}
+
 void test_begin_desliga_ota_automatico() {
     MockFS::put("/config.json", R"({"ssid":"Rede","pass":"12345678","webpss":"senha-forte","ota_auto":false})");
     App app;
@@ -122,6 +132,7 @@ void test_tick_solta_o_ntfy_antes_do_ip_e_do_dns() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_begin_inicializa_servicos);
+    RUN_TEST(test_tick_le_o_medidor_de_bateria);
     RUN_TEST(test_begin_desliga_ota_automatico);
     RUN_TEST(test_begin_sem_config_entra_em_modo_ap);
     RUN_TEST(test_tick_executa_todos_os_servicos);

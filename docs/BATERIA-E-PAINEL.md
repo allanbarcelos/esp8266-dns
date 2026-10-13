@@ -1,6 +1,6 @@
 # Bateria e painel solar
 
-Notas de 13/10/2026. Dá para alimentar o aparelho com bateria e painel solar sem usar nenhum GPIO. A porcentagem de carga também cabe sem tirar os pinos do sensor e do atuador, mas isso usa os dois pinos que sobram, e o firmware ainda não lê carga.
+Notas de 13/10/2026. Dá para alimentar o aparelho com bateria e painel solar sem usar nenhum GPIO. A porcentagem de carga também cabe sem tirar os pinos do sensor e do atuador, mas isso usa os dois pinos que sobram. O firmware lê o MAX17048 desde o commit que acompanha este texto (veja o README, seção de energia); o INA219 ainda não.
 
 O ESP-01 só tem quatro GPIOs: GPIO0, GPIO2, TX e RX. O sensor fica com um, o atuador com outro. Os dois restantes são o único lugar para medir a bateria. O pino analógico do chip não sai no conector, então um divisor de tensão direto no módulo não serve.
 
@@ -27,4 +27,4 @@ O par melhor para esse barramento é TX e RX: não são pinos de boot. GPIO0 e G
 
 Esse arranjo gasta os dois pinos que sobram. O botão de parada previsto em [PORTAR-DO-TASMOTA.md](PORTAR-DO-TASMOTA.md) não cabe junto, a menos que o sensor passe a ser um SHT31. Aí o medidor de bateria divide o mesmo I2C do sensor, o atuador fica no pino dele e o quarto pino volta a ser o botão.
 
-O que o firmware teria de ganhar, e hoje não tem: ler o medidor, mostrar a carga no painel e publicá-la na API e no MQTT. É um driver pequeno, da ordem do SHT31, e esbarra na mesma folga de 1.280 bytes. Entra depois do servidor web enxuto descrito em [ESTADO-E-PROXIMOS-PASSOS.md](ESTADO-E-PROXIMOS-PASSOS.md).
+O firmware lê o MAX17048 (carga, tensão e taxa de carga) a cada 10 s e mostra no topo do painel se o aparelho está na fonte, na bateria (com a carga) ou carregando, com os detalhes em **Status**. A carga ainda não vai à API nem ao MQTT, e o INA219 não é lido.

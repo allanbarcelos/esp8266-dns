@@ -31,9 +31,18 @@ body {
 }
 
 /* Cabeçalho e menu */
-header { background: var(--cd); border-bottom: 1px solid var(--ln); padding: 10px 16px; }
+header {
+    background: var(--cd);
+    border-bottom: 1px solid var(--ln);
+    padding: 10px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+}
 header b { color: var(--ok); }
-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.pw { margin-left: auto; font-size: 13px; color: var(--mu); white-space: nowrap; }
+.pw.lo { color: var(--wa); }
+nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; flex-basis: 100%; }
 nav a {
     color: var(--fg);
     text-decoration: none;

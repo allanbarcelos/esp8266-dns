@@ -319,6 +319,7 @@ void test_roundtrip_completo() {
     strlcpy(config.dev_name,   "Portão da garagem", sizeof(config.dev_name));
     strlcpy(config.hostname,   "portao",           sizeof(config.hostname));
     config.tz = -180;
+    config.bat_sda = 3;
     config.iot.window = true;
     config.iot.winStart = 22 * 60;
     config.iot.winEnd = 6 * 60;
@@ -329,6 +330,7 @@ void test_roundtrip_completo() {
     TEST_ASSERT_EQUAL_STRING("Portão da garagem", config.dev_name);
     TEST_ASSERT_EQUAL_STRING("portao",           config.hostname);
     TEST_ASSERT_EQUAL(-180, config.tz);
+    TEST_ASSERT_EQUAL(3, config.bat_sda);
     TEST_ASSERT_TRUE(config.iot.window);
     TEST_ASSERT_EQUAL(22 * 60, config.iot.winStart);
     TEST_ASSERT_EQUAL(6 * 60, config.iot.winEnd);

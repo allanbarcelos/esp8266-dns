@@ -71,6 +71,7 @@ struct Config {
     char    dev_name[32]              = {};   // nome no painel e no Home Assistant; "" = padrão
     char    hostname[33]              = {};   // nome no DHCP do roteador; "" = o do core (ESP-xxxxxx)
     int16_t tz                        = 0;    // fuso: minutos em relação ao UTC (hora local)
+    int8_t  bat_sda                   = -1;   // medidor de bateria (MAX17048): SDA; -1 = sem medidor
 
     IoTConfig iot;
 

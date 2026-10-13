@@ -15,6 +15,7 @@
 #include "IoTService.h"
 #include "NtfyNotifier.h"
 #include "MqttService.h"
+#include "PowerService.h"
 #include "WebService.h"
 
 // Composição de todos os serviços. Os membros são declarados em camadas:
@@ -38,9 +39,10 @@ public:
     NtfyNotifier     ntfy{config, logger, clock, &iot};
     WiFiClient       mqttNet;
     MqttService      mqtt{config, logger, iot, mqttNet};
+    PowerService     power{config, logger};
 
     // Camada 3 — painel web
-    WebService web{config, logger, configStore, wifi, ota, iot, &ntfy, &mqtt};
+    WebService web{config, logger, configStore, wifi, ota, iot, &ntfy, &mqtt, &power};
 
     void begin() {
         Serial.begin(115200);
@@ -63,6 +65,7 @@ public:
         } else {
             web.begin();
             iot.begin();
+            power.begin();
         }
 
         // getResetReason sobrevive ao reboot e diz por que o boot anterior morreu.
@@ -88,7 +91,10 @@ public:
             dns.tick(now);
         }
         ota.tick(now);
-        if (!ota.slim() && !ota.inProgress()) iot.tick(now);
+        if (!ota.slim() && !ota.inProgress()) {
+            iot.tick(now);
+            power.tick(now);
+        }
         // ntfy abre outra sessão TLS: espera o OTA soltar a dele (heap)
         if (!ota.slim() && !ota.busy()) ntfy.tick(now);
         // MQTT é TCP simples, sem TLS: só solta durante o download do OTA

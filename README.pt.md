@@ -35,7 +35,8 @@ Cada serviço é um header com dependências injetadas por referência, composta
 | `IoTCommand.h`       | Interpretador de comandos de texto, o mesmo no painel, na API e no ntfy         |
 | `IoTService.h`       | Leitura do sensor, saída do atuador, regra, pulso, desligamento de segurança, JSON |
 | `IoTState.h`         | Último comando manual (`/iot.state`), para "ao religar"                          |
-| `I2cBus.h`           | I2C por software, só mestre (SHT3x)                                             |
+| `I2cBus.h`           | I2C por software, só mestre (SHT3x e medidor de bateria)                        |
+| `PowerService.h`     | Medidor de bateria MAX17048: na fonte, na bateria (%) ou carregando             |
 | `Ws2812.h`           | Driver WS2812 de uma cor, sem biblioteca                                         |
 | `HttpServer.h`       | Servidor HTTP próprio, só com o que o painel usa (no lugar do `ESP8266WebServer`) |
 | `WebService.h`       | Painel HTTP (Basic Auth + CSRF + escape de HTML) e API local (token Bearer)     |
@@ -177,6 +178,21 @@ Defina um **tópico de comandos** na página ntfy (o botão gera um nome aleató
 - Tópicos do ntfy.sh são públicos pelo nome: quem souber o tópico de comandos pode mandar comandos. Use um nome longo e aleatório (sem token, o painel recusa nomes com menos de 20 caracteres), diferente do tópico de dados, ou um **token de acesso do ntfy** (usado no envio e na assinatura). Os botões de ação levam o tópico de comandos (e o token, se houver): mantenha o tópico de dados privado também.
 
 ---
+
+## 🔋 Energia e bateria
+
+Com bateria e painel solar (veja [Bateria e painel solar](docs/BATERIA-E-PAINEL.md)), um medidor **MAX17048** (I2C, endereço 0x36) informa a carga. Escolha o pino de SDA no cartão **Aparelho** da página inicial; o SCL vai no par (GPIO0 com GPIO2, RX com TX). O medidor divide o barramento com o SHT3x quando os dois estão no mesmo par; com qualquer outro sensor ou atuador, os pinos precisam ser outros, e o painel recusa a configuração que os junte.
+
+O canto direito do topo do painel mostra:
+
+| Indicador | Quando |
+| --- | --- |
+| ⚡ Energia | sem medidor configurado, ou bateria cheia e parada (a fonte segura) |
+| 🔋 Bateria 76% | a carga está caindo, ou está abaixo de 98% sem carregar; fica amarelo abaixo de 20% |
+| ☀ Carregando 76% | a carga está subindo (painel solar ou fonte) |
+| 🔋 Bateria ? | o medidor não respondeu |
+
+O medidor é lido a cada 10 s. A situação, a carga, a tensão e a taxa (%/h) aparecem em **Status**, e cada mudança de situação vai ao log.
 
 ## 📡 MQTT
 

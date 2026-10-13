@@ -35,7 +35,8 @@ Each service is a header with dependencies injected by reference, composed in la
 | `IoTCommand.h`       | Text command parser shared by panel, API and ntfy                               |
 | `IoTService.h`       | Sensor reading, actuator output, rule, pulse, safety off, JSON state            |
 | `IoTState.h`         | Last manual command (`/iot.state`), for "restore after power loss"              |
-| `I2cBus.h`           | Software I2C, master only (SHT3x)                                                |
+| `I2cBus.h`           | Software I2C, master only (SHT3x and the battery gauge)                          |
+| `PowerService.h`     | MAX17048 battery gauge: on supply, on battery (%) or charging                    |
 | `Ws2812.h`           | Single-colour WS2812 driver, no library                                          |
 | `HttpServer.h`       | Own HTTP server with only what the panel uses (replaces `ESP8266WebServer`)      |
 | `WebService.h`       | HTTP panel (Basic Auth + CSRF + HTML escaping) and the local API (Bearer token) |
@@ -177,6 +178,21 @@ Set a **command topic** on the ntfy page (the button generates a random name). T
 - ntfy.sh topics are public by name: whoever knows the command topic can send commands. Use a long random name (without a token, the panel refuses names shorter than 20 characters), different from the data topic, or an **ntfy access token** (used for both publishing and subscribing). The action buttons carry the command topic (and the token, if any), so keep the data topic private too.
 
 ---
+
+## 🔋 Power and battery
+
+With a battery and a solar panel (see [Battery and solar panel](docs/BATERIA-E-PAINEL.md), in Portuguese), a **MAX17048** gauge (I2C, address 0x36) reports the charge. Pick its SDA pin in the **Aparelho** card on the home page; SCL goes on the pair (GPIO0 with GPIO2, RX with TX). The gauge shares the bus with the SHT3x when both sit on the same pair; with any other sensor or actuator the pins must differ, and the panel refuses a configuration that mixes them.
+
+The top-right corner of the panel shows:
+
+| Indicator | When |
+| --- | --- |
+| ⚡ Energia | no gauge configured, or the battery full and idle (the supply holds it) |
+| 🔋 Bateria 76% | the charge is falling, or below 98% and not charging; turns yellow below 20% |
+| ☀ Carregando 76% | the charge is rising (solar panel or supply) |
+| 🔋 Bateria ? | the gauge did not answer |
+
+The gauge is read every 10 s. The state, charge, voltage and rate (%/h) show under **Status**, and each change of state goes to the log.
 
 ## 📡 MQTT
 
