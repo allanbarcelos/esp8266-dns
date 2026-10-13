@@ -90,6 +90,8 @@ you own.
   optional safety timer turns an actuator off after a set time.
 - **TLS to the internet**: Cloudflare, the public-IP services and the ntfy command stream are
   validated against pinned root certificates (`CloudflareCA.h`) with a clock synchronized by SNTP.
+  Every connection offers only TLS 1.2 ECDHE with AES-GCM (forward secrecy, no CBC or 3DES); the
+  other ciphers are not even in the firmware (`TlsTrim.h`).
   Commands older than 10 minutes are ignored. Publishing to ntfy (public IP, readings) does not
   validate the certificate: that content is not secret.
 - **Credentials** live only in `/config.json` on the device's LittleFS, written atomically.

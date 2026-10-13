@@ -23,6 +23,7 @@ Each service is a header with dependencies injected by reference, composed in la
 | `ConfigStore.h`      | `/config.json` (LittleFS) with **atomic writes**, a version number and migrations |
 | `Logger.h`           | Ring buffer of log lines (Serial + panel)                                        |
 | `Clock.h`            | SNTP wall clock (required to validate TLS certificates)                          |
+| `TlsTrim.h`          | Leaves unused BearSSL ciphers and curves out of the firmware (sketch only)       |
 | `WiFiService.h`      | Connection, configuration mode (AP), reconnection and watchdogs                  |
 | `PublicIPResolver.h` | Public IPv4 over HTTPS (CA bundle in `CloudflareCA.h`), cached for 60 s         |
 | `CloudflareDNS.h`    | PATCHes records through the Cloudflare API                                       |
@@ -236,12 +237,12 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | ~539 KB of 549 KB (about 14 KB free) |
-| Signed OTA package | ~388 KB of 400 KB (about 21 KB free) |
+| Firmware | ~496 KB of 549 KB (about 56 KB free) |
+| Signed OTA package | ~356 KB of 400 KB (about 44 KB free) |
 | Embedded images | 5.4 KB photo (WebP) + 1.2 KB pinout (gzipped SVG) |
 | Configuration filesystem | 64 KB, unchanged |
 
-Kept small on purpose: page text in flash (`PSTR`), no float `printf`, one TLS session at a time, a WS2812 driver without a library, the command word table in flash. **mDNS** was measured at about 21 KB and does not fit; use a DHCP reservation instead.
+Kept small on purpose: page text in flash (`PSTR`), no float `printf`, one TLS session at a time, TLS limited to ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519 and client certificates are left out of the link by `TlsTrim.h`, about 27 KB; every server the device uses negotiates ECDHE + AES-128-GCM), lwIP without extras (`ip=lm2n`, about 10 KB: no NAT, IP fragmentation or AutoIP; SNTP keeps one server, so `Clock` alternates between `pool.ntp.org` and `time.google.com` until it syncs), Basic-only panel login (the core's Digest code stays out), a WS2812 driver without a library, the command word table in flash. **mDNS** was measured at about 21 KB and does not fit; use a DHCP reservation instead.
 
 ---
 

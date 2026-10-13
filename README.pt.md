@@ -23,6 +23,7 @@ Cada serviço é um header com dependências injetadas por referência, composta
 | `ConfigStore.h`      | `/config.json` (LittleFS) com **escrita atômica**, número de versão e migrações  |
 | `Logger.h`           | Buffer circular de linhas de log (Serial + painel)                               |
 | `Clock.h`            | Relógio via SNTP (necessário para validar certificados TLS)                      |
+| `TlsTrim.h`          | Deixa fora do firmware as cifras e curvas do BearSSL que não são usadas (só no sketch) |
 | `WiFiService.h`      | Conexão, modo de configuração (AP), reconexão e watchdogs                        |
 | `PublicIPResolver.h` | IPv4 público via HTTPS (raízes em `CloudflareCA.h`), em cache por 60 s          |
 | `CloudflareDNS.h`    | PATCH dos registros pela API do Cloudflare                                       |
@@ -236,12 +237,12 @@ A flash de 1 MB guarda o firmware, uma **reserva OTA de 400 KB** (o próximo fir
 
 | Item | Tamanho |
 | --- | --- |
-| Firmware | ~539 KB de 549 KB (cerca de 14 KB livres) |
-| Pacote OTA assinado | ~388 KB de 400 KB (cerca de 21 KB livres) |
+| Firmware | ~496 KB de 549 KB (cerca de 56 KB livres) |
+| Pacote OTA assinado | ~356 KB de 400 KB (cerca de 44 KB livres) |
 | Imagens embutidas | foto de 5,4 KB (WebP) + pinos de 1,2 KB (SVG com gzip) |
 | Sistema de arquivos da configuração | 64 KB, sem mudança |
 
-Pequeno de propósito: texto das páginas na flash (`PSTR`), sem `printf` de float, uma sessão TLS por vez, driver WS2812 sem biblioteca, tabela de palavras dos comandos na flash. O **mDNS** foi medido em cerca de 21 KB e não cabe; use uma reserva de DHCP.
+Pequeno de propósito: texto das páginas na flash (`PSTR`), sem `printf` de float, uma sessão TLS por vez, TLS só com ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519 e certificado de cliente ficam fora do link pelo `TlsTrim.h`, cerca de 27 KB; todos os servidores que o aparelho usa negociam ECDHE + AES-128-GCM), lwIP sem extras (`ip=lm2n`, cerca de 10 KB: sem NAT, fragmentação IP nem AutoIP; o SNTP guarda um servidor só, então o `Clock` alterna entre `pool.ntp.org` e `time.google.com` até sincronizar), login do painel só Basic (o código de Digest do core fica de fora), driver WS2812 sem biblioteca, tabela de palavras dos comandos na flash. O **mDNS** foi medido em cerca de 21 KB e não cabe; use uma reserva de DHCP.
 
 ---
 
