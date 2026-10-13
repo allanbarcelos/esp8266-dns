@@ -79,3 +79,5 @@ Em ordem, com uma estimativa de esforço.
 7. **Diagnóstico em campo.** Guardar o último travamento (endereço e pilha) e mostrar no painel; publicar heap, sinal do Wi-Fi e tempo ligado pelo MQTT. Cerca de 1 dia; o tamanho depende de quanto entrar.
 8. **Teste de ponta a ponta no CI.** Levar para o CI o teste com Mosquitto e Home Assistant que hoje é manual. Cerca de 1 dia; não muda o firmware.
 9. **Nome e idioma.** Decidir entre `esp8266-dns` e `esp8266-iot` (hoje os dois aparecem) e oferecer identificadores em inglês na API e no MQTT, mantendo os atuais como sinônimos. De meio dia a 1 dia.
+
+O que vale trazer do Tasmota para este aparelho, e o que não vale: [PORTAR-DO-TASMOTA.md](PORTAR-DO-TASMOTA.md). Os itens 1 a 3 de lá (fuso e janela, botão, SHT3x) disputam a folga do item 4 com os itens 5 e 6 desta lista.

@@ -378,7 +378,7 @@ As raízes TLS ficam legíveis em `ca/roots.pem` (nome, validade e SHA-256 de ca
 
 ## 🗺️ Estado e próximos passos
 
-O que mudou na última rodada, como foi verificado e o que vem a seguir: [docs/ESTADO-E-PROXIMOS-PASSOS.md](docs/ESTADO-E-PROXIMOS-PASSOS.md).
+O que mudou na última rodada, como foi verificado e o que vem a seguir: [docs/ESTADO-E-PROXIMOS-PASSOS.md](docs/ESTADO-E-PROXIMOS-PASSOS.md). O que vale portar do Tasmota: [docs/PORTAR-DO-TASMOTA.md](docs/PORTAR-DO-TASMOTA.md).
 
 ---
 
