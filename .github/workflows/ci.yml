@@ -22,45 +22,17 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # ── Checagens antes de tudo: se uma falhar, nada mais roda ────────────────
-  # Testes verdes com um firmware acima do limite não valem nada: o aparelho
-  # ainda pode travar. Por isso plan e test só começam depois daqui.
-  check:
+  # Esteira: plan → check → build → test → release. Cada job faz uma coisa;
+  # sem firmware novo, build, test e release são ignorados.
+
+  # ── Decide: há firmware novo? qual versão? publica? ───────────────────────
+  plan:
     # PR de branch deste repositório já roda no push; só PR de fork roda aqui
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      # Rápidas primeiro (segundos, sem compilar)
-      - name: Cabeçalho de licença em todo arquivo de código
-        run: python3 tools/license_headers.py --check
-
-      - name: CSS e JS embutidos (WebAssets.h igual a web/)
-        run: python3 tools/embed_web.py --check
-
-      # Regra do projeto: nenhuma funcionalidade ou correção passa o firmware
-      # de 500.000 bytes. A versão ci-<sha> é a mais longa que o binário
-      # recebe (a de release, vN, é menor): o que passa aqui passa no release.
-      - uses: ./.github/actions/setup-arduino
-
-      - id: version
-        run: echo "version=ci-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-
-      - uses: ./.github/actions/compile
-        with:
-          version: ${{ steps.version.outputs.version }}
-
-      - name: Firmware dentro do limite de 500.000 bytes
-        run: |
-          set -o pipefail
-          python3 tools/firmware_limit.py build/firmware.raw.bin | tee -a "$GITHUB_STEP_SUMMARY"
-
-  # ── Decide se este push publica release e qual será a versão ──────────────
-  plan:
-    needs: check
-    runs-on: ubuntu-latest
     outputs:
+      firmware: ${{ steps.plan.outputs.firmware }}
+      tests: ${{ steps.plan.outputs.tests }}
       release: ${{ steps.plan.outputs.release }}
       version: ${{ steps.plan.outputs.version }}
     steps:
@@ -73,37 +45,39 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           FORCE: ${{ inputs.release }}
-          # Tudo o que muda o binário ou o pacote publicado: sketch, chave,
-          # linker, versão do core/bibliotecas, opções de compilação e empacotamento OTA
-          FIRMWARE_PATHS: '^([^/]+\.(ino|h)|public\.key|ld/|tools/ota_flash_ld\.py|\.github/(actions/(setup-arduino|compile)/|scripts/package_ota\.py))'
+          # Tudo o que muda o binário ou o pacote publicado: sketch, CSS/JS do
+          # painel, chave, linker, versão do core/bibliotecas, opções de
+          # compilação e empacotamento OTA
+          FIRMWARE_PATHS: '^([^/]+\.(ino|h)|web/|public\.key|ld/|tools/(ota_flash_ld|embed_web)\.py|\.github/(actions/(setup-arduino|compile)/|scripts/package_ota\.py))'
+          # Só os testes: roda o test, sem build nem release
+          TEST_PATHS: '^(test/|platformio\.ini|requirements\.txt)'
         run: |
           # Maior tag vN existente (ordenação numérica, sem limite de paginação)
           last=$(git tag -l 'v*' | sed -n 's/^v\([0-9][0-9]*\)$/\1/p' | sort -n | tail -1)
           last_tag="v${last:-0}"
 
-          # Compara com a última tag publicada, não com o push anterior:
-          # um run cancelado na fila ou um release que falhou não perde
-          # as mudanças, o próximo push na main as publica.
-          release=false
-          if [ "$REF" = "refs/heads/main" ]; then
-            if ! git rev-parse -q --verify "refs/tags/$last_tag" >/dev/null; then
-              changed=true
-            elif [ "$(git rev-parse "$last_tag^{commit}")" = "$GITHUB_SHA" ]; then
-              changed=already # re-run de um commit já publicado
-            elif git diff --name-only "$last_tag" "$GITHUB_SHA" \
-                 | grep -qE "$FIRMWARE_PATHS"; then
-              changed=true
-            else
-              changed=false
-            fi
+          # Compara com a última tag publicada, não com o push anterior: um
+          # run cancelado na fila ou um release que falhou não perde as
+          # mudanças, o próximo push na main as publica.
+          firmware=false
+          tests=false
+          if ! git rev-parse -q --verify "refs/tags/$last_tag" >/dev/null; then
+            firmware=true
+          elif [ "$(git rev-parse "$last_tag^{commit}")" = "$GITHUB_SHA" ]; then
+            echo "::notice::$GITHUB_SHA já publicado como $last_tag"
+          else
+            changed=$(git diff --name-only "$last_tag" "$GITHUB_SHA")
+            if echo "$changed" | grep -qE "$FIRMWARE_PATHS"; then firmware=true; fi
+            if echo "$changed" | grep -qE "$TEST_PATHS"; then tests=true; fi
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$FORCE" = "true" ]; then
+            firmware=true
+          fi
 
-            if [ "$changed" = "already" ]; then
-              echo "::notice::$GITHUB_SHA já publicado como $last_tag"
-            elif [ "$EVENT" = "workflow_dispatch" ] && [ "$FORCE" = "true" ]; then
-              release=true
-            elif [ "$EVENT" = "push" ] && [ "$changed" = "true" ]; then
-              release=true
-            fi
+          release=false
+          if [ "$REF" = "refs/heads/main" ] && [ "$firmware" = "true" ] \
+             && { [ "$EVENT" = "push" ] || [ "$FORCE" = "true" ]; }; then
+            release=true
           fi
 
           if [ "$release" = "true" ]; then
@@ -112,39 +86,37 @@ jobs:
             version="ci-${GITHUB_SHA::7}"
           fi
 
-          echo "release=$release" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Release: $release — versão: $version (última tag: $last_tag)"
+          {
+            echo "firmware=$firmware"
+            echo "tests=$tests"
+            echo "release=$release"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+          echo "Firmware novo: $firmware — testes: $tests — release: $release — versão: $version (última tag: $last_tag)" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # ── Testes nativos com cobertura obrigatória de 100% ──────────────────────
-  test:
-    needs: check
+  # ── Regras do repositório (segundos, sempre) ──────────────────────────────
+  check:
+    needs: plan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
+      - name: Cabeçalho de licença em todo arquivo de código
+        run: python3 tools/license_headers.py --check
 
-      - uses: actions/cache@v6
-        with:
-          path: ~/.platformio
-          key: pio-${{ hashFiles('platformio.ini', 'requirements.txt') }}
-
-      - name: Instala PlatformIO e gcovr
-        run: pip install -r requirements.txt
-
-      - name: Testes + cobertura (100% linhas/funções/branches)
-        run: ./test/coverage.sh
-
-  # ── Compila o firmware real e valida o empacotamento OTA ─────────────────
+  # ── Gera o firmware: compila, mede e empacota ─────────────────────────────
+  # Vem antes dos testes: testes verdes com um firmware acima do limite não
+  # valem nada, o aparelho ainda pode travar.
   build:
-    needs: [plan, test]
+    needs: [plan, check]
+    if: needs.plan.outputs.firmware == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: CSS e JS embutidos (WebAssets.h igual a web/)
+        run: python3 tools/embed_web.py --check
 
       - uses: ./.github/actions/setup-arduino
 
@@ -152,9 +124,12 @@ jobs:
         with:
           version: ${{ needs.plan.outputs.version }}
 
-      # Confere de novo o binário que vai para o release
+      # Regra do projeto: nenhuma funcionalidade ou correção passa o
+      # firmware de 500.000 bytes
       - name: Firmware dentro do limite de 500.000 bytes
-        run: python3 tools/firmware_limit.py build/firmware.raw.bin
+        run: |
+          set -o pipefail
+          python3 tools/firmware_limit.py build/firmware.raw.bin | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Verifica que a checagem de assinatura foi embutida
         run: grep -q "updaterSigningVerifier" build/esp8266-dns.ino.map
@@ -180,9 +155,37 @@ jobs:
           path: build/firmware.raw.bin
           retention-days: 14
 
-  # ── Assina e publica (apenas push na main com mudanças no firmware) ──────
+  # ── Testes nativos com cobertura obrigatória de 100% ──────────────────────
+  # Com firmware novo, depois do build; com mudança só nos testes, sem ele
+  # (o build fica ignorado, e um job ignorado não bloqueia este).
+  test:
+    needs: [plan, check, build]
+    if: >-
+      !failure() && !cancelled() &&
+      (needs.plan.outputs.firmware == 'true' || needs.plan.outputs.tests == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini', 'requirements.txt') }}
+
+      - name: Instala PlatformIO e gcovr
+        run: pip install -r requirements.txt
+
+      - name: Testes + cobertura (100% linhas/funções/branches)
+        run: ./test/coverage.sh
+
+  # ── Assina e publica (apenas push na main com firmware novo) ──────────────
   release:
-    needs: [plan, build]
+    needs: [plan, build, test]
     if: needs.plan.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:

@@ -274,15 +274,15 @@ pio test -e native        # qualquer compilador do host
 
 ## 🤖 CI/CD
 
-| Workflow / job | Quando | O que faz |
+| Job (`ci.yml`) | Quando | O que faz |
 | --- | --- | --- |
-| `ci.yml` → `check` | sempre, primeiro | Cabeçalhos de licença, CSS/JS embutidos em dia, firmware dentro de **500.000 bytes**. Se falhar, nada mais roda |
-| `ci.yml` → `plan` | depois do `check` | Decide se gera release e calcula a próxima tag `vN` |
-| `ci.yml` → `test` | depois do `check`, junto com o `plan` | Testes + 100 % de cobertura |
-| `ci.yml` → `build` | depois do `plan` e do `test` | Compila com arduino-cli, confere o verificador de assinatura e os limites da flash |
-| `ci.yml` → `release` | push na `main` mexendo no firmware | Comprime, assina, **verifica a assinatura** e publica o release |
+| `plan` | sempre, primeiro | Decide: há firmware novo (desde a última tag `vN`)? só mudaram testes? qual versão? publica? |
+| `check` | sempre | Regras do repositório: todo arquivo de código tem o cabeçalho de licença SPDX |
+| `build` | firmware novo | CSS/JS embutidos em dia, compila com arduino-cli, firmware dentro de **500.000 bytes**, verificador de assinatura, tamanho do pacote OTA |
+| `test` | depois do `build`, ou sozinho quando só mudaram testes | Testes + 100 % de cobertura |
+| `release` | push na `main` com firmware novo | Comprime, assina, **verifica a assinatura** e publica o release |
 
-Mudanças só em testes, documentação ou workflow não geram release. Para forçar, use *Run workflow* com `release: true`.
+A esteira roda `plan → check → build → test → release`; se um job falha, os seguintes não rodam. Sem firmware novo (documentação, workflow, ferramentas), `build`, `test` e `release` são ignorados. Para forçar um release, use *Run workflow* com `release: true`.
 
 ---
 

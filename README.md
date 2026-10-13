@@ -274,15 +274,15 @@ pio test -e native        # any host compiler
 
 ## 🤖 CI/CD
 
-| Workflow / job | When | What it does |
+| Job (`ci.yml`) | When | What it does |
 | --- | --- | --- |
-| `ci.yml` → `check` | always, first | License headers, embedded CSS/JS up to date, firmware within **500,000 bytes**. If it fails, nothing else runs |
-| `ci.yml` → `plan` | after `check` | Decides whether to release and computes the next `vN` tag |
-| `ci.yml` → `test` | after `check`, alongside `plan` | Tests + 100 % coverage |
-| `ci.yml` → `build` | after `plan` and `test` | Compiles with arduino-cli, checks the signature verifier and flash limits |
-| `ci.yml` → `release` | push to `main` touching firmware | Compresses, signs, **verifies the signature** and publishes the release |
+| `plan` | always, first | Decides: is there new firmware (since the last `vN` tag)? only test changes? which version? publish? |
+| `check` | always | Repository rules: every source file carries the SPDX license header |
+| `build` | new firmware | Embedded CSS/JS up to date, compiles with arduino-cli, firmware within **500,000 bytes**, signature verifier, OTA package size |
+| `test` | after `build`, or alone when only tests changed | Tests + 100 % coverage |
+| `release` | push to `main` with new firmware | Compresses, signs, **verifies the signature** and publishes the release |
 
-Changes limited to tests, docs or the workflow do not create a release. To force one, use *Run workflow* with `release: true`.
+The pipeline runs `plan → check → build → test → release`; if one job fails, the next ones do not run. Without new firmware (docs, workflow, tools), `build`, `test` and `release` are skipped. To force a release, use *Run workflow* with `release: true`.
 
 ---
 
