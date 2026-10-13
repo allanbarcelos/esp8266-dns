@@ -4,7 +4,7 @@
 """Gera Assets.h com as imagens do painel embutidas no firmware.
 
 No modo AP não há internet, então o painel não pode buscar imagens fora.
-- docs/esp-01.jpg: recortada nas bordas brancas, 264 px, WebP qualidade 50
+- docs/esp-01.jpg: recortada nas bordas brancas, 264 px, WebP qualidade 40
   (exibida a 220 px; a sobra mantém a nitidez em telas de alta densidade).
 - docs/esp01-pinout.svg: espaços entre tags removidos e gzip (servido com
   Content-Encoding: gzip).
@@ -21,7 +21,7 @@ from PIL import Image
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 PHOTO_WIDTH = 264
-PHOTO_QUALITY = 50
+PHOTO_QUALITY = 40
 
 
 def photo():

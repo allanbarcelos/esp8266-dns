@@ -536,7 +536,6 @@ void test_discovery_aparelho_e_topicos() {
     TEST_ASSERT_TRUE(discovery(f.net.out, doc));
     TEST_ASSERT_EQUAL_STRING("esp8266iot_00dead", doc["dev"]["ids"]);
     TEST_ASSERT_EQUAL_STRING("ESP8266 IoT", doc["dev"]["name"]);
-    TEST_ASSERT_EQUAL_STRING("ESP-01", doc["dev"]["mdl"]);
     TEST_ASSERT_EQUAL_STRING(firmware_version, doc["dev"]["sw"]);
     TEST_ASSERT_EQUAL_STRING("esp8266-dns", doc["o"]["name"]);
     TEST_ASSERT_EQUAL_STRING("esp8266iot/00dead/state", doc["stat_t"]);

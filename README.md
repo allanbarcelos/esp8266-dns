@@ -277,7 +277,7 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 | --- | --- |
 | Firmware | ~498 KB of 549 KB (about 51 KB free); **limit 500,000 bytes** |
 | Signed OTA package | ~358 KB of 400 KB (about 42 KB free) |
-| Embedded images | 5.4 KB photo (WebP) + 1.2 KB pinout (gzipped SVG) |
+| Embedded images | 4.7 KB photo (WebP) + 1.2 KB pinout (gzipped SVG) |
 | Configuration filesystem | 64 KB, unchanged |
 
 Kept small on purpose: page text in flash (`PSTR`), TLS roots in DER, a single JSON reader (everything parsed in place, as `char*`), no float `printf`, one TLS session at a time, TLS limited to ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519 and client certificates are left out of the link by `TlsTrim.h`, about 27 KB; every server the device uses negotiates ECDHE + AES-128-GCM), lwIP without extras (`ip=lm2n`, about 10 KB: no NAT, IP fragmentation or AutoIP; SNTP keeps one server, so `Clock` alternates between `pool.ntp.org` and `time.google.com` until it syncs), Basic-only panel login (the core's Digest code stays out), a WS2812 driver without a library, the command word table in flash. **mDNS** was measured at about 21 KB and does not fit; use a DHCP reservation instead.

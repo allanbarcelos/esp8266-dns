@@ -424,10 +424,9 @@ private:
         const char* id = base() + 11;
         _outP(PSTR("{\"dev\":{\"ids\":\"esp8266iot_"));
         _out(id);
-        _outP(PSTR("\",\"name\":\"ESP8266 IoT\",\"mf\":\"esp8266-dns\",\"mdl\":\"ESP-01\",\"sw\":\""));
+        _outP(PSTR("\",\"name\":\"ESP8266 IoT\",\"mf\":\"esp8266-dns\",\"sw\":\""));
         _out(firmware_version);
-        _outP(PSTR("\"},\"o\":{\"name\":\"esp8266-dns\","
-                   "\"url\":\"https://github.com/allanbarcelos/esp8266-dns\"},\"stat_t\":\""));
+        _outP(PSTR("\"},\"o\":{\"name\":\"esp8266-dns\"},\"stat_t\":\""));
         _out(_base);
         _outP(PSTR("/state\",\"avty_t\":\""));
         _out(_base);
