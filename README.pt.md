@@ -298,7 +298,7 @@ Pequeno de propósito: texto das páginas na flash (`PSTR`), raízes TLS em DER,
 
 ## 🧪 Testes
 
-Os testes nativos (Unity + PlatformIO) usam stubs do core Arduino em `test/stubs`. O CI exige **100 % de cobertura de linhas, funções e ramos** dos headers do firmware, compila sem nenhum aviso (`-Wall -Wextra -Werror`) e roda tudo de novo com **AddressSanitizer e UndefinedBehaviorSanitizer** (estouro de buffer, uso depois de liberar, vazamento, comportamento indefinido).
+Os testes nativos (Unity + PlatformIO) usam stubs do core Arduino em `test/stubs`. O CI exige **100 % de cobertura de linhas, funções e ramos** dos headers do firmware, compila sem nenhum aviso (`-Wall -Wextra -Werror`) e roda tudo de novo com **AddressSanitizer e UndefinedBehaviorSanitizer** (estouro de buffer, uso depois de liberar, vazamento, comportamento indefinido). O que chega de fora do aparelho (pacotes MQTT, comandos, resposta do Cloudflare, fluxo do ntfy, `config.json`) passa também por **fuzzing** (libFuzzer, `test/fuzz/`).
 
 ```bash
 python -m venv venv && . venv/bin/activate
@@ -307,6 +307,7 @@ pip install -r requirements.txt
 pio test -e native        # qualquer compilador do host
 pio test -e sanitize      # ASan + UBSan (gcc ou clang)
 tools/static_check.sh     # cppcheck, como no CI
+test/fuzz/run.sh 30       # fuzzing, 30 s por alvo (requer clang)
 ./test/coverage.sh        # requer gcc (Linux) — o mesmo comando do CI
 ```
 

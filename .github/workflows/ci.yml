@@ -233,6 +233,19 @@ jobs:
       - name: Testes com AddressSanitizer e UndefinedBehaviorSanitizer
         run: pio test -e sanitize
 
+      # Entradas de fora do aparelho (pacotes MQTT, comandos, resposta do
+      # Cloudflare, fluxo do ntfy, config.json): libFuzzer + ASan + UBSan,
+      # 30 s por alvo, a partir das sementes de test/fuzz/corpus
+      - name: Fuzzing
+        run: test/fuzz/run.sh 30
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: fuzzing-achados
+          path: .pio/fuzz/*-*-*
+          if-no-files-found: ignore
+
   # ── Assina e publica (apenas push na main com firmware novo) ──────────────
   release:
     needs: [plan, build, test]
