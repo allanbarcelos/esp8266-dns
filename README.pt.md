@@ -276,11 +276,11 @@ pio test -e native        # qualquer compilador do host
 
 | Workflow / job | Quando | O que faz |
 | --- | --- | --- |
-| `ci.yml` → `plan` | sempre | Decide se gera release e calcula a próxima tag `vN` |
-| `ci.yml` → `test` | sempre | Testes + 100 % de cobertura |
-| `ci.yml` → `build` | sempre | Compila com arduino-cli, confere o verificador de assinatura e os limites da flash |
+| `ci.yml` → `check` | sempre, primeiro | Cabeçalhos de licença, CSS/JS embutidos em dia, firmware dentro de **500.000 bytes**. Se falhar, nada mais roda |
+| `ci.yml` → `plan` | depois do `check` | Decide se gera release e calcula a próxima tag `vN` |
+| `ci.yml` → `test` | depois do `check`, junto com o `plan` | Testes + 100 % de cobertura |
+| `ci.yml` → `build` | depois do `plan` e do `test` | Compila com arduino-cli, confere o verificador de assinatura e os limites da flash |
 | `ci.yml` → `release` | push na `main` mexendo no firmware | Comprime, assina, **verifica a assinatura** e publica o release |
-| `headers.yml` | push e PR | Todo arquivo de código tem o cabeçalho de licença SPDX |
 
 Mudanças só em testes, documentação ou workflow não geram release. Para forçar, use *Run workflow* com `release: true`.
 
@@ -331,4 +331,4 @@ O estilo do painel e o script da página IoT ficam em `web/panel.css` e `web/iot
 
 ## 📄 Licença
 
-[MIT](LICENSE) © 2026 Allan Barcelos. Todo arquivo de código traz um cabeçalho SPDX (`SPDX-License-Identifier: MIT` e a linha de copyright); `python3 tools/license_headers.py` acrescenta o cabeçalho em arquivos novos e o workflow **License headers** recusa uma mudança sem ele. Componentes de terceiros e os pedidos de cortesia estão no [NOTICE](NOTICE). Para relatar uma vulnerabilidade, veja o [SECURITY.md](SECURITY.md).
+[MIT](LICENSE) © 2026 Allan Barcelos. Todo arquivo de código traz um cabeçalho SPDX (`SPDX-License-Identifier: MIT` e a linha de copyright); `python3 tools/license_headers.py` acrescenta o cabeçalho em arquivos novos e o job `check` do CI recusa uma mudança sem ele. Componentes de terceiros e os pedidos de cortesia estão no [NOTICE](NOTICE). Para relatar uma vulnerabilidade, veja o [SECURITY.md](SECURITY.md).

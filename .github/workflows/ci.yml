@@ -22,17 +22,26 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # ── Limite de tamanho: antes de tudo, para falhar cedo ────────────────────
-  # Regra do projeto: nenhuma funcionalidade ou correção passa o firmware de
-  # 500.000 bytes. A versão ci-<sha> é a mais longa que o binário recebe (a
-  # de release, vN, é menor), então o que passa aqui passa no release.
-  size:
+  # ── Checagens antes de tudo: se uma falhar, nada mais roda ────────────────
+  # Testes verdes com um firmware acima do limite não valem nada: o aparelho
+  # ainda pode travar. Por isso plan e test só começam depois daqui.
+  check:
     # PR de branch deste repositório já roda no push; só PR de fork roda aqui
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
+      # Rápidas primeiro (segundos, sem compilar)
+      - name: Cabeçalho de licença em todo arquivo de código
+        run: python3 tools/license_headers.py --check
+
+      - name: CSS e JS embutidos (WebAssets.h igual a web/)
+        run: python3 tools/embed_web.py --check
+
+      # Regra do projeto: nenhuma funcionalidade ou correção passa o firmware
+      # de 500.000 bytes. A versão ci-<sha> é a mais longa que o binário
+      # recebe (a de release, vN, é menor): o que passa aqui passa no release.
       - uses: ./.github/actions/setup-arduino
 
       - id: version
@@ -49,7 +58,7 @@ jobs:
 
   # ── Decide se este push publica release e qual será a versão ──────────────
   plan:
-    needs: size
+    needs: check
     runs-on: ubuntu-latest
     outputs:
       release: ${{ steps.plan.outputs.release }}
@@ -109,7 +118,7 @@ jobs:
 
   # ── Testes nativos com cobertura obrigatória de 100% ──────────────────────
   test:
-    needs: size
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -126,9 +135,6 @@ jobs:
 
       - name: Instala PlatformIO e gcovr
         run: pip install -r requirements.txt
-
-      - name: Confere CSS e JS embutidos (WebAssets.h igual a web/)
-        run: python3 tools/embed_web.py --check
 
       - name: Testes + cobertura (100% linhas/funções/branches)
         run: ./test/coverage.sh

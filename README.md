@@ -276,11 +276,11 @@ pio test -e native        # any host compiler
 
 | Workflow / job | When | What it does |
 | --- | --- | --- |
-| `ci.yml` → `plan` | always | Decides whether to release and computes the next `vN` tag |
-| `ci.yml` → `test` | always | Tests + 100 % coverage |
-| `ci.yml` → `build` | always | Compiles with arduino-cli, checks the signature verifier and flash limits |
+| `ci.yml` → `check` | always, first | License headers, embedded CSS/JS up to date, firmware within **500,000 bytes**. If it fails, nothing else runs |
+| `ci.yml` → `plan` | after `check` | Decides whether to release and computes the next `vN` tag |
+| `ci.yml` → `test` | after `check`, alongside `plan` | Tests + 100 % coverage |
+| `ci.yml` → `build` | after `plan` and `test` | Compiles with arduino-cli, checks the signature verifier and flash limits |
 | `ci.yml` → `release` | push to `main` touching firmware | Compresses, signs, **verifies the signature** and publishes the release |
-| `headers.yml` | push and PR | Every source file carries the SPDX license header |
 
 Changes limited to tests, docs or the workflow do not create a release. To force one, use *Run workflow* with `release: true`.
 
@@ -331,4 +331,4 @@ The panel style and the IoT page script live in `web/panel.css` and `web/iot.js`
 
 ## 📄 License
 
-[MIT](LICENSE) © 2026 Allan Barcelos. Every source file carries an SPDX header (`SPDX-License-Identifier: MIT` and the copyright line); `python3 tools/license_headers.py` adds it to new files and the **License headers** workflow refuses a change without it. Third-party components and the courtesy requests are listed in [NOTICE](NOTICE). To report a vulnerability, see [SECURITY.md](SECURITY.md).
+[MIT](LICENSE) © 2026 Allan Barcelos. Every source file carries an SPDX header (`SPDX-License-Identifier: MIT` and the copyright line); `python3 tools/license_headers.py` adds it to new files and the CI `check` job refuses a change without it. Third-party components and the courtesy requests are listed in [NOTICE](NOTICE). To report a vulnerability, see [SECURITY.md](SECURITY.md).
