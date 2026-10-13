@@ -508,18 +508,18 @@ private:
             case iot::K_RANGE: _tickRange(now); return;
             default: break;
         }
-        int level = digitalRead((uint8_t)_r.sensorPin);
-        if (!_seen || level != _candidate) {
+        int pin = digitalRead((uint8_t)_r.sensorPin);
+        if (!_seen || pin != _candidate) {
             _seen = true;
-            _candidate = level;
+            _candidate = pin;
             _since = now;
             return;
         }
         if (now - _since < DEBOUNCE_MS) return;
-        if (_haveLevel && level == _stable) return;
-        _stable = level;
+        if (_haveLevel && pin == _stable) return;
+        _stable = pin;
         _haveLevel = true;
-        _onDigital((level == HIGH) == _r.sensorHigh);
+        _onDigital((pin == HIGH) == _r.sensorHigh);
     }
 
     void _onDigital(bool active) {
@@ -595,7 +595,6 @@ private:
         _failing = false;
         uint8_t kind = sensorKind();
         char a[12];
-        char b[12];
         if (kind == iot::K_PULSE) {
             snprintf(_sensorLine, sizeof(_sensorLine), "%d pulsos/10 s", value);
         } else if (kind == iot::K_RANGE) {
@@ -604,6 +603,7 @@ private:
             _fmtTenths(a, sizeof(a), value);
             snprintf(_sensorLine, sizeof(_sensorLine), "%s C", a);
         } else {
+            char b[12];
             _fmtTenths(a, sizeof(a), _temp);
             _fmtTenths(b, sizeof(b), _hum);
             snprintf(_sensorLine, sizeof(_sensorLine), "%s C, %s%%", a, b);

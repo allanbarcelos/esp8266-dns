@@ -306,6 +306,7 @@ pip install -r requirements.txt
 
 pio test -e native        # qualquer compilador do host
 pio test -e sanitize      # ASan + UBSan (gcc ou clang)
+tools/static_check.sh     # cppcheck, como no CI
 ./test/coverage.sh        # requer gcc (Linux) — o mesmo comando do CI
 ```
 
@@ -316,7 +317,7 @@ pio test -e sanitize      # ASan + UBSan (gcc ou clang)
 | Job (`ci.yml`) | Quando | O que faz |
 | --- | --- | --- |
 | `plan` | sempre, primeiro | Decide: há firmware novo (desde a última tag `vN`)? só mudaram testes? qual versão? publica? |
-| `check` | sempre | Regras do repositório: todo arquivo de código tem o cabeçalho de licença SPDX |
+| `check` | sempre | Regras do repositório: todo arquivo de código tem o cabeçalho de licença SPDX; análise estática (cppcheck) sem achados |
 | `build` | firmware novo | CSS/JS embutidos em dia, compila com arduino-cli, firmware dentro de **500.000 bytes**, verificador de assinatura, tamanho do pacote OTA |
 | `test` | depois do `build`, ou sozinho quando só mudaram testes | Testes + 100 % de cobertura, sem avisos; de novo com ASan e UBSan |
 | `release` | push na `main` com firmware novo | Comprime, assina, **verifica a assinatura** e publica o release |

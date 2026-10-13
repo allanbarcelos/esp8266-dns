@@ -91,7 +91,7 @@ private:
         return allOk;
     }
 
-    bool _patchRecord(BearSSL::X509List& trust, const char* record, const char* ip) {
+    bool _patchRecord(const BearSSL::X509List& trust, const char* record, const char* ip) {
         String url = "https://api.cloudflare.com/client/v4/zones/";
         url += _cfg.cf_zone;
         url += "/dns_records/";

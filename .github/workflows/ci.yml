@@ -134,6 +134,12 @@ jobs:
       - name: Cabeçalho de licença em todo arquivo de código
         run: python3 tools/license_headers.py --check
 
+      - name: Análise estática (cppcheck)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cppcheck
+          tools/static_check.sh
+
   # ── Gera o firmware: compila, mede e empacota ─────────────────────────────
   # Vem antes dos testes: testes verdes com um firmware acima do limite não
   # valem nada, o aparelho ainda pode travar.

@@ -127,7 +127,7 @@ private:
         return true;
     }
 
-    bool _query(BearSSL::X509List& trust, const char* url, char* out, size_t len) {
+    bool _query(const BearSSL::X509List& trust, const char* url, char* out, size_t len) {
         TlsClient client;
         client.setTrustAnchors(&trust);
         client.setX509Time(_clock.now());

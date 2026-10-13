@@ -102,7 +102,7 @@ private:
     bool          _overflow = false;
     bool          _waiting = false;
     size_t        _len = 0;
-    char          _line[LINE_LEN];
+    char          _line[LINE_LEN] = {};
     char          _lastId[24];
     unsigned long _nextConnect = 0;
     unsigned long _lastData = 0;

@@ -306,6 +306,7 @@ pip install -r requirements.txt
 
 pio test -e native        # any host compiler
 pio test -e sanitize      # ASan + UBSan (gcc or clang)
+tools/static_check.sh     # cppcheck, as in CI
 ./test/coverage.sh        # requires gcc (Linux) — same command as CI
 ```
 
@@ -316,7 +317,7 @@ pio test -e sanitize      # ASan + UBSan (gcc or clang)
 | Job (`ci.yml`) | When | What it does |
 | --- | --- | --- |
 | `plan` | always, first | Decides: is there new firmware (since the last `vN` tag)? only test changes? which version? publish? |
-| `check` | always | Repository rules: every source file carries the SPDX license header |
+| `check` | always | Repository rules: every source file carries the SPDX license header; static analysis (cppcheck) with no findings |
 | `build` | new firmware | Embedded CSS/JS up to date, compiles with arduino-cli, firmware within **500,000 bytes**, signature verifier, OTA package size |
 | `test` | after `build`, or alone when only tests changed | Tests + 100 % coverage, no warnings; again under ASan and UBSan |
 | `release` | push to `main` with new firmware | Compresses, signs, **verifies the signature** and publishes the release |

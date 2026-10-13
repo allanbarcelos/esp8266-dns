@@ -158,7 +158,7 @@ private:
     // Pacote que chega: cabeçalho, tamanho (até 4 bytes) e corpo
     uint8_t  _rxState = RX_HEADER, _rxHeader = 0, _rxShift = 0;
     uint32_t _rxLen = 0, _rxGot = 0;
-    char     _rx[RX_LEN];
+    char     _rx[RX_LEN] = {};
 
     void _close() {
         if (_state != ST_IDLE) _net.stop();
@@ -435,7 +435,7 @@ private:
         _out(_base);
         _outP(PSTR("/cmd\",\"cmps\":{"));
         for (const Entity& e : ENTITIES) {
-            char head[8] = {',', '"', e.key, '"', ':', '{', '\0'};
+            const char head[8] = {',', '"', e.key, '"', ':', '{', '\0'};
             _out(e.key == 't' ? head + 1 : head);
             _outP(PSTR("\"p\":\""));
             _outP(e.platform);

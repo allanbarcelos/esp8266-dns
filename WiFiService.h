@@ -142,8 +142,8 @@ private:
     uint8_t       _memStrikes        = 0;
     bool          _otaInProgress     = false;
 
-    WiFiEventHandler _evtGotIP;
-    WiFiEventHandler _evtDisconnected;
+    WiFiEventHandler _evtGotIP{};
+    WiFiEventHandler _evtDisconnected{};
 
     // O padrão do STA é modem sleep. Em vários roteadores (inclusive CPE 4G)
     // o rádio dorme entre os beacons e a resposta do handshake se perde:
