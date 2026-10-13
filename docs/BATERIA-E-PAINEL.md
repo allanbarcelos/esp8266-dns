@@ -1,6 +1,6 @@
 # Bateria e painel solar
 
-Notas de 13/10/2026. Dá para alimentar o aparelho com bateria e painel solar sem usar nenhum GPIO. A porcentagem de carga também cabe sem tirar os pinos do sensor e do atuador, mas isso usa os dois pinos que sobram. O firmware lê o MAX17048 desde o commit que acompanha este texto (veja o README, seção de energia); o INA219 ainda não.
+Notas de 13/10/2026. Dá para alimentar o aparelho com bateria e painel solar sem usar nenhum GPIO. A porcentagem de carga também cabe sem tirar os pinos do sensor e do atuador, mas isso usa os dois pinos que sobram. O firmware lê o MAX17048 desde o commit `98588a9` (veja o README, seção de energia); o INA219 ainda não.
 
 O ESP-01 só tem quatro GPIOs: GPIO0, GPIO2, TX e RX. O sensor fica com um, o atuador com outro. Os dois restantes são o único lugar para medir a bateria. O pino analógico do chip não sai no conector, então um divisor de tensão direto no módulo não serve.
 

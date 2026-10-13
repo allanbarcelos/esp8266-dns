@@ -399,7 +399,7 @@ The TLS roots are kept readable in `ca/roots.pem` (name, expiry and SHA-256 of e
 
 ## 🗺️ Status and next steps
 
-What changed in the last round, how it was verified and what comes next (in Portuguese): [docs/ESTADO-E-PROXIMOS-PASSOS.md](docs/ESTADO-E-PROXIMOS-PASSOS.md). What is worth porting from Tasmota: [docs/PORTAR-DO-TASMOTA.md](docs/PORTAR-DO-TASMOTA.md). Battery and solar panel: [docs/BATERIA-E-PAINEL.md](docs/BATERIA-E-PAINEL.md).
+What changed in the last round, how it was verified and what comes next (in Portuguese): [docs/ESTADO-E-PROXIMOS-PASSOS.md](docs/ESTADO-E-PROXIMOS-PASSOS.md). What is worth porting from Tasmota: [docs/PORTAR-DO-TASMOTA.md](docs/PORTAR-DO-TASMOTA.md). Battery and solar panel: [docs/BATERIA-E-PAINEL.md](docs/BATERIA-E-PAINEL.md). Which of those items are implemented, and in which commit: [docs/IMPLEMENTACAO.md](docs/IMPLEMENTACAO.md).
 
 ---
 
