@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+
+name: Compila o firmware
+description: >
+  Compila o sketch para o ESP-01 (1 MB, FS 64 KB, reserva OTA 400 KB, lwIP
+  sem extras) e deixa o binário em build/firmware.raw.bin. Requer o
+  setup-arduino antes.
+inputs:
+  version:
+    description: Versão embutida no firmware (firmware_version)
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Compila (ESP-01 1MB, FS 64KB, reserva OTA 400KB, lwIP sem extras)
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        python3 tools/ota_flash_ld.py
+        arduino-cli compile \
+          --fqbn esp8266:esp8266:generic:eesz=1M64,ip=lm2n \
+          --build-property "build.flash_ld=eagle.flash.1m64.ota.ld" \
+          --build-property "build.float=" \
+          --build-property "build.extra_flags=-Dfirmware_version=\"$VERSION\" -DARDUINO_SIGNING=1" \
+          --output-dir build
+        cp build/esp8266-dns.ino.bin build/firmware.raw.bin
