@@ -22,8 +22,8 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # Esteira: plan → check → build → test → release. Cada job faz uma coisa;
-  # sem firmware novo, build, test e release são ignorados.
+  # Esteira: plan → check → build → test → release → pages. Cada job faz uma
+  # coisa; sem firmware novo, build, test e release são ignorados.
 
   # ── Decide: há firmware novo? qual versão? publica? ───────────────────────
   plan:
@@ -35,6 +35,8 @@ jobs:
       tests: ${{ steps.plan.outputs.tests }}
       release: ${{ steps.plan.outputs.release }}
       version: ${{ steps.plan.outputs.version }}
+      pages: ${{ steps.plan.outputs.pages }}
+      site_version: ${{ steps.plan.outputs.site_version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -45,12 +47,15 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           FORCE: ${{ inputs.release }}
+          BEFORE: ${{ github.event.before }}
           # Tudo o que muda o binário ou o pacote publicado: sketch, CSS/JS do
           # painel, chave, linker, versão do core/bibliotecas, opções de
           # compilação e empacotamento OTA
           FIRMWARE_PATHS: '^([^/]+\.(ino|h)|web/|public\.key|ld/|tools/(ota_flash_ld|embed_web)\.py|\.github/(actions/(setup-arduino|compile)/|scripts/package_ota\.py))'
           # Só os testes: roda o test, sem build nem release
           TEST_PATHS: '^(test/|platformio\.ini|requirements\.txt)'
+          # Instalador web: a página e o gerador do site
+          PAGES_PATHS: '^(install/|tools/web_installer\.py)'
         run: |
           # Maior tag vN existente (ordenação numérica, sem limite de paginação)
           last=$(git tag -l 'v*' | sed -n 's/^v\([0-9][0-9]*\)$/\1/p' | sort -n | tail -1)
@@ -86,13 +91,37 @@ jobs:
             version="ci-${GITHUB_SHA::7}"
           fi
 
+          # Instalador web na main: com release novo, quando a página muda
+          # (diff com o push anterior) ou em Run workflow. Grava sempre uma
+          # versão publicada: a nova ou a última tag.
+          pages=false
+          if [ "$REF" = "refs/heads/main" ] && [ "$EVENT" != "pull_request" ]; then
+            if [ "$release" = "true" ] || [ "$EVENT" = "workflow_dispatch" ]; then
+              pages=true
+            elif [ "$EVENT" = "push" ]; then
+              if ! git rev-parse -q --verify "$BEFORE^{commit}" >/dev/null; then
+                pages=true   # push sem base conhecida (branch nova, force push)
+              elif git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -qE "$PAGES_PATHS"; then
+                pages=true
+              fi
+            fi
+          fi
+          if [ "$release" = "true" ]; then
+            site_version="$version"
+          else
+            site_version="$last_tag"
+            if [ -z "$last" ]; then pages=false; fi   # nada publicado ainda
+          fi
+
           {
             echo "firmware=$firmware"
             echo "tests=$tests"
             echo "release=$release"
             echo "version=$version"
+            echo "pages=$pages"
+            echo "site_version=$site_version"
           } >> "$GITHUB_OUTPUT"
-          echo "Firmware novo: $firmware — testes: $tests — release: $release — versão: $version (última tag: $last_tag)" \
+          echo "Firmware novo: $firmware — testes: $tests — release: $release — versão: $version (última tag: $last_tag) — instalador web: $pages ($site_version)" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
   # ── Regras do repositório (segundos, sempre) ──────────────────────────────
@@ -148,6 +177,13 @@ jobs:
           python3 .github/scripts/package_ota.py build/firmware.raw.bin dist \
             --map build/esp8266-dns.ino.map \
             --key "$RUNNER_TEMP/test.key" --pubkey "$RUNNER_TEMP/test.pub"
+
+      # O mesmo gerador do job pages: imagem do ESP8266, dentro do sketch
+      # máximo e com a versão que o manifesto anuncia
+      - name: Monta o instalador web (conferência)
+        run: |
+          python3 tools/web_installer.py build/firmware.raw.bin \
+            "${{ needs.plan.outputs.version }}" "$RUNNER_TEMP/site"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -222,3 +258,40 @@ jobs:
             dist/firmware.bin
             dist/firmware.signed.bin
           fail_on_unmatched_files: true
+
+  # ── Instalador web (ESP Web Tools) no GitHub Pages ────────────────────────
+  # O firmware vem do firmware.bin do release (gzip do .bin cru): a página
+  # só grava versões publicadas. Requer Settings → Pages → Source: GitHub
+  # Actions.
+  pages:
+    needs: [plan, release]
+    if: >-
+      !failure() && !cancelled() && needs.plan.outputs.pages == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Baixa o firmware do release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.site_version }}
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern firmware.bin --dir build
+
+      - name: Monta o site
+        env:
+          TAG: ${{ needs.plan.outputs.site_version }}
+        run: python3 tools/web_installer.py build/firmware.bin "$TAG" site
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v5

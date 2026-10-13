@@ -1,0 +1,136 @@
+<!doctype html>
+<!--
+  SPDX-License-Identifier: MIT
+  Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP8266 IoT Installer</title>
+<meta name="description" content="Grava o firmware ESP8266 IoT num ESP-01 pelo navegador.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='3' width='10' height='10' rx='1' fill='%231f6feb'/%3E%3Cpath d='M5 1v2M8 1v2M11 1v2M5 13v2M8 13v2M11 13v2M1 5h2M1 8h2M1 11h2M13 5h2M13 8h2M13 11h2' stroke='%231f6feb'/%3E%3C/svg%3E">
+<!-- Versão exata: este script grava o aparelho -->
+<script type="module" src="https://cdn.jsdelivr.net/npm/esp-web-tools@10.4.0/dist/web/install-button.js"></script>
+<style>
+:root {
+  --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #5b6475;
+  --line: #dde1e8; --accent: #1f6feb; --accent-text: #fff; --warn-bg: #fff6dd; --warn-line: #e6c55c;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #10141b; --card: #171c25; --text: #e6e9ef; --muted: #9aa3b2;
+    --line: #2a3140; --accent: #4c8dff; --accent-text: #0b0f16; --warn-bg: #2b2513; --warn-line: #7a6424;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 680px; margin: 0 auto; padding: 32px 16px 48px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+h2 { font-size: 1.1rem; margin: 28px 0 8px; }
+p, li { color: var(--text); }
+.muted { color: var(--muted); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin-top: 20px; }
+.warn { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 8px; padding: 12px 14px; }
+ol { padding-left: 1.3em; }
+li { margin: 6px 0; }
+code { background: var(--line); border-radius: 4px; padding: 1px 5px; font-size: .92em; }
+button.install {
+  font: inherit; font-weight: 600; border: 0; border-radius: 8px; cursor: pointer;
+  background: var(--accent); color: var(--accent-text); padding: 12px 22px;
+}
+.lang { float: right; font-size: .9rem; }
+a { color: var(--accent); }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <nav class="lang"><a href="#" data-set-lang="pt">Português</a> · <a href="#" data-set-lang="en">English</a></nav>
+
+  <section data-lang="pt">
+    <h1>ESP8266 IoT</h1>
+    <p class="muted">DDNS Cloudflare, OTA assinado e IoT local num ESP-01. Versão <span class="version">…</span>.</p>
+
+    <div class="card">
+      <esp-web-install-button manifest="manifest.json">
+        <button slot="activate" class="install">Instalar no ESP-01</button>
+        <span slot="unsupported" class="warn" style="display:block">Este navegador não grava pela USB (Web Serial). Use o Chrome ou o Edge no computador.</span>
+        <span slot="not-allowed" class="warn" style="display:block">A gravação só funciona em HTTPS.</span>
+      </esp-web-install-button>
+    </div>
+
+    <h2>Antes de começar</h2>
+    <ul>
+      <li>ESP-01 ou ESP-01S de 1 MB e um adaptador USB-serial de 3,3 V.</li>
+      <li>Chrome ou Edge no computador.</li>
+    </ul>
+
+    <h2>Passo a passo</h2>
+    <ol>
+      <li>Ligue o <strong>GPIO0 ao GND</strong> e só então conecte o adaptador na USB. O ESP-01 não entra sozinho no modo de gravação.</li>
+      <li>Clique em <strong>Instalar</strong> e escolha a porta serial do adaptador.</li>
+      <li>Na primeira instalação, aceite <strong>apagar o aparelho</strong>. Para atualizar um aparelho já configurado, não apague: a configuração fica.</li>
+      <li>Quando terminar, tire o adaptador da USB, <strong>solte o GPIO0</strong> e conecte de novo. O botão de reiniciar do instalador não funciona no ESP-01.</li>
+      <li>Conecte-se à rede <code>ESP_Config</code> (senha <code>esp8266dns</code>), abra <code>http://192.168.4.1</code>, informe o Wi-Fi e defina a senha do painel.</li>
+    </ol>
+
+    <p class="warn">Apagar o aparelho apaga também a configuração (Wi-Fi, Cloudflare, ntfy, IoT).</p>
+    <p class="muted">Depois de instalado, o firmware se atualiza sozinho por OTA assinado. Documentação: <a href="https://github.com/allanbarcelos/esp8266-dns/blob/main/README.pt.md">README</a>.</p>
+  </section>
+
+  <section data-lang="en" hidden>
+    <h1>ESP8266 IoT</h1>
+    <p class="muted">Cloudflare DDNS, signed OTA and local IoT on an ESP-01. Version <span class="version">…</span>.</p>
+
+    <div class="card">
+      <esp-web-install-button manifest="manifest.json">
+        <button slot="activate" class="install">Install on the ESP-01</button>
+        <span slot="unsupported" class="warn" style="display:block">This browser cannot flash over USB (Web Serial). Use Chrome or Edge on a computer.</span>
+        <span slot="not-allowed" class="warn" style="display:block">Flashing only works over HTTPS.</span>
+      </esp-web-install-button>
+    </div>
+
+    <h2>Before you start</h2>
+    <ul>
+      <li>A 1 MB ESP-01 or ESP-01S and a 3.3 V USB-serial adapter.</li>
+      <li>Chrome or Edge on a computer.</li>
+    </ul>
+
+    <h2>Step by step</h2>
+    <ol>
+      <li>Connect <strong>GPIO0 to GND</strong>, then plug the adapter into USB. The ESP-01 does not enter flashing mode on its own.</li>
+      <li>Click <strong>Install</strong> and pick the adapter's serial port.</li>
+      <li>On a first install, accept <strong>erasing the device</strong>. To update a device that is already set up, do not erase: the configuration is kept.</li>
+      <li>When it finishes, unplug the adapter, <strong>release GPIO0</strong> and plug it in again. The installer's reset button does not work on the ESP-01.</li>
+      <li>Join the <code>ESP_Config</code> network (password <code>esp8266dns</code>), open <code>http://192.168.4.1</code>, enter your Wi-Fi and set the panel password.</li>
+    </ol>
+
+    <p class="warn">Erasing the device also erases its configuration (Wi-Fi, Cloudflare, ntfy, IoT).</p>
+    <p class="muted">Once installed, the firmware updates itself through signed OTA. Documentation: <a href="https://github.com/allanbarcelos/esp8266-dns/blob/main/README.md">README</a>.</p>
+  </section>
+</main>
+<script>
+// Idioma: o escolhido, senão o do navegador
+function setLang(lang) {
+  document.documentElement.lang = lang === "pt" ? "pt-BR" : "en";
+  document.querySelectorAll("[data-lang]").forEach(function (s) { s.hidden = s.dataset.lang !== lang; });
+  try { localStorage.setItem("lang", lang); } catch (e) {}
+}
+var saved = null;
+try { saved = localStorage.getItem("lang"); } catch (e) {}
+setLang(saved || (/^pt/i.test(navigator.language || "") ? "pt" : "en"));
+document.querySelectorAll("[data-set-lang]").forEach(function (a) {
+  a.addEventListener("click", function (ev) { ev.preventDefault(); setLang(a.dataset.setLang); });
+});
+fetch("manifest.json").then(function (r) { return r.json(); }).then(function (m) {
+  document.querySelectorAll(".version").forEach(function (v) { v.textContent = m.version; });
+}).catch(function () {});
+</script>
+</body>
+</html>

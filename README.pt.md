@@ -43,7 +43,7 @@ Cada serviço é um header com dependências injetadas por referência, composta
 
 ## 🚀 Primeiro uso
 
-1. Grave pela serial (veja [Build local](#-build-local)).
+1. Grave pelo navegador no **[instalador web](https://allanbarcelos.github.io/esp8266-dns/)** (Chrome ou Edge no computador, sem instalar nada) ou pela serial (veja [Build local](#-build-local)). Nos dois casos, o ESP-01 precisa do **GPIO0 no GND** ao ligar o adaptador; solte depois de gravar e reconecte.
 2. Sem Wi-Fi configurado, o ESP cria a rede **`ESP_Config`** (senha padrão **`esp8266dns`**, trocável no build com `-DAP_PASSWORD=\"...\"`).
 3. Abra `http://192.168.4.1`, informe o Wi-Fi e **defina usuário e senha do painel** (mínimo de 8 caracteres).
 4. Depois do reinício, abra o IP local do ESP. Configure **Cloudflare**, **ntfy** e **IoT** conforme precisar; cada parte é opcional.
@@ -281,8 +281,9 @@ pio test -e native        # qualquer compilador do host
 | `build` | firmware novo | CSS/JS embutidos em dia, compila com arduino-cli, firmware dentro de **500.000 bytes**, verificador de assinatura, tamanho do pacote OTA |
 | `test` | depois do `build`, ou sozinho quando só mudaram testes | Testes + 100 % de cobertura |
 | `release` | push na `main` com firmware novo | Comprime, assina, **verifica a assinatura** e publica o release |
+| `pages` | depois do `release`, quando `install/` muda na `main` ou em *Run workflow* | Publica o [instalador web](https://allanbarcelos.github.io/esp8266-dns/) no GitHub Pages com o firmware do último release |
 
-A esteira roda `plan → check → build → test → release`; se um job falha, os seguintes não rodam. Sem firmware novo (documentação, workflow, ferramentas), `build`, `test` e `release` são ignorados. Para forçar um release, use *Run workflow* com `release: true`.
+A esteira roda `plan → check → build → test → release → pages`; se um job falha, os seguintes não rodam. Sem firmware novo (documentação, workflow, ferramentas), `build`, `test` e `release` são ignorados. Para forçar um release, use *Run workflow* com `release: true`.
 
 ---
 

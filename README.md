@@ -43,7 +43,7 @@ Each service is a header with dependencies injected by reference, composed in la
 
 ## 🚀 First use
 
-1. Flash over serial (see [Local build](#-local-build)).
+1. Flash from the browser with the **[web installer](https://allanbarcelos.github.io/esp8266-dns/)** (Chrome or Edge on a computer, nothing to install) or over serial (see [Local build](#-local-build)). Either way, the ESP-01 needs **GPIO0 tied to GND** when the adapter is plugged in; release it after flashing and plug it in again.
 2. With no Wi-Fi configured, the ESP creates the **`ESP_Config`** network (default password **`esp8266dns`**, override at build time with `-DAP_PASSWORD=\"...\"`).
 3. Open `http://192.168.4.1`, enter the Wi-Fi credentials and **set the panel user and password** (at least 8 characters).
 4. After the reboot, open the ESP's local IP. Configure **Cloudflare**, **ntfy** and **IoT** as needed; each part is optional.
@@ -281,8 +281,9 @@ pio test -e native        # any host compiler
 | `build` | new firmware | Embedded CSS/JS up to date, compiles with arduino-cli, firmware within **500,000 bytes**, signature verifier, OTA package size |
 | `test` | after `build`, or alone when only tests changed | Tests + 100 % coverage |
 | `release` | push to `main` with new firmware | Compresses, signs, **verifies the signature** and publishes the release |
+| `pages` | after `release`, when `install/` changes on `main`, or on *Run workflow* | Publishes the [web installer](https://allanbarcelos.github.io/esp8266-dns/) to GitHub Pages with the latest release's firmware |
 
-The pipeline runs `plan → check → build → test → release`; if one job fails, the next ones do not run. Without new firmware (docs, workflow, tools), `build`, `test` and `release` are skipped. To force a release, use *Run workflow* with `release: true`.
+The pipeline runs `plan → check → build → test → release → pages`; if one job fails, the next ones do not run. Without new firmware (docs, workflow, tools), `build`, `test` and `release` are skipped. To force a release, use *Run workflow* with `release: true`.
 
 ---
 
