@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 #pragma once
-#include <ESP8266WebServer.h>
+#include "HttpServer.h"
 #include <LittleFS.h>
 #include <base64.h>
 #include "Config.h"
@@ -64,47 +64,7 @@ public:
 
     void begin() {
         _generateCSRF();
-
-        _server.on("/",                HTTP_GET,  [this]() { _handleRoot(); });
-        _server.on("/save",            HTTP_POST, [this]() { _handleSave(); });
-        _server.on("/log",             HTTP_GET,  [this]() { _handleLog(); });
-        _server.on("/status",          HTTP_GET,  [this]() { _handleStatus(); });
-        _server.on("/cloudflare",      HTTP_GET,  [this]() { _handleCloudflare(); });
-        _server.on("/cloudflare/save", HTTP_POST, [this]() { _handleCloudflareSave(); });
-        _server.on("/ntfy",            HTTP_GET,  [this]() { _handleNtfy(); });
-        _server.on("/ntfy/save",       HTTP_POST, [this]() { _handleNtfySave(); });
-        _server.on("/mqtt",            HTTP_GET,  [this]() { _handleMqtt(); });
-        _server.on("/mqtt/save",       HTTP_POST, [this]() { _handleMqttSave(); });
-        _server.on("/password",        HTTP_GET,  [this]() { _handlePassword(); });
-        _server.on("/password/save",   HTTP_POST, [this]() { _handlePasswordSave(); });
-        _server.on("/iot",             HTTP_GET,  [this]() { _handleIot(); });
-        _server.on("/iot/save",        HTTP_POST, [this]() { _handleIotSave(); });
-        _server.on("/iot/now",         HTTP_GET,  [this]() { _handleIotNow(); });
-        _server.on("/iot/cmd",         HTTP_POST, [this]() { _handleIotCmd(); });
-        _server.on("/iot/token",       HTTP_POST, [this]() { _handleIotToken(); });
-        _server.on("/iot/clear",       HTTP_POST, [this]() { _handleIotClear(); });
-        // API local: mesma leitura e mesmos comandos, com token em vez do login
-        _server.on("/api/state",       HTTP_GET,  [this]() { _handleApiState(); });
-        _server.on("/api/cmd",         HTTP_POST, [this]() { _handleApiCmd(); });
-        _server.collectHeaders("Authorization");
-        _server.on("/update",          HTTP_GET,  [this]() { _handleUpdate(); });
-        _server.on("/update/auto",     HTTP_POST, [this]() { _handleUpdateAuto(); });
-        _server.on("/update/check",    HTTP_POST, [this]() { _handleUpdateCheck(); });
-        _server.on("/update/install",  HTTP_POST, [this]() { _handleUpdateInstall(); });
-        // Imagens embutidas (Assets.h): públicas, sem dado do aparelho
-        _server.on("/esp01.webp",      HTTP_GET,  [this]() {
-            _asset("image/webp", ASSET_PHOTO, sizeof(ASSET_PHOTO), false);
-        });
-        _server.on("/s.css",           HTTP_GET,  [this]() {
-            _asset("text/css", WEB_CSS_GZ, sizeof(WEB_CSS_GZ), true);
-        });
-        _server.on("/iot.js",          HTTP_GET,  [this]() {
-            _asset("text/javascript", WEB_IOT_GZ, sizeof(WEB_IOT_GZ), true);
-        });
-        _server.on("/pinout.svg",      HTTP_GET,  [this]() {
-            _asset("image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ), true);
-        });
-        _server.begin();
+        _server.begin(_dispatch, this);
         _log.log(PSTR("Servidor web iniciado na porta 80"));
     }
 
@@ -173,7 +133,7 @@ public:
     }
 
 private:
-    ESP8266WebServer _server;
+    HttpServer       _server;
     Config&          _cfg;
     Logger&          _log;
     ConfigStore&     _store;
@@ -186,6 +146,51 @@ private:
     unsigned long    _loginWaitUntil = 0;
 
     char _csrfToken[17]; // 16 hex + null
+
+    static void _dispatch(void* self) { static_cast<WebService*>(self)->_route(); }
+
+    // Rota pelo caminho e pelo método; o resto é 404
+    void _route() {
+        const char* p = _server.path();
+        if (_server.method() == HttpServer::GET) {
+            if (!strcmp_P(p, PSTR("/")))           return _handleRoot();
+            if (!strcmp_P(p, PSTR("/log")))        return _handleLog();
+            if (!strcmp_P(p, PSTR("/status")))     return _handleStatus();
+            if (!strcmp_P(p, PSTR("/cloudflare"))) return _handleCloudflare();
+            if (!strcmp_P(p, PSTR("/ntfy")))       return _handleNtfy();
+            if (!strcmp_P(p, PSTR("/mqtt")))       return _handleMqtt();
+            if (!strcmp_P(p, PSTR("/password")))   return _handlePassword();
+            if (!strcmp_P(p, PSTR("/iot")))        return _handleIot();
+            if (!strcmp_P(p, PSTR("/iot/now")))    return _handleIotNow();
+            // API local: mesma leitura e mesmos comandos, com token em vez do login
+            if (!strcmp_P(p, PSTR("/api/state")))  return _handleApiState();
+            if (!strcmp_P(p, PSTR("/update")))     return _handleUpdate();
+            // Imagens embutidas (Assets.h): públicas, sem dado do aparelho
+            if (!strcmp_P(p, PSTR("/esp01.webp")))
+                return _asset("image/webp", ASSET_PHOTO, sizeof(ASSET_PHOTO), false);
+            if (!strcmp_P(p, PSTR("/s.css")))
+                return _asset("text/css", WEB_CSS_GZ, sizeof(WEB_CSS_GZ), true);
+            if (!strcmp_P(p, PSTR("/iot.js")))
+                return _asset("text/javascript", WEB_IOT_GZ, sizeof(WEB_IOT_GZ), true);
+            if (!strcmp_P(p, PSTR("/pinout.svg")))
+                return _asset("image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ), true);
+        } else if (_server.method() == HttpServer::POST) {
+            if (!strcmp_P(p, PSTR("/save")))            return _handleSave();
+            if (!strcmp_P(p, PSTR("/cloudflare/save"))) return _handleCloudflareSave();
+            if (!strcmp_P(p, PSTR("/ntfy/save")))       return _handleNtfySave();
+            if (!strcmp_P(p, PSTR("/mqtt/save")))       return _handleMqttSave();
+            if (!strcmp_P(p, PSTR("/password/save")))   return _handlePasswordSave();
+            if (!strcmp_P(p, PSTR("/iot/save")))        return _handleIotSave();
+            if (!strcmp_P(p, PSTR("/iot/cmd")))         return _handleIotCmd();
+            if (!strcmp_P(p, PSTR("/iot/token")))       return _handleIotToken();
+            if (!strcmp_P(p, PSTR("/iot/clear")))       return _handleIotClear();
+            if (!strcmp_P(p, PSTR("/api/cmd")))         return _handleApiCmd();
+            if (!strcmp_P(p, PSTR("/update/auto")))     return _handleUpdateAuto();
+            if (!strcmp_P(p, PSTR("/update/check")))    return _handleUpdateCheck();
+            if (!strcmp_P(p, PSTR("/update/install")))  return _handleUpdateInstall();
+        }
+        _server.send(404, "text/plain", "");
+    }
 
     // ── Segurança ─────────────────────────────────────────────────────────────
 
@@ -207,8 +212,7 @@ private:
         }
         // cppcheck-suppress knownConditionTrueFalse ; o contador muda entre requisições
         if (_loginBlocked()) return false;
-        // Só Basic: o authenticate() do core traz junto o Digest (~2,5 KB de
-        // flash), que o navegador só usaria se o aparelho pedisse
+        // Só Basic: o navegador usaria Digest só se o aparelho pedisse
         if (!_authIs("Basic ", base64::encode(_cfg.webusr + ':' + _cfg.webpss).c_str())) {
             _loginFailed();
             _server.sendHeader("WWW-Authenticate", "Basic realm=\"ESP8266\"");
@@ -232,7 +236,7 @@ private:
 
     void _loginFailed() {
         // O primeiro pedido do navegador vem sem credencial: não é erro
-        if (_server.header("Authorization").length() == 0) return;
+        if (_server.authorization().length() == 0) return;
         if (_loginFails < 255) _loginFails++;
         if (_loginFails < FREE_LOGIN_FAILS) return;
         uint8_t doubling = _loginFails - FREE_LOGIN_FAILS;
@@ -261,7 +265,7 @@ private:
 
     void _pageBegin(int refreshSec = 0, int code = 200) {
         _noStore();
-        _server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+        _server.setContentLength(HttpServer::UNKNOWN_LENGTH);
         _server.send(code, "text/html", "");
         _p(_HTML_HEAD_A);
         if (refreshSec > 0) {
@@ -279,15 +283,10 @@ private:
         _p(_HTML_FOOT_B);
     }
 
-    // Pedaço vazio no chunked é o terminador: o core envia "0\r\n\r\n" e o
-    // navegador dá a página por encerrada (o stub de teste faz o mesmo).
-    // Texto fixo e números nunca são vazios; valor do usuário (SSID vazio
-    // no modo AP, usuário, log) vai como String e é filtrado aqui.
+    // Página sem tamanho conhecido: termina quando a conexão fecha
     void _p(PGM_P s) { _server.sendContent_P(s); }
     void _s(const char* s) { _server.sendContent(s); }
-    void _s(const String& s) {
-        if (s.length()) _server.sendContent(s);
-    }
+    void _s(const String& s) { _server.sendContent(s); }
 
     void _title(PGM_P text) {
         _p(PSTR("<h1>"));
@@ -840,7 +839,7 @@ private:
 
     // Sai direto da flash; o cache evita reenviar a cada página (CSS e JS
     // levam o hash do conteúdo na URL: versão nova não usa o cache antigo).
-    // O tipo vai em RAM: send_P faz String(content_type), que não lê da flash.
+    // O tipo vai em RAM: entra no %s do cabeçalho, que não lê da flash.
     void _asset(const char* type, const uint8_t* data, size_t len, bool gz) {
         _server.sendHeader("Cache-Control", "max-age=604800");
         if (gz) _server.sendHeader("Content-Encoding", "gzip");
@@ -1391,7 +1390,7 @@ private:
     // Authorization = esquema + segredo. Comparação em tempo constante: o
     // tempo da resposta não revela o prefixo.
     bool _authIs(const char* scheme, const char* secret) {
-        String auth = _server.header("Authorization");
+        String auth = _server.authorization();
         size_t s = strlen(scheme), n = strlen(secret);
         if (n == 0 || auth.length() != s + n || strncmp(auth.c_str(), scheme, s) != 0)
             return false;

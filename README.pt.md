@@ -36,6 +36,7 @@ Cada serviço é um header com dependências injetadas por referência, composta
 | `IoTService.h`       | Leitura do sensor, saída do atuador, regra, pulso, desligamento de segurança, JSON |
 | `IoTState.h`         | Último comando manual (`/iot.state`), para "ao religar"                          |
 | `Ws2812.h`           | Driver WS2812 de uma cor, sem biblioteca                                         |
+| `HttpServer.h`       | Servidor HTTP próprio, só com o que o painel usa (no lugar do `ESP8266WebServer`) |
 | `WebService.h`       | Painel HTTP (Basic Auth + CSRF + escape de HTML) e API local (token Bearer)     |
 | `Assets.h`           | Imagens do painel embutidas no firmware (geradas por `tools/embed_assets.py`)   |
 | `WebAssets.h`        | CSS e JavaScript do painel, em gzip (gerados de `web/` por `tools/embed_web.py`) |
@@ -282,7 +283,7 @@ A flash de 1 MB guarda o firmware, uma **reserva OTA de 400 KB** (o próximo fir
 | Imagens embutidas | foto de 4,7 KB (WebP) + pinos de 1,2 KB (SVG com gzip) |
 | Sistema de arquivos da configuração | 64 KB, sem mudança |
 
-Pequeno de propósito: texto das páginas na flash (`PSTR`), raízes TLS em DER, um só leitor de JSON (tudo analisado no lugar, como `char*`), sem `printf` de float, uma sessão TLS por vez, TLS só com ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519 e certificado de cliente ficam fora do link pelo `TlsTrim.h`, cerca de 27 KB; todos os servidores que o aparelho usa negociam ECDHE + AES-128-GCM), lwIP sem extras (`ip=lm2n`, cerca de 10 KB: sem NAT, fragmentação IP nem AutoIP; o SNTP guarda um servidor só, então o `Clock` alterna entre `pool.ntp.org` e `time.google.com` até sincronizar), login do painel só Basic (o código de Digest do core fica de fora), driver WS2812 sem biblioteca, tabela de palavras dos comandos na flash. O **mDNS** foi medido em cerca de 21 KB e não cabe; use uma reserva de DHCP.
+Pequeno de propósito: texto das páginas na flash (`PSTR`), raízes TLS em DER, um só leitor de JSON (tudo analisado no lugar, como `char*`), sem `printf` de float, uma sessão TLS por vez, TLS só com ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519 e certificado de cliente ficam fora do link pelo `TlsTrim.h`, cerca de 27 KB; todos os servidores que o aparelho usa negociam ECDHE + AES-128-GCM), lwIP sem extras (`ip=lm2n`, cerca de 10 KB: sem NAT, fragmentação IP nem AutoIP; o SNTP guarda um servidor só, então o `Clock` alterna entre `pool.ntp.org` e `time.google.com` até sincronizar), servidor HTTP próprio no lugar do `ESP8266WebServer` (cerca de 12 KB: um cliente por vez, rotas por `if` em vez de tabela com `std::function`, sem upload, Digest, keep-alive nem chunked; o fim da página é o fechamento da conexão), driver WS2812 sem biblioteca, tabela de palavras dos comandos na flash. O **mDNS** foi medido em cerca de 21 KB e não cabe; use uma reserva de DHCP.
 
 ---
 

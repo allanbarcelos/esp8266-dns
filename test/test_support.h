@@ -30,6 +30,7 @@ inline void resetMocks() {
     setMillis(0);
     MockHTTP::reset();
     MockTLS::reset();
+    MockServer::reset();
     MockFS::reset();
     WiFi.reset();
     ESP.reset();

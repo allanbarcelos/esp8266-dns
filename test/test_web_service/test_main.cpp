@@ -8,6 +8,7 @@
 #include "WiFiService.h"
 #include "OTAService.h"
 #include "WebService.h"
+#include "../web_browser.h"
 
 using Args = std::map<std::string, std::string>;
 
@@ -24,7 +25,7 @@ struct Fixture {
     WiFiClient       mqttNet;
     MqttService      mqtt{cfg, logger, iot, mqttNet};
     WebService  web;
-    ESP8266WebServer& srv = *ESP8266WebServer::instance();
+    MockBrowser srv{[this]() { web.tick(); }};
 
     explicit Fixture(bool withNtfy = true, bool withMqtt = true)
         : web(cfg, logger, store, wifi, ota, iot, withNtfy ? &ntfy : nullptr,
@@ -90,10 +91,10 @@ void test_format_bytes() {
 
 // ── inicialização e segurança ───────────────────────────────────────────────
 
-void test_begin_registra_rotas_e_gera_csrf_aleatorio() {
+void test_begin_abre_a_porta_e_gera_csrf_aleatorio() {
     Fixture f;
-    TEST_ASSERT_TRUE(f.srv.started);
-    TEST_ASSERT_EQUAL(28, (int)f.srv.routes.size());
+    TEST_ASSERT_TRUE(MockServer::begun);
+    TEST_ASSERT_TRUE(logHas(logger, "Servidor web iniciado na porta 80"));
     TEST_ASSERT_EQUAL(16, (int)std::strlen(f.web.csrfToken()));
 
     std::string first = f.web.csrfToken();
@@ -103,8 +104,21 @@ void test_begin_registra_rotas_e_gera_csrf_aleatorio() {
 
 void test_tick_atende_clientes() {
     Fixture f;
-    f.web.tick();
-    TEST_ASSERT_EQUAL(1, f.srv.handleCalls);
+    f.web.tick();   // ninguém conectado
+    TEST_ASSERT_TRUE(f.get("/status"));
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(f.srv.conn->closed);
+}
+
+// Caminho ou método sem rota: 404 vazio
+void test_rota_desconhecida() {
+    Fixture f;
+    TEST_ASSERT_FALSE(f.get("/nada"));
+    TEST_ASSERT_EQUAL(404, f.srv.code);
+    TEST_ASSERT_FALSE(f.post("/status"));
+    TEST_ASSERT_FALSE(f.get("/save"));
+    TEST_ASSERT_FALSE(f.srv.send("PUT / HTTP/1.1\r\n\r\n"));
+    TEST_ASSERT_EQUAL(404, f.srv.code);
 }
 
 void test_sem_senha_redireciona_para_definir_senha() {
@@ -1540,8 +1554,9 @@ int main() {
     RUN_TEST(test_mask_secret);
     RUN_TEST(test_format_duration);
     RUN_TEST(test_format_bytes);
-    RUN_TEST(test_begin_registra_rotas_e_gera_csrf_aleatorio);
+    RUN_TEST(test_begin_abre_a_porta_e_gera_csrf_aleatorio);
     RUN_TEST(test_tick_atende_clientes);
+    RUN_TEST(test_rota_desconhecida);
     RUN_TEST(test_sem_senha_redireciona_para_definir_senha);
     RUN_TEST(test_autenticacao_obrigatoria);
     RUN_TEST(test_autenticacao_basic);

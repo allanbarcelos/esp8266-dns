@@ -4,6 +4,7 @@
 #include <unity.h>
 #include "../test_support.h"
 #include "App.h"
+#include "../web_browser.h"
 
 void setUp()    { resetMocks(); }
 void tearDown() {}
@@ -18,7 +19,7 @@ void test_begin_inicializa_servicos() {
     TEST_ASSERT_EQUAL_STRING("Rede", WiFi.beginSSID.c_str());
     TEST_ASSERT_NOT_NULL(WiFi.gotIP);
     TEST_ASSERT_EQUAL(1, mock::configTimeCalls);
-    TEST_ASSERT_TRUE(ESP8266WebServer::instance()->started);
+    TEST_ASSERT_TRUE(MockServer::begun);
     TEST_ASSERT_TRUE(logHas(app.logger, "Sistema inicializado dev"));
     TEST_ASSERT_TRUE(logHas(app.logger, "Reset: Power On"));
     TEST_ASSERT_TRUE(logHas(app.logger, "OTA: reserva 400 KB"));
@@ -44,8 +45,9 @@ void test_tick_executa_todos_os_servicos() {
     App app;
     app.begin();
     setMillis(WiFiService::DAILY_RESTART + 1);
-    app.tick();
-    TEST_ASSERT_EQUAL(1, ESP8266WebServer::instance()->handleCalls);
+    MockBrowser b{[&]() { app.tick(); }};
+    b.request(HTTP_GET, "/status");
+    TEST_ASSERT_EQUAL(200, b.code);
     TEST_ASSERT_TRUE(app.wifi.restartPending());
 }
 
@@ -67,9 +69,11 @@ void test_tick_em_recuperacao_so_roda_ota() {
     App app;
     app.begin();
     MockHTTP::push(200, std::string(512, 'X'), 4096);
-    app.tick();
+    MockBrowser b{[&]() { app.tick(); }};
+    b.request(HTTP_GET, "/status");
     TEST_ASSERT_TRUE(app.ota.inProgress());
-    TEST_ASSERT_EQUAL(0, ESP8266WebServer::instance()->handleCalls);
+    TEST_ASSERT_EQUAL(0, b.code);   // painel parado: ninguém atende
+    TEST_ASSERT_FALSE(MockServer::begun);
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
     TEST_ASSERT_TRUE(contains(MockHTTP::calledURLs[0], "/download/v129/"));
 }

@@ -5,6 +5,8 @@
 #include "Arduino.h"
 #include <functional>
 #include <vector>
+#include <deque>
+#include <memory>
 #include <utility>
 
 // Raízes que uma conexão TLS recebeu (X509List::append)
@@ -175,23 +177,79 @@ public:
 
 inline WiFiClass WiFi;
 
+// Conexão aceita pelo WiFiServer: o que o navegador manda (rx) e o que o
+// aparelho responde (tx). Compartilhada entre as cópias do WiFiClient,
+// como o ClientContext do core; quem a mantém viva é o teste (ponteiro
+// cru no cliente: cópia sem contagem de referência).
+struct MockConn {
+    std::string rx, tx;
+    size_t      pos    = 0;
+    bool        open   = true;    // o navegador ainda não fechou
+    bool        closed = false;   // o aparelho chamou stop()
+    int         writes = 0;
+};
+
 class WiFiClient {
 public:
+    WiFiClient() = default;
+    explicit WiFiClient(MockConn* c) : _conn(c) {}
     virtual ~WiFiClient() {}
-    virtual int    available()                 { return 0; }
-    virtual int    read()                      { return -1; }
+    virtual int    available()                 { return _conn ? (int)(_conn->rx.size() - _conn->pos) : 0; }
+    virtual int    read() {
+        if (!_conn || _conn->pos >= _conn->rx.size()) return -1;
+        return (uint8_t)_conn->rx[_conn->pos++];
+    }
     virtual size_t readBytes(uint8_t*, size_t) { return 0; }
-    virtual size_t write(const uint8_t*, size_t n) { return n; }
+    virtual size_t write(const uint8_t* b, size_t n) {
+        if (_conn) {
+            _conn->tx.append(reinterpret_cast<const char*>(b), n);
+            _conn->writes++;
+        }
+        return n;
+    }
     virtual size_t print(const char* s) {
         return write(reinterpret_cast<const uint8_t*>(s), std::strlen(s));
     }
-    virtual bool   connected()                 { return false; }
+    virtual bool   connected()                 { return _conn && !_conn->closed && (_conn->open || available()); }
     virtual int    connect(const char*, uint16_t) { return 0; }
     void setTimeout(unsigned long ms);
-    virtual void stop(unsigned int = 0) {}
+    virtual void stop(unsigned int = 0) {
+        if (_conn) _conn->closed = true;
+        _conn = nullptr;
+    }
     size_t write_P(const char* p, size_t n) { return write(reinterpret_cast<const uint8_t*>(p), n); }
+    explicit operator bool() { return connected(); }
 protected:
     WiFiClient* _owned = nullptr;
+    MockConn*   _conn = nullptr;
+};
+
+// Fila de conexões que chegam na porta (o navegador as cria nos testes)
+namespace MockServer {
+    inline std::deque<std::shared_ptr<MockConn>> pending;
+    inline std::vector<std::shared_ptr<MockConn>> accepted;   // vivas até o reset
+    inline bool begun       = false;
+    inline bool maxPending  = false;
+    inline void reset() { pending.clear(); accepted.clear(); begun = false; maxPending = false; }
+}
+
+class WiFiServer {
+public:
+    explicit WiFiServer(uint16_t port) : port(port) {}
+    void begin() { MockServer::begun = true; }
+    WiFiClient accept() {
+        if (MockServer::pending.empty()) return WiFiClient();
+        MockServer::accepted.push_back(MockServer::pending.front());
+        MockServer::pending.pop_front();
+        MockConn* c = MockServer::accepted.back().get();
+        return WiFiClient(c);
+    }
+    size_t hasClientData() {
+        if (MockServer::pending.empty()) return 0;
+        return MockServer::pending.front()->rx.size();
+    }
+    bool hasMaxPendingClients() { return MockServer::maxPending; }
+    uint16_t port;
 };
 
 namespace BearSSL {

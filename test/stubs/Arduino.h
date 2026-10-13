@@ -66,6 +66,7 @@ inline size_t mock_strlcpy(char* dst, const char* src, size_t size) {
 #define PGM_P            const char*
 #define PSTR(s)          (s)
 #define strlen_P         strlen
+#define memcpy_P         memcpy
 #define vsnprintf_P      vsnprintf
 #define snprintf_P       snprintf
 
@@ -200,6 +201,7 @@ public:
     char*       begin()         { return &_s[0]; }   // escrita no lugar (ArduinoJson)
     size_t      length()  const { return _s.size(); }
     bool        isEmpty() const { return _s.empty(); }
+    bool        reserve(size_t n)     { _s.reserve(n); return true; }
 
     bool concat(const String& s) { _s += s._s; return true; }
     bool concat(const char*   s) { if (s) _s += s; return true; }
