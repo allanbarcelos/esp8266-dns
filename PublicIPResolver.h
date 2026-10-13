@@ -19,13 +19,23 @@ public:
     static constexpr uint16_t RX_BUF = 4096;
     static constexpr uint16_t TX_BUF = 512;
 
+    // Só ECDHE com AES-GCM, que todos os servidores usados aceitam
+    // (Cloudflare, GitHub, ntfy.sh, ipify, icanhazip, ifconfig.co). As
+    // demais cifras nem estão no firmware (TlsTrim.h): anunciar uma delas
+    // deixaria o servidor escolher o que o aparelho não sabe fazer.
+    static constexpr int SUITE_COUNT = 4;
+
     bool prepare(unsigned long ms, uint16_t rx = RX_BUF, uint16_t tx = TX_BUF) {
         if (!_owned) return false;
         setTimeout(ms);
         _owned->setTimeout(ms);
         setBufferSizes(rx, tx);
-        return true;
+        return setCiphers(_SUITES, SUITE_COUNT);
     }
+
+private:
+    // ECDHE_ECDSA e ECDHE_RSA, AES_128_GCM_SHA256 e AES_256_GCM_SHA384
+    static constexpr uint16_t _SUITES[SUITE_COUNT] = {0xC02B, 0xC02F, 0xC02C, 0xC030};
 };
 
 // IP público por HTTPS. Os três provedores devolvem só o IPv4 e usam a

@@ -4,6 +4,7 @@
 #pragma once
 #include "Arduino.h"
 #include <functional>
+#include <vector>
 #include <utility>
 
 // ── Fila HTTP compartilhada (API via HTTPClient, download via TLS cru) ───────
@@ -193,6 +194,7 @@ namespace MockTLS {
     inline int                       connectCalls  = 0;
     inline int                       failOnConnect = 0; // 1-based; 0 = off
     inline bool                      mfln          = false;
+    inline std::vector<uint16_t>     suites;                  // último setCiphers
     // Na N-ésima chamada de setBufferSizes (1-based) o maior bloco livre
     // cai para shrinkBlockTo: a alocação do BearSSL fragmentou a heap.
     inline int                       buffersCalls  = 0;
@@ -204,7 +206,7 @@ namespace MockTLS {
         timeoutCalls = 0; lastTimeoutMs = 0;
         bufIn = 0; bufOut = 0; nullOwned = false;
         failConnect = false; connectCalls = 0; failOnConnect = 0;
-        mfln = false;
+        mfln = false; suites.clear();
     }
 }
 
@@ -231,6 +233,7 @@ public:
         if (++MockTLS::buffersCalls == MockTLS::shrinkOnBuffers) ESP._maxBlock = MockTLS::shrinkBlockTo;
     }
     void setInsecure()                                 { MockTLS::insecureCalls++; }
+    bool setCiphers(const uint16_t* list, int n)       { MockTLS::suites.assign(list, list + n); return true; }
     void setTrustAnchors(const BearSSL::X509List* ta)  { MockTLS::lastTrustPem = ta->pem; }
     void setX509Time(time_t t)                         { MockTLS::lastTime = t; }
     bool probeMaxFragmentLength(const char*, uint16_t, uint16_t) { return MockTLS::mfln; }

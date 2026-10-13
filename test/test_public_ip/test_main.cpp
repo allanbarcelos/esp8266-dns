@@ -40,6 +40,9 @@ void test_primeiro_servico_ok() {
     TEST_ASSERT_EQUAL(PublicIPResolver::CONNECT_TIMEOUT, MockTLS::lastTimeoutMs);
     TEST_ASSERT_EQUAL(TlsClient::RX_BUF, MockTLS::bufIn);
     TEST_ASSERT_EQUAL(TlsClient::TX_BUF, MockTLS::bufOut);
+    // Só ECDHE + AES-GCM: as outras cifras nem estão no firmware (TlsTrim.h)
+    const std::vector<uint16_t> gcm = {0xC02B, 0xC02F, 0xC02C, 0xC030};
+    TEST_ASSERT_TRUE(MockTLS::suites == gcm);
 }
 
 void test_memoria_insuficiente_nao_consulta() {
