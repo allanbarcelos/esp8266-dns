@@ -21,7 +21,7 @@ struct Fixture {
     IoTService  iot{cfg, logger};
     Clock            clock;
     PublicIPResolver resolver{logger, clock};
-    NtfyNotifier     ntfy{cfg, logger, resolver, &iot, &clock};
+    NtfyNotifier     ntfy{cfg, logger, resolver, clock, &iot};
     WebService  web;
     ESP8266WebServer& srv = *ESP8266WebServer::instance();
 

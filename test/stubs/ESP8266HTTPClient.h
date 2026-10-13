@@ -40,10 +40,15 @@ public:
 // ── HTTPClient mock ───────────────────────────────────────────────────────────
 class HTTPClient {
 public:
-    bool begin(WiFiClient&, const String& url) {
+    bool begin(WiFiClient& client, const String& url) {
         MockHTTP::calledURLs.push_back(url.c_str());
         _req = MockHTTP::Request();
         _req.url = url.c_str();
+        if (auto* tls = dynamic_cast<WiFiClientSecure*>(&client)) {
+            _req.trustPem = tls->trustPem;
+            _req.x509Time = (long)tls->x509Time;
+            _req.insecure = tls->insecure;
+        }
         return MockHTTP::nextBegin();
     }
 

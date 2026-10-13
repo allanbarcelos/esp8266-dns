@@ -88,12 +88,12 @@ you own.
 - **Commands**: the panel, the local API and ntfy share one parser that accepts only the commands
   the configured actuator supports. A pulse is never stored as the state to restore, and an
   optional safety timer turns an actuator off after a set time.
-- **TLS to the internet**: Cloudflare, the public-IP services and the ntfy command stream are
-  validated against pinned root certificates (`CloudflareCA.h`) with a clock synchronized by SNTP.
+- **TLS to the internet**: Cloudflare, the public-IP services and ntfy (command stream and
+  publishing) are validated against pinned root certificates (`CloudflareCA.h`) with a clock
+  synchronized by SNTP. No connection skips certificate validation.
   Every connection offers only TLS 1.2 ECDHE with AES-GCM (forward secrecy, no CBC or 3DES); the
   other ciphers are not even in the firmware (`TlsTrim.h`).
-  Commands older than 10 minutes are ignored. Publishing to ntfy (public IP, readings) does not
-  validate the certificate: that content is not secret.
+  Commands older than 10 minutes are ignored.
 - **Credentials** live only in `/config.json` on the device's LittleFS, written atomically.
 - **No restart loops**: the device does not reboot because the internet is down; a rejected update
   is remembered and not downloaded again.

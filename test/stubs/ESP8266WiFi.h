@@ -19,6 +19,10 @@ namespace MockHTTP {
     struct Request {
         std::string method, url, payload;
         std::vector<std::pair<std::string, std::string>> headers;
+        // TLS do cliente que fez a requisição (validação do certificado)
+        const char* trustPem = nullptr;
+        long        x509Time = 0;
+        bool        insecure = false;
     };
 
     inline std::vector<std::string> calledURLs;
@@ -227,15 +231,18 @@ public:
     void inject(const std::string& data) { _rx += data; }
     bool isConnected() const { return _connected; }
     WiFiClient _ctx;
+    const char* trustPem = nullptr;
+    time_t      x509Time = 0;
+    bool        insecure = false;
 
     void setBufferSizes(int in, int out) {
         MockTLS::bufIn = in; MockTLS::bufOut = out;
         if (++MockTLS::buffersCalls == MockTLS::shrinkOnBuffers) ESP._maxBlock = MockTLS::shrinkBlockTo;
     }
-    void setInsecure()                                 { MockTLS::insecureCalls++; }
+    void setInsecure()                                 { MockTLS::insecureCalls++; insecure = true; }
     bool setCiphers(const uint16_t* list, int n)       { MockTLS::suites.assign(list, list + n); return true; }
-    void setTrustAnchors(const BearSSL::X509List* ta)  { MockTLS::lastTrustPem = ta->pem; }
-    void setX509Time(time_t t)                         { MockTLS::lastTime = t; }
+    void setTrustAnchors(const BearSSL::X509List* ta)  { MockTLS::lastTrustPem = trustPem = ta->pem; }
+    void setX509Time(time_t t)                         { MockTLS::lastTime = x509Time = t; }
     bool probeMaxFragmentLength(const char*, uint16_t, uint16_t) { return MockTLS::mfln; }
 
     int connect(const char* host, uint16_t) override {

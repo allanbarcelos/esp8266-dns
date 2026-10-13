@@ -164,7 +164,7 @@ curl -H 'Authorization: Bearer <token>' -d 'cmd=pulso 5' http://192.168.1.50/api
 Set a **command topic** on the ntfy page (the button generates a random name). The device subscribes to it with a long-lived connection (`GET /<topic>/json`) and every message becomes a command, delivered in about a second. Replies to invalid commands go to the data topic as `[erro] …`.
 
 - **One TLS session at a time.** The ESP-01 has memory for a single TLS session. Before publishing, or when Cloudflare or the OTA is about to use the network, the stream closes. On reopening it asks for `since=<last id>`, and ntfy (which keeps messages for 12 hours) delivers whatever arrived in between. Nothing is lost; at worst a command waits a few seconds.
-- **The ntfy.sh certificate is validated** (ISRG Root X1, already embedded): a command forged on the path would switch real equipment.
+- **The ntfy.sh certificate is validated** (ISRG Root X1, already embedded), on the command stream and when publishing: a command forged on the path would switch real equipment, and a publish carries the token and, in the action buttons, the command topic. Until the clock syncs nothing is published; the message waits for the next attempt.
 - Commands older than 10 minutes are ignored. Failed connections retry from 5 s up to 5 min. A stream silent for 2 minutes is reopened (ntfy sends a keepalive every 45 s).
 - ntfy.sh topics are public by name: whoever knows the command topic can send commands. Use a long random name, different from the data topic, or an **ntfy access token** (used for both publishing and subscribing). The action buttons carry the command topic (and the token, if any), so keep the data topic private too.
 

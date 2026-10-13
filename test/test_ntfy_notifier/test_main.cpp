@@ -25,7 +25,7 @@ void tearDown() {}
 struct Fix {
     Clock            clock{fakeTime};
     PublicIPResolver resolver{logger, clock};
-    NtfyNotifier     ntfy{cfg, logger, resolver};
+    NtfyNotifier     ntfy{cfg, logger, resolver, clock};
 };
 
 void test_sem_envio_sem_topico() {
@@ -60,8 +60,12 @@ void test_envia_no_boot_sem_cloudflare() {
     TEST_ASSERT_FALSE(contains(MockHTTP::requests[1].payload, "9.9.9.9"));
     TEST_ASSERT_EQUAL_STRING("1.2.3.4", cfg.publicIP);
     TEST_ASSERT_TRUE(logHas(logger, "ntfy enviado (200)"));
-    TEST_ASSERT_EQUAL(1, MockTLS::insecureCalls);
-    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockTLS::lastTrustPem);
+    for (auto& r : MockHTTP::requests) {
+        TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, r.trustPem);
+        TEST_ASSERT_EQUAL((long)fakeNow, r.x509Time);
+        TEST_ASSERT_FALSE(r.insecure);
+    }
+    TEST_ASSERT_EQUAL(0, MockTLS::insecureCalls);
 }
 
 void test_nao_reenvia_mesmo_ip() {
@@ -147,7 +151,7 @@ void test_tls_indisponivel_nao_envia() {
 void test_iot_sem_leitura_ainda_envia_ip() {
     Fix f;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
     MockHTTP::push(200, "1.2.3.4");
     MockHTTP::push(200, "ok");
     ntfy.tick(0);
@@ -158,7 +162,7 @@ void test_iot_sem_leitura_ainda_envia_ip() {
 void test_sensor_no_mesmo_topico() {
     Fix f;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
     strlcpy(cfg.iot.sensor, "digital", sizeof(cfg.iot.sensor));
     cfg.iot.sensorPin = 2;
     cfg.iot.notify = true;
@@ -205,7 +209,7 @@ struct Cmd {
     Clock            clock{fakeTime};
     PublicIPResolver resolver{logger, clock};
     IoTService       iot{cfg, logger};
-    NtfyNotifier     ntfy{cfg, logger, resolver, &iot, &clock};
+    NtfyNotifier     ntfy{cfg, logger, resolver, clock, &iot};
 
     Cmd() {
         cfg.ntfy_topic[0] = '\0';               // só comandos: nada a publicar
@@ -319,6 +323,9 @@ void test_comandos_invalidos_respondem_no_topico_de_dados() {
     for (auto& h : MockHTTP::requests[0].headers)
         auth = auth || (h.first == "Authorization" && h.second == "Bearer tk_x");
     TEST_ASSERT_TRUE(auth);
+    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockHTTP::requests[0].trustPem);
+    TEST_ASSERT_EQUAL((long)fakeNow, MockHTTP::requests[0].x509Time);
+    TEST_ASSERT_FALSE(MockHTTP::requests[0].insecure);
     TEST_ASSERT_FALSE(MockTLS::live && MockTLS::live->isConnected());
 
     // Resposta que falha tenta de novo depois do intervalo curto
@@ -442,7 +449,7 @@ void test_comandos_pausam_e_desligam() {
     TEST_ASSERT_FALSE(MockTLS::live && MockTLS::live->isConnected());
     WiFi._status = WL_CONNECTED;
 
-    // Sem atuador, sem tópico ou sem relógio: desligado
+    // Sem atuador ou sem tópico: desligado
     cfg.ntfy_cmd[0] = '\0';
     c.ntfy.tick(400);
     TEST_ASSERT_EQUAL_STRING("desligado", c.ntfy.commandStatus());
@@ -450,9 +457,7 @@ void test_comandos_pausam_e_desligam() {
     cfg.iot.actuatorPin = -1;
     c.iot.begin();
     TEST_ASSERT_EQUAL_STRING("desligado", c.ntfy.commandStatus());
-    NtfyNotifier semRelogio{cfg, logger, c.resolver, &c.iot};
-    TEST_ASSERT_EQUAL_STRING("desligado", semRelogio.commandStatus());
-    NtfyNotifier semIot{cfg, logger, c.resolver, nullptr, &c.clock};
+    NtfyNotifier semIot{cfg, logger, c.resolver, c.clock};
     TEST_ASSERT_EQUAL_STRING("desligado", semIot.commandStatus());
 }
 
@@ -463,7 +468,7 @@ void test_eventos_saem_rapido_leituras_periodicas_nao() {
     cfg.iot.actuatorPin = 0;
     cfg.iot.notify = true;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
     iot.begin();
     MockHTTP::push(200, "1.2.3.4");
     MockHTTP::push(200, "ok");
@@ -488,7 +493,7 @@ void test_leitura_periodica_nao_e_urgente() {
     cfg.iot.sensorPin = 2;
     cfg.iot.notify = true;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
     iot.begin();
     iot.tick(0);
     iot.tick(IoTService::PULSE_WINDOW_MS);            // 1ª leitura: urgente
@@ -523,12 +528,14 @@ static std::string actionsFor(const char* actuator, const char* sensor = "") {
     cfg.iot.notify = true;
     Fix f;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
     iot.begin();
     iot.command("ligar", 0);
     MockHTTP::push(200, "ok");
     ntfy.tick(0);
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockHTTP::requests[0].trustPem);
+    TEST_ASSERT_FALSE(MockHTTP::requests[0].insecure);
     return header(MockHTTP::requests[0], "Actions");
 }
 
@@ -575,7 +582,7 @@ void test_acoes_so_com_atuador() {
     cfg.iot.notify = true;
     Fix f;
     IoTService iot{cfg, logger};
-    NtfyNotifier ntfy{cfg, logger, f.resolver, &iot};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
     mock::pinIn[2] = HIGH;
     iot.begin();
     iot.tick(0);
@@ -587,6 +594,158 @@ void test_acoes_so_com_atuador() {
 
     // IP e respostas de erro nunca levam botões
     TEST_ASSERT_TRUE(contains(MockHTTP::requests[0].payload, "[sensor] presenca"));
+}
+
+// ── Envio valida o certificado ───────────────────────────────────────────────
+
+// Evento do IoT: só o POST, sem busca de IP antes
+static void eventoDoSensor(IoTService& iot) {
+    strlcpy(cfg.iot.sensor, "digital", sizeof(cfg.iot.sensor));
+    cfg.iot.sensorPin = 2;
+    cfg.iot.notify = true;
+    mock::pinIn[2] = HIGH;
+    iot.begin();
+    iot.tick(0);
+    iot.tick(IoTService::DEBOUNCE_MS);
+    TEST_ASSERT_TRUE(iot.pending());
+}
+
+// O envio leva o token: a conexão precisa validar o certificado
+void test_envio_valida_o_certificado() {
+    strlcpy(cfg.ntfy_token, "tk_segredo", sizeof(cfg.ntfy_token));
+    Fix f;
+    IoTService iot{cfg, logger};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    eventoDoSensor(iot);
+    MockHTTP::push(200, "ok");
+    ntfy.tick(0);
+
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+    const MockHTTP::Request& r = MockHTTP::requests[0];
+    TEST_ASSERT_EQUAL_STRING("POST", r.method.c_str());
+    TEST_ASSERT_EQUAL_STRING("Bearer tk_segredo", header(r, "Authorization").c_str());
+    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, r.trustPem);
+    TEST_ASSERT_EQUAL((long)fakeNow, r.x509Time);
+    TEST_ASSERT_FALSE(r.insecure);
+    TEST_ASSERT_EQUAL(0, MockTLS::insecureCalls);
+    TEST_ASSERT_EQUAL(5000UL, MockTLS::lastTimeoutMs);
+    TEST_ASSERT_FALSE(iot.pending());
+}
+
+// Relógio em 1970: o BearSSL recusaria o certificado. Nem tenta; o evento
+// fica para depois e sai quando o relógio sincroniza.
+void test_envio_espera_o_relogio() {
+    fakeNow = 1000;
+    strlcpy(cfg.ntfy_token, "tk_segredo", sizeof(cfg.ntfy_token));
+    Fix f;
+    IoTService iot{cfg, logger};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    eventoDoSensor(iot);
+    ntfy.tick(0);
+
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_EQUAL(0, MockTLS::connectCalls);
+    TEST_ASSERT_EQUAL(0, MockTLS::bufIn);
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy: relogio nao sincronizado"));
+    TEST_ASSERT_TRUE(iot.pending());
+
+    fakeNow = Clock::MIN_VALID_EPOCH + 100;
+    ntfy.tick(NtfyNotifier::POST_GAP - 1);
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+    MockHTTP::push(200, "ok");
+    ntfy.tick(NtfyNotifier::POST_GAP);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockHTTP::requests[0].trustPem);
+    TEST_ASSERT_EQUAL((long)fakeNow, MockHTTP::requests[0].x509Time);
+    TEST_ASSERT_FALSE(iot.pending());
+}
+
+// No limite: MIN_VALID_EPOCH ainda não conta como sincronizado
+void test_envio_relogio_no_limite() {
+    fakeNow = Clock::MIN_VALID_EPOCH;
+    Fix f;
+    IoTService iot{cfg, logger};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    eventoDoSensor(iot);
+    ntfy.tick(0);
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy: relogio nao sincronizado"));
+
+    fakeNow = Clock::MIN_VALID_EPOCH + 1;
+    MockHTTP::push(200, "ok");
+    ntfy.tick(NtfyNotifier::POST_GAP);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+}
+
+// Certificado recusado (intermediário, CA trocada): o handshake falha, o
+// HTTPClient devolve código negativo e o evento fica para a próxima vez
+void test_envio_certificado_recusado_tenta_de_novo() {
+    Fix f;
+    IoTService iot{cfg, logger};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    eventoDoSensor(iot);
+    MockHTTP::push(-1);
+    ntfy.tick(0);
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy erro: -1"));
+    TEST_ASSERT_TRUE(iot.pending());
+
+    MockHTTP::push(200, "ok");
+    ntfy.tick(NtfyNotifier::POST_GAP);
+    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
+    TEST_ASSERT_FALSE(iot.pending());
+    for (auto& r : MockHTTP::requests) TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, r.trustPem);
+}
+
+// Memória curta: nem relógio nem TLS são consultados
+void test_envio_sem_memoria_antes_do_relogio() {
+    fakeNow = 1000;
+    Fix f;
+    IoTService iot{cfg, logger};
+    NtfyNotifier ntfy{cfg, logger, f.resolver, f.clock, &iot};
+    eventoDoSensor(iot);
+    ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;
+    ntfy.tick(0);
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy: memoria insuficiente"));
+    TEST_ASSERT_FALSE(logHas(logger, "ntfy: relogio nao sincronizado"));
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+}
+
+// Nenhuma conexão do ntfy, em nenhum caminho, desliga a validação
+void test_nenhum_caminho_usa_tls_sem_validacao() {
+    strlcpy(cfg.ntfy_token, "tk_x", sizeof(cfg.ntfy_token));
+    Cmd c;
+    strlcpy(cfg.ntfy_topic, "dados", sizeof(cfg.ntfy_topic));
+    cfg.iot.notify = true;
+    c.iot.begin();                                     // o IoT copia a config no begin
+    MockHTTP::push(200, "1.2.3.4");                   // IP no boot
+    MockHTTP::push(200, "ok");
+    c.ntfy.tick(0);
+    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
+
+    c.open(1);                                         // fluxo de comandos
+    TEST_ASSERT_EQUAL_STRING("conectado", c.ntfy.commandStatus());
+    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockTLS::live->trustPem);
+    TEST_ASSERT_FALSE(MockTLS::live->insecure);
+    c.send(message("z1", "voar"));                    // resposta de erro
+    c.ntfy.tick(3);
+    MockHTTP::push(200, "ok");
+    c.ntfy.tick(NtfyNotifier::POST_GAP);
+    TEST_ASSERT_EQUAL(3, (int)MockHTTP::requests.size());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[2].payload, "[erro]"));
+
+    c.iot.command("ligar", NtfyNotifier::POST_GAP);    // mudança do atuador
+    MockHTTP::push(200, "ok");
+    c.ntfy.tick(NtfyNotifier::POST_GAP * 2);
+    TEST_ASSERT_EQUAL(4, (int)MockHTTP::requests.size());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[3].payload, "[atuador] ligado"));
+    TEST_ASSERT_FALSE(header(MockHTTP::requests[3], "Actions").empty());
+
+    for (auto& r : MockHTTP::requests) {
+        TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, r.trustPem);
+        TEST_ASSERT_EQUAL((long)fakeNow, r.x509Time);
+        TEST_ASSERT_FALSE(r.insecure);
+    }
+    TEST_ASSERT_EQUAL(0, MockTLS::insecureCalls);
 }
 
 int main() {
@@ -617,5 +776,11 @@ int main() {
     RUN_TEST(test_acoes_pelo_que_o_atuador_faz);
     RUN_TEST(test_acoes_com_token_e_sem_topico_de_comandos);
     RUN_TEST(test_acoes_so_com_atuador);
+    RUN_TEST(test_envio_valida_o_certificado);
+    RUN_TEST(test_envio_espera_o_relogio);
+    RUN_TEST(test_envio_relogio_no_limite);
+    RUN_TEST(test_envio_certificado_recusado_tenta_de_novo);
+    RUN_TEST(test_envio_sem_memoria_antes_do_relogio);
+    RUN_TEST(test_nenhum_caminho_usa_tls_sem_validacao);
     return UNITY_END();
 }

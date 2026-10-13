@@ -34,7 +34,7 @@ public:
     CloudflareDNS    dns{config, logger, wifi, resolver, clock};
     OTAService       ota{logger, wifi};
     IoTService       iot{config, logger};
-    NtfyNotifier     ntfy{config, logger, resolver, &iot, &clock};
+    NtfyNotifier     ntfy{config, logger, resolver, clock, &iot};
 
     // Camada 3 — painel web
     WebService web{config, logger, configStore, wifi, ota, iot, &ntfy};

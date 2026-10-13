@@ -15,7 +15,9 @@
 //
 // Envio (tópico de dados): o IP público no boot e quando muda, e as
 // leituras e mudanças do IoT ([sensor], [atuador]). Descobre o IP sozinho:
-// não depende do Cloudflare.
+// não depende do Cloudflare. O certificado também é validado aqui: o envio
+// leva o token e os botões levam o tópico de comandos, que um intermediário
+// usaria para acionar o equipamento.
 //
 // Comandos (tópico de comandos, opcional): uma assinatura contínua
 // (GET /<tópico>/json) entrega cada mensagem na hora, e ela vira um
@@ -28,7 +30,7 @@
 class NtfyNotifier {
 public:
     NtfyNotifier(Config& cfg, Logger& log, PublicIPResolver& resolver,
-                 IoTService* iot = nullptr, Clock* clock = nullptr)
+                 Clock& clock, IoTService* iot = nullptr)
         : _cfg(cfg), _log(log), _resolver(resolver), _iot(iot), _clock(clock),
           _lastAttempt(0), _attempted(false) {
         _lastSent[0] = '\0';
@@ -84,7 +86,7 @@ private:
     Logger&           _log;
     PublicIPResolver& _resolver;
     IoTService*       _iot;
-    Clock*            _clock;
+    Clock&            _clock;
 
     char          _lastSent[16];
     unsigned long _lastAttempt;
@@ -149,8 +151,14 @@ private:
             _log.log(PSTR("ntfy: memoria insuficiente"));
             return false;
         }
+        if (!_clock.synced()) {
+            _log.log(PSTR("ntfy: relogio nao sincronizado"));
+            return false;
+        }
+        BearSSL::X509List trust(CLOUDFLARE_CA);  // inclui ISRG Root X1
         TlsClient client;
-        client.setInsecure(); // o conteúdo (IP público, leitura) não é sigiloso
+        client.setTrustAnchors(&trust);
+        client.setX509Time(_clock.now());
         if (!client.prepare(5000)) {
             _log.log(PSTR("ntfy: TLS indisponivel"));
             return false;
@@ -236,7 +244,7 @@ private:
     // ── Comandos ─────────────────────────────────────────────────────────────
 
     bool _wantStream() const {
-        return _clock && _iot && _iot->hasActuator() && _cfg.ntfy_cmd[0];
+        return _iot && _iot->hasActuator() && _cfg.ntfy_cmd[0];
     }
 
     void _tickStream(unsigned long now) {
@@ -267,7 +275,7 @@ private:
     }
 
     void _connect(unsigned long now) {
-        if (!_clock->synced()) {
+        if (!_clock.synced()) {
             _retry(now, RECONNECT_MS);   // o certificado pede relógio certo
             return;
         }
@@ -278,7 +286,7 @@ private:
         }
         _trust = new BearSSL::X509List(CLOUDFLARE_CA);  // inclui ISRG Root X1
         _tls.setTrustAnchors(_trust);
-        _tls.setX509Time(_clock->now());
+        _tls.setX509Time(_clock.now());
         if (!_tls.prepare(CONNECT_MS) || !_tls.connect("ntfy.sh", 443)) {
             _log.log(PSTR("ntfy: sem conexao para comandos"));
             _fail(now);
@@ -341,7 +349,7 @@ private:
         if (strcmp(event, "message") != 0) return;   // open, keepalive
         strlcpy(_lastId, doc["id"] | "", sizeof(_lastId));
         const char* msg = doc["message"] | "";
-        long age = (long)(_clock->now() - (time_t)(doc["time"] | 0L));
+        long age = (long)(_clock.now() - (time_t)(doc["time"] | 0L));
         if (age > STALE_S) {
             _log.log(PSTR("ntfy: comando antigo ignorado"));
             return;
