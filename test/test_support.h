@@ -35,6 +35,8 @@ inline void resetMocks() {
     Update.reset();
     mock::configTimeCalls = 0;
     mock::failMallocSize = 0;
+    Serial.last.clear();
+    Serial.printfCalls = 0;
     mock::ntpServer1.clear();
     mock::resetPins();
     mock::resetBus();

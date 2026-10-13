@@ -1373,6 +1373,17 @@ void test_iot_descadastrar_falha_ao_gravar() {
     TEST_ASSERT_TRUE(f.iot.hasActuator());  // o que está no ar não muda
 }
 
+void test_status_mostra_a_senha_do_ap() {
+    Fixture f;
+    MockFS::put(WiFiService::AP_KEY_PATH, "abcd2345wxyz");
+    f.get("/status");
+    TEST_ASSERT_TRUE(contains(f.out(), "Senha do AP ESP_Config"));
+    TEST_ASSERT_TRUE(contains(f.out(), "abcd2345wxyz"));
+    f.srv.authOk = false;                                     // só com login
+    f.get("/status");
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_escape);
@@ -1448,5 +1459,6 @@ int main() {
     RUN_TEST(test_mqtt_pagina_sem_servico);
     RUN_TEST(test_mqtt_save);
     RUN_TEST(test_mqtt_save_validacoes);
+    RUN_TEST(test_status_mostra_a_senha_do_ap);
     return UNITY_END();
 }

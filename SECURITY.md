@@ -61,8 +61,12 @@ you own.
 - **Plain HTTP on the local network.** The panel and the local API do not use TLS (the ESP-01 has
   no memory for a TLS server). Anyone who can capture traffic on the same network can read the
   Basic Auth credentials and the API token. Use the device on a trusted network.
-- **The setup access point** uses a default password (`esp8266dns`) unless the firmware is built
-  with another one, and is open to anyone nearby while the device has no Wi-Fi configured.
+- **The setup access point** is protected by a password drawn per device on first boot (60 bits
+  from the hardware RNG, kept in `/ap.key`). It is printed on the serial port and shown on the
+  panel, never sent over the network. While no panel password is set, whoever joins the access
+  point can configure the device, so knowing the AP password means physical access to the serial
+  port or to the panel. A password derived from the chip ID would not do: the chip ID is part of
+  the MAC address the access point broadcasts.
 - **ntfy.sh topics are public by name.** Anyone who knows a topic can read it, and anyone who knows
   the command topic can send commands, unless an ntfy access token is configured. Keep the topic
   names secret and long.
@@ -109,5 +113,5 @@ you own.
 - Keep the device on a trusted network, and reserve its IP on the router instead of exposing the
   panel to the internet. Do not forward port 80 to it.
 - Use long, random ntfy topic names, or an ntfy access token.
-- Build with your own setup-network password (`-DAP_PASSWORD=\"...\"`) if the device will be set
-  up where strangers are in range.
+- Erasing the flash draws a new setup-network password; a build with `-DAP_PASSWORD=\"...\"`
+  uses a fixed one instead (keep it long and private).

@@ -247,8 +247,14 @@ struct SerialClass {
     int  baud = 0;
     void begin(int b)             { baud = b; }
     void println(const char* s)   { std::printf("%s\n", s); }
+    std::string last;   // última saída do printf
+    int         printfCalls = 0;
     void printf(const char* fmt, ...) {
-        va_list a; va_start(a, fmt); std::vprintf(fmt, a); va_end(a);
+        char b[256];
+        va_list a; va_start(a, fmt); std::vsnprintf(b, sizeof(b), fmt, a); va_end(a);
+        last = b;
+        printfCalls++;
+        std::fputs(b, stdout);
     }
 };
 

@@ -3,6 +3,7 @@
 
 #pragma once
 #include <ESP8266WiFi.h>
+#include <LittleFS.h>
 #include "Config.h"
 #include "Logger.h"
 
@@ -61,7 +62,10 @@ public:
             _tickConnect(now);
             return;
         }
-        if (_configMode) return;
+        if (_configMode) {
+            if (now - _lastAnnounce >= AP_ANNOUNCE_MS) _announceAp(now);
+            return;
+        }
 
         if (now - _lastStatusCheck >= STATUS_INTERVAL) {
             _lastStatusCheck = now;
@@ -112,6 +116,23 @@ public:
     bool restartPending() const { return _restartPending; }
     bool inConfigMode()   const { return _configMode; }
 
+    // Senha do AP de configuração: sorteada no primeiro boot pelo RNG de
+    // hardware e guardada em /ap.key. Uma senha fixa e pública deixaria
+    // quem estiver perto entrar no AP e definir a senha do painel antes do
+    // dono. Sai na serial e no painel (Status). -DAP_PASSWORD fixa uma.
+    const char* apPassword() {
+#ifdef AP_PASSWORD
+        return AP_PASSWORD;
+#else
+        if (!_apPass[0]) _loadApKey();
+        return _apPass;
+#endif
+    }
+
+    static constexpr const char*   AP_KEY_PATH    = "/ap.key";
+    static constexpr size_t        AP_KEY_LEN     = 12;
+    static constexpr unsigned long AP_ANNOUNCE_MS = 30000UL;
+
     // Sinaliza que há OTA em progresso (inibe watchdogs de memória e uptime)
     void setOTAInProgress(bool v) { _otaInProgress = v; }
 
@@ -142,6 +163,9 @@ private:
     uint8_t       _memStrikes        = 0;
     bool          _otaInProgress     = false;
 
+    char          _apPass[AP_KEY_LEN + 1] = {};
+    unsigned long _lastAnnounce      = 0;
+
     WiFiEventHandler _evtGotIP{};
     WiFiEventHandler _evtDisconnected{};
 
@@ -168,10 +192,48 @@ private:
     void _startConfigMode(WiFiMode_t mode) {
         WiFi.mode(mode);
         _keepRadioAwake();
-        WiFi.softAP(AP_SSID, AP_PASSWORD);
+        WiFi.softAP(AP_SSID, apPassword());
         _configMode = true;
         _log.log(PSTR("Modo AP iniciado: %s"), AP_SSID);
+        _announceAp(millis());
     }
+
+    // Na serial (não no log do painel), ao subir o AP e a cada 30 s: quem
+    // abrir o monitor ou o instalador web depois ainda vê a senha
+    void _announceAp(unsigned long now) {
+        _lastAnnounce = now;
+        Serial.printf("AP %s, senha: %s\n", AP_SSID, apPassword());
+    }
+
+#ifndef AP_PASSWORD
+    // Sorteia 12 caracteres de 32 (60 bits), sem os ambíguos l, o, 0 e 1
+    void _loadApKey() {
+        File in = LittleFS.open(AP_KEY_PATH, "r");
+        if (in) {
+            size_t n = in.readBytes(_apPass, sizeof(_apPass));
+            in.close();
+            bool ok = n == AP_KEY_LEN;
+            for (size_t i = 0; ok && i < AP_KEY_LEN; i++) {
+                char c = _apPass[i];
+                ok = (c >= 'a' && c <= 'z') || (c >= '2' && c <= '9');
+            }
+            _apPass[AP_KEY_LEN] = '\0';
+            if (ok) return;
+        }
+        static const char ALPHABET[] PROGMEM = "abcdefghijkmnpqrstuvwxyz23456789";
+        for (size_t i = 0; i < AP_KEY_LEN; i++)
+            _apPass[i] = (char)pgm_read_byte(&ALPHABET[ESP.random() & 31]);
+        _apPass[AP_KEY_LEN] = '\0';
+        File out = LittleFS.open(AP_KEY_PATH, "w");
+        if (!out) {
+            _log.log(PSTR("AP: senha nao gravada"));   // vale até o próximo boot
+            return;
+        }
+        out.write((const uint8_t*)_apPass, AP_KEY_LEN);
+        out.close();
+        _log.log(PSTR("AP: senha nova gerada"));
+    }
+#endif
 
     // Só reinicia se a memória ficar crítica em verificações consecutivas;
     // picos momentâneos (ex.: handshake TLS) não disparam reboot.

@@ -6,13 +6,11 @@
 
 #define MAX_RECORDS 5
 
-// Rede de configuração (modo AP). A senha pode ser trocada no build com
-// -DAP_PASSWORD=\"...\"; o WPA2 exige no mínimo 8 caracteres.
+// Rede de configuração (modo AP). A senha é sorteada por aparelho no
+// primeiro boot (WiFiService::apPassword); -DAP_PASSWORD=\"...\" no build
+// fixa uma senha (o WPA2 exige no mínimo 8 caracteres).
 #ifndef AP_SSID
 #define AP_SSID "ESP_Config"
-#endif
-#ifndef AP_PASSWORD
-#define AP_PASSWORD "esp8266dns"
 #endif
 
 #define MIN_PANEL_PASSWORD_LEN 8

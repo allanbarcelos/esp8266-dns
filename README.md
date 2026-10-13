@@ -46,7 +46,7 @@ Each service is a header with dependencies injected by reference, composed in la
 ## 🚀 First use
 
 1. Flash from the browser with the **[web installer](https://allanbarcelos.github.io/esp8266-dns/)** (Chrome or Edge on a computer, nothing to install) or over serial (see [Local build](#-local-build)). Either way, the ESP-01 needs **GPIO0 tied to GND** when the adapter is plugged in; release it after flashing and plug it in again.
-2. With no Wi-Fi configured, the ESP creates the **`ESP_Config`** network (default password **`esp8266dns`**, override at build time with `-DAP_PASSWORD=\"...\"`).
+2. With no Wi-Fi configured, the ESP creates the **`ESP_Config`** network. The password is **drawn per device** on first boot (12 characters) and printed on the serial port every 30 s (`AP ESP_Config, senha: ...`); the web installer reads it with the **Read the device password** button. Afterwards it shows on the panel, under **Status**. For a fixed password, build with `-DAP_PASSWORD=\"...\"`.
 3. Open `http://192.168.4.1`, enter the Wi-Fi credentials and **set the panel user and password** (at least 8 characters).
 4. After the reboot, open the ESP's local IP. Configure **Cloudflare**, **ntfy** and **IoT** as needed; each part is optional.
 

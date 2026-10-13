@@ -514,6 +514,7 @@ private:
         _row(PSTR("Reset"),   ESP.getResetReason());
         _row(PSTR("Causa"),   ESP.getResetInfo());
         _row(PSTR("Chip ID"), String(ESP.getChipId(), HEX));
+        _row(PSTR("Senha do AP " AP_SSID), _wifi.apPassword());
         _row(PSTR("CPU"),     String(ESP.getCpuFreqMHz()) + " MHz");
         _row(PSTR("SDK"),     String(ESP.getSdkVersion()));
         _boxEnd();

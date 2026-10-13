@@ -29,8 +29,8 @@ void test_sem_ssid_inicia_ap_protegido() {
     TEST_ASSERT_EQUAL(WIFI_AP, WiFi._mode);
     TEST_ASSERT_EQUAL(WIFI_NONE_SLEEP, WiFi.sleepMode);
     TEST_ASSERT_EQUAL_STRING(AP_SSID, WiFi.apSSID.c_str());
-    TEST_ASSERT_EQUAL_STRING(AP_PASSWORD, WiFi.apPass.c_str());
-    TEST_ASSERT_TRUE(std::strlen(AP_PASSWORD) >= 8);
+    TEST_ASSERT_EQUAL_STRING(wifi.apPassword(), WiFi.apPass.c_str());
+    TEST_ASSERT_TRUE(std::strlen(wifi.apPassword()) >= 8);
     TEST_ASSERT_TRUE(wifi.inConfigMode());
     TEST_ASSERT_EQUAL(0, WiFi.beginCalls);
 }
@@ -274,6 +274,87 @@ void test_is_connected_reflete_status() {
     TEST_ASSERT_FALSE(wifi.isConnected());
 }
 
+// ── Senha do AP de configuração ──────────────────────────────────────────────
+
+static bool apKeyValid(const std::string& k) {
+    if (k.size() != W::AP_KEY_LEN) return false;
+    for (char c : k)
+        if (!std::strchr("abcdefghijkmnpqrstuvwxyz23456789", c)) return false;
+    return true;
+}
+
+void test_senha_do_ap_sorteada_e_guardada() {
+    cfg.ssid = "";
+    W wifi(cfg, logger);
+    wifi.begin();
+    std::string pass = WiFi.apPass;
+    TEST_ASSERT_TRUE(apKeyValid(pass));
+    TEST_ASSERT_NOT_EQUAL(0, pass.compare("esp8266dns"));
+    TEST_ASSERT_EQUAL_STRING(pass.c_str(), MockFS::files[W::AP_KEY_PATH].c_str());
+    TEST_ASSERT_TRUE(logHas(logger, "AP: senha nova gerada"));
+    TEST_ASSERT_FALSE(logHas(logger, pass.c_str()));          // fora do log do painel
+    TEST_ASSERT_EQUAL_STRING(("AP " AP_SSID ", senha: " + pass + "\n").c_str(), Serial.last.c_str());
+
+    // Próximo boot: a mesma senha, sem sortear de novo
+    logger = Logger();
+    W again(cfg, logger);
+    again.begin();
+    TEST_ASSERT_EQUAL_STRING(pass.c_str(), WiFi.apPass.c_str());
+    TEST_ASSERT_FALSE(logHas(logger, "senha nova"));
+}
+
+void test_senha_do_ap_muda_entre_aparelhos() {
+    W a(cfg, logger);
+    std::string first = a.apPassword();
+    MockFS::reset();
+    ESP.random();                                             // outro estado do RNG
+    W b(cfg, logger);
+    TEST_ASSERT_TRUE(apKeyValid(b.apPassword()));
+    TEST_ASSERT_NOT_EQUAL(0, first.compare(b.apPassword()));
+}
+
+void test_senha_do_ap_estragada_e_sorteada_de_novo() {
+    const char* bad[] = {"curta", "abcdefghijk", "abcdefghijkmn", "ABCDEFGHJKMN", "abcdefghijk1", "abcdefghijk ", "abcdefghijk{"};
+    for (const char* b : bad) {
+        MockFS::reset();
+        MockFS::put(W::AP_KEY_PATH, b);
+        logger = Logger();
+        W wifi(cfg, logger);
+        std::string pass = wifi.apPassword();
+        TEST_ASSERT_TRUE(apKeyValid(pass));
+        TEST_ASSERT_TRUE(logHas(logger, "AP: senha nova gerada"));
+        TEST_ASSERT_EQUAL_STRING(pass.c_str(), MockFS::files[W::AP_KEY_PATH].c_str());
+    }
+    // Válida: fica como está
+    MockFS::reset();
+    MockFS::put(W::AP_KEY_PATH, "abcd2345wxyz");
+    W ok(cfg, logger);
+    TEST_ASSERT_EQUAL_STRING("abcd2345wxyz", ok.apPassword());
+}
+
+void test_senha_do_ap_sem_gravar_vale_no_boot() {
+    MockFS::failWriteOpen = true;
+    W wifi(cfg, logger);
+    std::string pass = wifi.apPassword();
+    TEST_ASSERT_TRUE(apKeyValid(pass));
+    TEST_ASSERT_TRUE(logHas(logger, "AP: senha nao gravada"));
+    TEST_ASSERT_EQUAL_STRING(pass.c_str(), wifi.apPassword());   // a mesma no boot inteiro
+}
+
+void test_senha_do_ap_repetida_na_serial() {
+    cfg.ssid = "";
+    W wifi(cfg, logger);
+    wifi.begin();
+    int calls = Serial.printfCalls;
+    wifi.tick(W::AP_ANNOUNCE_MS - 1);
+    TEST_ASSERT_EQUAL(calls, Serial.printfCalls);
+    wifi.tick(W::AP_ANNOUNCE_MS);
+    TEST_ASSERT_EQUAL(calls + 1, Serial.printfCalls);
+    TEST_ASSERT_TRUE(contains(Serial.last, "senha: "));
+    wifi.tick(W::AP_ANNOUNCE_MS + 1);
+    TEST_ASSERT_EQUAL(calls + 1, Serial.printfCalls);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_sem_ssid_inicia_ap_protegido);
@@ -296,5 +377,10 @@ int main() {
     RUN_TEST(test_restart_executa_apos_atraso);
     RUN_TEST(test_schedule_restart_ignora_segundo_pedido);
     RUN_TEST(test_is_connected_reflete_status);
+    RUN_TEST(test_senha_do_ap_sorteada_e_guardada);
+    RUN_TEST(test_senha_do_ap_muda_entre_aparelhos);
+    RUN_TEST(test_senha_do_ap_estragada_e_sorteada_de_novo);
+    RUN_TEST(test_senha_do_ap_sem_gravar_vale_no_boot);
+    RUN_TEST(test_senha_do_ap_repetida_na_serial);
     return UNITY_END();
 }
