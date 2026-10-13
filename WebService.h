@@ -35,7 +35,8 @@ static const char _HTML_HEAD_B[] PROGMEM =
 static const char _HTML_HEAD_C[] PROGMEM =
     "<nav aria-label='Menu'><a href='/'>Home</a><a href='/status'>Status</a>"
     "<a href='/log'>Logs</a><a href='/cloudflare'>Cloudflare</a><a href='/ntfy'>Ntfy</a><a href='/mqtt'>MQTT</a>"
-    "<a href='/iot'>IoT</a><a href='/update'>Atualizar</a><a href='/password'>Senha</a>"
+    "<a href='/iot'>IoT</a><a href='/config'>Configuracoes</a><a href='/update'>Atualizar</a>"
+    "<a href='/password'>Senha</a>"
     "</nav></header><main>";
 
 static const char _HTML_FOOT_A[] PROGMEM = "</main><footer>Firmware: ";
@@ -166,6 +167,7 @@ private:
             if (!strcmp_P(p, PSTR("/mqtt")))       return _handleMqtt();
             if (!strcmp_P(p, PSTR("/password")))   return _handlePassword();
             if (!strcmp_P(p, PSTR("/iot")))        return _handleIot();
+            if (!strcmp_P(p, PSTR("/config")))     return _handleConfig();
             if (!strcmp_P(p, PSTR("/iot/now")))    return _handleIotNow();
             // API local: mesma leitura e mesmos comandos, com token em vez do login
             if (!strcmp_P(p, PSTR("/api/state")))  return _handleApiState();
@@ -181,7 +183,7 @@ private:
                 return _asset("image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ), true);
         } else if (_server.method() == HttpServer::POST) {
             if (!strcmp_P(p, PSTR("/save")))            return _handleSave();
-            if (!strcmp_P(p, PSTR("/device/save")))     return _handleDeviceSave();
+            if (!strcmp_P(p, PSTR("/config/save")))     return _handleConfigSave();
             if (!strcmp_P(p, PSTR("/cloudflare/save"))) return _handleCloudflareSave();
             if (!strcmp_P(p, PSTR("/ntfy/save")))       return _handleNtfySave();
             if (!strcmp_P(p, PSTR("/mqtt/save")))       return _handleMqttSave();
@@ -532,25 +534,30 @@ private:
             _row(PSTR("Host"), _cfg.cf_host[0] ? String(_cfg.cf_host) : String("-"));
             _row(PSTR("Ultima atualizacao"), _ago(_cfg.lastDnsUpdate != 0, _cfg.lastDnsUpdate));
             _boxEnd();
-
-            _box(PSTR("Aparelho"));
-            _p(PSTR("<form action='/device/save' method='POST'>"));
-            _csrfField();
-            _input(PSTR("Nome <span class='m'>(painel e Home Assistant)</span>"), PSTR("name"),
-                   _cfg.dev_name, PSTR("maxlength='31' placeholder='ESP8266 DNS'"));
-            _input(PSTR("Hostname <span class='m'>(roteador; vale na proxima conexao)</span>"),
-                   PSTR("hostname"), _cfg.hostname,
-                   PSTR("maxlength='32' pattern='[A-Za-z0-9]([A-Za-z0-9\\-]*[A-Za-z0-9])?'"));
-            _input(PSTR("Fuso horario <span class='m'>(horas do UTC: -3, 0, 5:30)</span>"),
-                   PSTR("tz"), _tzText(_cfg.tz),
-                   PSTR("maxlength='6' pattern='[+\\-]?[0-9]{1,2}(:[0-5][0-9])?'"));
-            _pinSelect(PSTR("Medidor de bateria MAX17048 <span class='m'>(SDA; o SCL vai no par: "
-                            "GPIO0 com GPIO2, RX com TX)</span>"), PSTR("bat_sda"), _cfg.bat_sda,
-                       PSTR("Nenhum"));
-            _button(PSTR("Salvar"));
-            _boxEnd();
         }
 
+        _pageEnd();
+    }
+
+    // Configurações do aparelho: nome, hostname, fuso e medidor de bateria
+    void _handleConfig() {
+        if (!_guard()) return;
+        _pageBegin();
+        _title(PSTR("Configuracoes"));
+        _p(PSTR("<form action='/config/save' method='POST'>"));
+        _csrfField();
+        _input(PSTR("Nome <span class='m'>(painel e Home Assistant)</span>"), PSTR("name"),
+               _cfg.dev_name, PSTR("maxlength='31' placeholder='ESP8266 DNS'"));
+        _input(PSTR("Hostname <span class='m'>(roteador; vale na proxima conexao)</span>"),
+               PSTR("hostname"), _cfg.hostname,
+               PSTR("maxlength='32' pattern='[A-Za-z0-9]([A-Za-z0-9\\-]*[A-Za-z0-9])?'"));
+        _input(PSTR("Fuso horario <span class='m'>(horas do UTC: -3, 0, 5:30)</span>"),
+               PSTR("tz"), _tzText(_cfg.tz),
+               PSTR("maxlength='6' pattern='[+\\-]?[0-9]{1,2}(:[0-5][0-9])?'"));
+        _pinSelect(PSTR("Medidor de bateria MAX17048 <span class='m'>(SDA; o SCL vai no par: "
+                        "GPIO0 com GPIO2, RX com TX)</span>"), PSTR("bat_sda"), _cfg.bat_sda,
+                   PSTR("Nenhum"));
+        _button(PSTR("Salvar"));
         _pageEnd();
     }
 
@@ -583,20 +590,20 @@ private:
     // Nome: até 31 bytes, sem aspas, barra invertida nem controle (vai sem
     // escape no JSON do discovery). Hostname: letras, números e hífen, sem
     // hífen nas pontas (RFC 1123).
-    void _handleDeviceSave() {
+    void _handleConfigSave() {
         if (!_guard()) return;
         if (!_checkCSRF()) return;
         String name = _server.arg("name");
         String host = _server.arg("hostname");
         int16_t tz = 0;
         if (!parseTz(_server.arg("tz"), tz)) {
-            _errorPage(PSTR("Fuso invalido (de -12 a 14 horas, como -3 ou 5:30)"), PSTR("/"));
+            _errorPage(PSTR("Fuso invalido (de -12 a 14 horas, como -3 ou 5:30)"), PSTR("/config"));
             return;
         }
         int8_t bat = -1;
         String batArg = _server.arg("bat_sda");
         if (batArg.length() && (!IoTService::parsePin(batArg, bat) || !PowerService::pinsFree(bat, _cfg.iot))) {
-            _errorPage(PSTR("Pinos do medidor ocupados pelo sensor ou pelo atuador"), PSTR("/"));
+            _errorPage(PSTR("Pinos do medidor ocupados pelo sensor ou pelo atuador"), PSTR("/config"));
             return;
         }
         name.trim();
@@ -607,7 +614,7 @@ private:
             ok = c >= 0x20 && c != '"' && c != '\\' && c != 0x7F;
         }
         if (!ok) {
-            _errorPage(PSTR("Nome invalido (ate 31 caracteres, sem aspas)"), PSTR("/"));
+            _errorPage(PSTR("Nome invalido (ate 31 caracteres, sem aspas)"), PSTR("/config"));
             return;
         }
         size_t n = host.length();
@@ -617,7 +624,7 @@ private:
             ok = isalnum((unsigned char)c) || c == '-';
         }
         if (!ok) {
-            _errorPage(PSTR("Hostname invalido (letras, numeros e hifen)"), PSTR("/"));
+            _errorPage(PSTR("Hostname invalido (letras, numeros e hifen)"), PSTR("/config"));
             return;
         }
         strlcpy(_cfg.dev_name, name.c_str(), sizeof(_cfg.dev_name));
@@ -625,13 +632,13 @@ private:
         _cfg.tz = tz;
         _cfg.bat_sda = bat;
         if (!_store.save()) {
-            _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/"));
+            _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/config"));
             return;
         }
         if (_cfg.hostname[0]) WiFi.hostname(_cfg.hostname);
         if (_mqtt) _mqtt->reconnect();   // o discovery leva o nome novo
         if (_power) _power->begin();
-        _savedPage(PSTR("Aparelho salvo!"), PSTR("/"));
+        _savedPage(PSTR("Configuracoes salvas!"), PSTR("/config"));
     }
 
     void _handleLog() {
@@ -1383,7 +1390,7 @@ private:
         _time(PSTR("Das"), PSTR("win_start"), t.winStart);
         _time(PSTR("Ate"), PSTR("win_end"), t.winEnd);
         _p(PSTR("<p class='m'>Fora do horario, o modo automatico deixa o atuador desligado; "
-                "um comando manual vale ate auto. Ajuste o fuso na pagina inicial.</p>"));
+                "um comando manual vale ate auto. O fuso fica em Configuracoes.</p>"));
         _p(PSTR("</div></div><p class='m' id='rs'></p></fieldset>"));
 
         _switch(PSTR("notify"), PSTR("Enviar leituras e mudancas ao ntfy"), t.notify);

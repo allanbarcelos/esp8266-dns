@@ -52,7 +52,7 @@ Cada serviço é um header com dependências injetadas por referência, composta
 1. Grave pelo navegador no **[instalador web](https://allanbarcelos.github.io/esp8266-dns/)** (Chrome ou Edge no computador, sem instalar nada) ou pela serial (veja [Build local](#-build-local)). Nos dois casos, o ESP-01 precisa do **GPIO0 no GND** ao ligar o adaptador; solte depois de gravar e reconecte.
 2. Sem Wi-Fi configurado, o ESP cria a rede **`ESP_Config`**. A senha é **sorteada por aparelho** no primeiro boot (12 caracteres) e aparece na serial a cada 30 s (`AP ESP_Config, senha: ...`); o instalador web a lê com o botão **Ler a senha do aparelho**. Depois, ela fica no painel, em **Status**. Para uma senha fixa, compile com `-DAP_PASSWORD=\"...\"`.
 3. Abra `http://192.168.4.1`, informe o Wi-Fi e **defina usuário e senha do painel** (mínimo de 8 caracteres).
-4. Depois do reinício, abra o IP local do ESP. Configure **Cloudflare**, **ntfy** e **IoT** conforme precisar; cada parte é opcional. Na página inicial, o cartão **Aparelho** dá um **nome** (aparece no topo do painel e no Home Assistant) um **hostname** (o nome que o roteador mostra na lista de DHCP; vale na próxima conexão ao Wi-Fi) e o **fuso horário** (para a janela de horário da regra).
+4. Depois do reinício, abra o IP local do ESP. Configure **Cloudflare**, **ntfy** e **IoT** conforme precisar; cada parte é opcional. A página **Configurações** dá um **nome** (aparece no topo do painel e no Home Assistant) um **hostname** (o nome que o roteador mostra na lista de DHCP; vale na próxima conexão ao Wi-Fi) e o **fuso horário** (para a janela de horário da regra).
 
 > O painel exige senha. Até ela ser definida, toda página redireciona para `/password`. Depois de 5 senhas (ou tokens da API) erradas seguidas, cada novo erro dobra uma espera de 2 s até 5 min.
 > Para usar de fora de casa, veja [Acesso remoto](docs/ACESSO-REMOTO.md): nunca abra uma porta do roteador para o aparelho.
@@ -121,7 +121,7 @@ Para cada atuador:
 - **Sensor digital**: acompanhar (ligado enquanto ativo) ou inverter (cada acionamento inverte o atuador).
 - **Sensor numérico**: liga acima ou abaixo de um limite, com margem para desligar (histerese), para o relé não ficar oscilando.
 - **Intensidade proporcional**: um atuador PWM acompanha a leitura de forma linear entre o limite e um limite alto.
-- **Janela de horário** (opcional): a regra só liga o atuador entre um início e um fim, na hora local (22:00 às 06:00 vira a meia-noite). Fora dela, e com o relógio ainda em 1970, o modo automático deixa o atuador desligado. Um comando manual continua valendo até `auto`. O fuso fica no cartão **Aparelho** da página inicial, em horas do UTC (`-3`, `5:30`); a hora local aparece em **Status**.
+- **Janela de horário** (opcional): a regra só liga o atuador entre um início e um fim, na hora local (22:00 às 06:00 vira a meia-noite). Fora dela, e com o relógio ainda em 1970, o modo automático deixa o atuador desligado. Um comando manual continua valendo até `auto`. O fuso fica em **Configurações**, em horas do UTC (`-3`, `5:30`); a hora local aparece em **Status**.
 
 O formulário escreve a regra como frase ("Liga o ventilador quando o valor ficar acima de 28 °C e desliga ao voltar abaixo de 26 °C") antes de salvar.
 
@@ -181,7 +181,7 @@ Defina um **tópico de comandos** na página ntfy (o botão gera um nome aleató
 
 ## 🔋 Energia e bateria
 
-Com bateria e painel solar (veja [Bateria e painel solar](docs/BATERIA-E-PAINEL.md)), um medidor **MAX17048** (I2C, endereço 0x36) informa a carga. Escolha o pino de SDA no cartão **Aparelho** da página inicial; o SCL vai no par (GPIO0 com GPIO2, RX com TX). O medidor divide o barramento com o SHT3x quando os dois estão no mesmo par; com qualquer outro sensor ou atuador, os pinos precisam ser outros, e o painel recusa a configuração que os junte.
+Com bateria e painel solar (veja [Bateria e painel solar](docs/BATERIA-E-PAINEL.md)), um medidor **MAX17048** (I2C, endereço 0x36) informa a carga. Escolha o pino de SDA em **Configurações**; o SCL vai no par (GPIO0 com GPIO2, RX com TX). O medidor divide o barramento com o SHT3x quando os dois estão no mesmo par; com qualquer outro sensor ou atuador, os pinos precisam ser outros, e o painel recusa a configuração que os junte.
 
 O canto direito do topo do painel mostra:
 

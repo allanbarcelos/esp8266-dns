@@ -143,14 +143,14 @@ void test_sem_senha_redireciona_para_definir_senha() {
 void test_autenticacao_obrigatoria() {
     Fixture f;
     f.srv.authOk = false;
-    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/mqtt", "/password", "/update", "/iot"};
+    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/mqtt", "/password", "/update", "/iot", "/config"};
     for (const char* p : paths) {
         f.get(p);
         TEST_ASSERT_EQUAL(401, f.srv.code);
         TEST_ASSERT_EQUAL_STRING("Basic realm=\"ESP8266\"", f.srv.headers["WWW-Authenticate"].c_str());
     }
     const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/mqtt/save", "/password/save",
-                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token", "/iot/clear"};
+                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token", "/iot/clear", "/config/save"};
     for (const char* p : posts) {
         f.post(p);
         TEST_ASSERT_EQUAL(401, f.srv.code);
@@ -193,7 +193,7 @@ void test_autenticacao_basic() {
 void test_csrf_invalido_rejeitado_em_todos_os_posts() {
     Fixture f;
     const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/mqtt/save", "/password/save",
-                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token", "/iot/clear"};
+                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token", "/iot/clear", "/config/save"};
     for (const char* p : posts) {
         f.srv.request(HTTP_POST, p, {{"_csrf", "00000000deadbeef"}});
         TEST_ASSERT_EQUAL(403, f.srv.code);
@@ -499,8 +499,12 @@ void test_nome_no_titulo_e_no_topo() {
     TEST_ASSERT_TRUE(contains(f.out(), "<title>Sala &lt;1&gt;</title>"));
     TEST_ASSERT_TRUE(contains(f.out(), "<b>&#9679; Sala &lt;1&gt;</b>"));
 
-    f.get("/");
-    TEST_ASSERT_TRUE(contains(f.out(), "action='/device/save'"));
+    f.get("/");                                       // fora da página inicial
+    TEST_ASSERT_FALSE(contains(f.out(), "action='/config/save'"));
+    TEST_ASSERT_TRUE(f.get("/config"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<h1>Configuracoes</h1>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<a href='/config'>Configuracoes</a>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "action='/config/save'"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='name' value='Sala &lt;1&gt;'"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='hostname' value=''"));
 }
@@ -509,9 +513,9 @@ void test_aparelho_salva_nome_e_hostname() {
     Fixture f;
     f.mqtt.tick(0);                                   // conectando ao broker
     strlcpy(cfg.mqtt_host, "10.0.0.2", sizeof(cfg.mqtt_host));
-    f.post("/device/save", {{"name", " Portão "}, {"hostname", " portao-1 "}});
+    f.post("/config/save", {{"name", " Portão "}, {"hostname", " portao-1 "}});
     TEST_ASSERT_EQUAL(200, f.srv.code);
-    TEST_ASSERT_TRUE(contains(f.out(), "Aparelho salvo!"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Configuracoes salvas!"));
     TEST_ASSERT_EQUAL_STRING("Portão", cfg.dev_name);
     TEST_ASSERT_EQUAL_STRING("portao-1", cfg.hostname);
     TEST_ASSERT_EQUAL_STRING("portao-1", WiFi.hostName.c_str());
@@ -520,7 +524,7 @@ void test_aparelho_salva_nome_e_hostname() {
     // Em branco volta ao padrão; o hostname do core fica até reiniciar
     WiFi.hostName = "";
     Fixture g(true, false);
-    g.post("/device/save", {{"name", ""}, {"hostname", ""}});
+    g.post("/config/save", {{"name", ""}, {"hostname", ""}});
     TEST_ASSERT_EQUAL(200, g.srv.code);
     TEST_ASSERT_EQUAL_STRING("", cfg.dev_name);
     TEST_ASSERT_EQUAL_STRING("", cfg.hostname);
@@ -532,30 +536,30 @@ void test_aparelho_recusa_nome_ou_hostname_invalido() {
     const char* names[] = {"com \"aspas\"", "barra \\", "tab\tx", "del\x7f",
                            "123456789012345678901234567890123"};
     for (const char* n : names) {
-        f.post("/device/save", {{"name", n}, {"hostname", "ok"}});
+        f.post("/config/save", {{"name", n}, {"hostname", "ok"}});
         TEST_ASSERT_EQUAL(400, f.srv.code);
         TEST_ASSERT_TRUE(contains(f.out(), "Nome invalido"));
     }
     const char* hosts[] = {"-a", "a-", "com espaco", "a_b", "a.b",
                            "123456789012345678901234567890123"};
     for (const char* h : hosts) {
-        f.post("/device/save", {{"name", "ok"}, {"hostname", h}});
+        f.post("/config/save", {{"name", "ok"}, {"hostname", h}});
         TEST_ASSERT_EQUAL(400, f.srv.code);
         TEST_ASSERT_TRUE(contains(f.out(), "Hostname invalido"));
     }
     TEST_ASSERT_EQUAL_STRING("", cfg.dev_name);
-    f.post("/device/save", {{"name", "ok"}, {"hostname", "a"}});
+    f.post("/config/save", {{"name", "ok"}, {"hostname", "a"}});
     TEST_ASSERT_EQUAL(200, f.srv.code);
 
     MockFS::failWriteOpen = true;
-    f.post("/device/save", {{"name", "x"}, {"hostname", ""}});
+    f.post("/config/save", {{"name", "x"}, {"hostname", ""}});
     TEST_ASSERT_TRUE(contains(f.out(), "Falha ao salvar"));
     MockFS::failWriteOpen = false;
 
-    f.srv.request(HTTP_POST, "/device/save", {{"name", "x"}});
+    f.srv.request(HTTP_POST, "/config/save", {{"name", "x"}});
     TEST_ASSERT_EQUAL(403, f.srv.code);
     f.srv.authOk = false;
-    f.post("/device/save", {{"name", "x"}});
+    f.post("/config/save", {{"name", "x"}});
     TEST_ASSERT_EQUAL(401, f.srv.code);
 }
 
@@ -575,16 +579,16 @@ void test_fuso_horario() {
     }
 
     Fixture f;
-    f.post("/device/save", {{"name", ""}, {"hostname", ""}, {"tz", "-3"}});
+    f.post("/config/save", {{"name", ""}, {"hostname", ""}, {"tz", "-3"}});
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL(-180, cfg.tz);
     struct { int tz; const char* text; } shown[] = {{-180, "-3"}, {330, "5:30"}, {-90, "-1:30"}, {0, "0"}};
     for (auto& s : shown) {
         cfg.tz = (int16_t)s.tz;
-        f.get("/");
+        f.get("/config");
         TEST_ASSERT_TRUE(contains(f.out(), (std::string("name='tz' value='") + s.text + "'").c_str()));
     }
-    f.post("/device/save", {{"name", "x"}, {"hostname", ""}, {"tz", "25"}});
+    f.post("/config/save", {{"name", "x"}, {"hostname", ""}, {"tz", "25"}});
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "Fuso invalido"));
     TEST_ASSERT_EQUAL_STRING("", cfg.dev_name);
@@ -718,29 +722,29 @@ void test_energia_no_topo() {
 
 void test_aparelho_salva_o_medidor() {
     Fixture f;
-    f.get("/");
+    f.get("/config");
     TEST_ASSERT_TRUE(contains(f.out(), "<select name='bat_sda'><option value='-1' selected>Nenhum</option>"));
-    f.post("/device/save", {{"name", ""}, {"hostname", ""}, {"bat_sda", "3"}});
+    f.post("/config/save", {{"name", ""}, {"hostname", ""}, {"bat_sda", "3"}});
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL(3, cfg.bat_sda);
     TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"bat_sda\":3"));
     TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[1]);   // begin de novo: SCL solto
 
     // Pino inválido ou ocupado pelo IoT
-    f.post("/device/save", {{"name", ""}, {"hostname", ""}, {"bat_sda", "7"}});
+    f.post("/config/save", {{"name", ""}, {"hostname", ""}, {"bat_sda", "7"}});
     TEST_ASSERT_EQUAL(400, f.srv.code);
     cfg.iot.actuatorPin = 1;
-    f.post("/device/save", {{"name", ""}, {"hostname", ""}, {"bat_sda", "3"}});
+    f.post("/config/save", {{"name", ""}, {"hostname", ""}, {"bat_sda", "3"}});
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "Pinos do medidor ocupados"));
-    f.post("/device/save", {{"name", ""}, {"hostname", ""}, {"bat_sda", "-1"}});
+    f.post("/config/save", {{"name", ""}, {"hostname", ""}, {"bat_sda", "-1"}});
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL(-1, cfg.bat_sda);
-    f.post("/device/save", {{"name", ""}, {"hostname", ""}});   // sem o campo: sem medidor
+    f.post("/config/save", {{"name", ""}, {"hostname", ""}});   // sem o campo: sem medidor
     TEST_ASSERT_EQUAL(-1, cfg.bat_sda);
 
     Fixture semEnergia(true, true, false);
-    semEnergia.post("/device/save", {{"name", "x"}, {"hostname", ""}});
+    semEnergia.post("/config/save", {{"name", "x"}, {"hostname", ""}});
     TEST_ASSERT_EQUAL(200, semEnergia.srv.code);
 }
 
