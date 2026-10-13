@@ -181,7 +181,7 @@ Para o Home Assistant, o Node-RED ou scripts na rede local. Configure na página
 
 | Tópico (`<id>` = chip ID em hexadecimal) | Sentido | Conteúdo |
 | --- | --- | --- |
-| `esp8266iot/<id>/state` | aparelho → broker, retido | O mesmo JSON da `/api/state`. Sai na conexão e quando muda (no máximo uma vez por segundo). |
+| `esp8266iot/<id>/state` | aparelho → broker, retido | O mesmo JSON da `/api/state`. Sai na conexão, quando muda (no máximo uma vez por segundo) e a cada 5 minutos mesmo sem mudança, para uma mensagem perdida não deixar o Home Assistant sem estado. |
 | `esp8266iot/<id>/cmd` | broker → aparelho | O mesmo texto de comando do painel e da API (`ligar`, `pulso 5`, `50%`…). |
 | `esp8266iot/<id>/avail` | aparelho → broker, retido | `online`; `offline` vem do testamento quando a conexão cai. |
 

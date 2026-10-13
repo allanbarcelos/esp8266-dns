@@ -17,7 +17,9 @@
 //
 // Tópicos, com <id> = chip ID em hexadecimal:
 //   esp8266iot/<id>/state  estado em JSON (o mesmo da API), retido; sai na
-//                          conexão e quando muda
+//                          conexão, quando muda e a cada TELE_MS mesmo
+//                          sem mudança (o TelePeriod do Tasmota): uma
+//                          mensagem perdida não deixa o HA sem estado
 //   esp8266iot/<id>/avail  online, ou offline pelo testamento quando a
 //                          conexão cai; retido
 //   esp8266iot/<id>/cmd    comandos, com o mesmo texto do painel e da API.
@@ -89,7 +91,7 @@ public:
         }
         if (now - _lastState >= STATE_MS) {
             _lastState = now;
-            _publishState(false, now);
+            _publishState(now - _lastSent >= TELE_MS, now);
         }
     }
 
@@ -129,6 +131,7 @@ public:
     static constexpr unsigned long CONNECT_MS    = 2000UL;  // TCP e DNS: trava o laço até isso
     static constexpr unsigned long CONNACK_MS    = 10000UL;
     static constexpr unsigned long STATE_MS      = 1000UL;  // estado mudado sai em até 1 s
+    static constexpr unsigned long TELE_MS       = 300000UL; // e sem mudança, a cada 5 min
     static constexpr uint16_t      BACKOFF_MIN_S = 5;
     static constexpr uint16_t      BACKOFF_MAX_S = 300;
     static constexpr size_t        READ_PER_TICK = 256;
@@ -148,7 +151,7 @@ private:
     uint8_t       _state   = ST_IDLE;
     bool          _held    = false;
     bool          _waiting = false;
-    unsigned long _next = 0, _lastIn = 0, _lastOut = 0, _lastState = 0;
+    unsigned long _next = 0, _lastIn = 0, _lastOut = 0, _lastState = 0, _lastSent = 0;
     uint16_t      _backoff = BACKOFF_MIN_S;
     uint32_t      _sum = 0;              // estado já publicado (FNV-1a)
     uint32_t      _shape = 0;            // módulo anunciado no discovery
@@ -237,6 +240,7 @@ private:
         for (size_t i = 0; i < n; i++) sum = (sum ^ (uint8_t)json[i]) * 16777619UL;
         if (!force && sum == _sum) return;
         _sum = sum;
+        _lastSent = now;
         _publish("state", json, n, now);
     }
 

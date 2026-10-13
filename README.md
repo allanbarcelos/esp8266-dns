@@ -181,7 +181,7 @@ For Home Assistant, Node-RED or scripts on the local network. Set it on the **MQ
 
 | Topic (`<id>` = chip ID in hex) | Direction | Content |
 | --- | --- | --- |
-| `esp8266iot/<id>/state` | device → broker, retained | The same JSON as `/api/state`. Sent on connect and when it changes (at most once per second). |
+| `esp8266iot/<id>/state` | device → broker, retained | The same JSON as `/api/state`. Sent on connect, when it changes (at most once per second) and every 5 minutes even without a change, so a lost message does not leave Home Assistant without a state. |
 | `esp8266iot/<id>/cmd` | broker → device | The same command text as the panel and the API (`ligar`, `pulso 5`, `50%`…). |
 | `esp8266iot/<id>/avail` | device → broker, retained | `online`; `offline` comes from the last will when the connection drops. |
 

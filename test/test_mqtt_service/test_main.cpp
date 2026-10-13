@@ -415,6 +415,37 @@ void test_estado_so_sai_quando_muda() {
     TEST_ASSERT_NOT_NULL(published(f.net.out, "esp8266iot/00dead/state"));
 }
 
+// TelePeriod: sem mudança, o estado sai de novo a cada TELE_MS, contado
+// da última publicação
+void test_estado_republicado_periodicamente() {
+    Fix f;
+    f.up(1000);                                  // estado publicado em 1001
+    const char* topic = "esp8266iot/00dead/state";
+    // Um tick a cada 30 s; o broker responde ao ping e a conexão segue viva
+    unsigned long t = 0;
+    auto until = [&](unsigned long end) {
+        f.net.out.clear();
+        while (t < end) {
+            t += 30000;
+            f.net.send(pkt(0xD0, ""));
+            f.mqtt.tick(t);
+        }
+        return published(f.net.out, topic);
+    };
+    TEST_ASSERT_NULL(until(300000));             // 1001 + 5 min ainda não passou
+    const Packet* st = until(330000);
+    TEST_ASSERT_NOT_NULL(st);
+    TEST_ASSERT_EQUAL(1, st->flags & 1);         // retido
+
+    // Uma mudança no meio reinicia a conta
+    TEST_ASSERT_NULL(until(450000));
+    f.iot.command("ligar", 450000);
+    TEST_ASSERT_NOT_NULL(until(480000));
+    TEST_ASSERT_NULL(until(480000 + MqttService::TELE_MS - 30000));
+    TEST_ASSERT_NOT_NULL(until(480000 + MqttService::TELE_MS));
+    TEST_ASSERT_TRUE(f.net.up);
+}
+
 void test_estado_longo_usa_tamanho_de_dois_bytes() {
     Fix f;
     strlcpy(cfg.iot.sensor, "digital", sizeof(cfg.iot.sensor));
@@ -681,6 +712,7 @@ int main() {
     RUN_TEST(test_pacotes_fora_de_hora_e_tamanho_longo);
     RUN_TEST(test_leitura_limitada_por_tick);
     RUN_TEST(test_estado_so_sai_quando_muda);
+    RUN_TEST(test_estado_republicado_periodicamente);
     RUN_TEST(test_estado_longo_usa_tamanho_de_dois_bytes);
     RUN_TEST(test_ping_e_broker_parado);
     RUN_TEST(test_pausa_wifi_e_reconexao);
