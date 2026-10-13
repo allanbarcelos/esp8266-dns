@@ -376,6 +376,12 @@ The TLS roots are kept readable in `ca/roots.pem` (name, expiry and SHA-256 of e
 
 ---
 
+## 🗺️ Status and next steps
+
+What changed in the last round, how it was verified and what comes next (in Portuguese): [docs/ESTADO-E-PROXIMOS-PASSOS.md](docs/ESTADO-E-PROXIMOS-PASSOS.md).
+
+---
+
 ## 📄 License
 
 [MIT](LICENSE) © 2026 Allan Barcelos. Every source file carries an SPDX header (`SPDX-License-Identifier: MIT` and the copyright line); `python3 tools/license_headers.py` adds it to new files and the CI `check` job refuses a change without it. Third-party components and the courtesy requests are listed in [NOTICE](NOTICE). To report a vulnerability, see [SECURITY.md](SECURITY.md).

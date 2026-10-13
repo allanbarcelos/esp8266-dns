@@ -376,6 +376,12 @@ As raízes TLS ficam legíveis em `ca/roots.pem` (nome, validade e SHA-256 de ca
 
 ---
 
+## 🗺️ Estado e próximos passos
+
+O que mudou na última rodada, como foi verificado e o que vem a seguir: [docs/ESTADO-E-PROXIMOS-PASSOS.md](docs/ESTADO-E-PROXIMOS-PASSOS.md).
+
+---
+
 ## 📄 Licença
 
 [MIT](LICENSE) © 2026 Allan Barcelos. Todo arquivo de código traz um cabeçalho SPDX (`SPDX-License-Identifier: MIT` e a linha de copyright); `python3 tools/license_headers.py` acrescenta o cabeçalho em arquivos novos e o job `check` do CI recusa uma mudança sem ele. Componentes de terceiros e os pedidos de cortesia estão no [NOTICE](NOTICE). Para relatar uma vulnerabilidade, veja o [SECURITY.md](SECURITY.md).
