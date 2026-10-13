@@ -90,7 +90,8 @@ you own.
   optional safety timer turns an actuator off after a set time.
 - **TLS to the internet**: Cloudflare, the public-IP services and ntfy (command stream and
   publishing) are validated against pinned root certificates (`CloudflareCA.h`) with a clock
-  synchronized by SNTP. No connection skips certificate validation.
+  synchronized by SNTP. The OTA download from GitHub does not validate the certificate: the
+  image is installed only if its RSA signature checks out, so a forged download is rejected.
   Every connection offers only TLS 1.2 ECDHE with AES-GCM (forward secrecy, no CBC or 3DES); the
   other ciphers are not even in the firmware (`TlsTrim.h`).
   Commands older than 10 minutes are ignored.
