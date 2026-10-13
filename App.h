@@ -14,6 +14,7 @@
 #include "OTAService.h"
 #include "IoTService.h"
 #include "NtfyNotifier.h"
+#include "MqttService.h"
 #include "WebService.h"
 
 // Composição de todos os serviços. Os membros são declarados em camadas:
@@ -35,9 +36,11 @@ public:
     OTAService       ota{logger, wifi};
     IoTService       iot{config, logger};
     NtfyNotifier     ntfy{config, logger, resolver, clock, &iot};
+    WiFiClient       mqttNet;
+    MqttService      mqtt{config, logger, iot, mqttNet};
 
     // Camada 3 — painel web
-    WebService web{config, logger, configStore, wifi, ota, iot, &ntfy};
+    WebService web{config, logger, configStore, wifi, ota, iot, &ntfy, &mqtt};
 
     void begin() {
         Serial.begin(115200);
@@ -84,5 +87,8 @@ public:
         if (!ota.slim() && !ota.inProgress()) iot.tick(now);
         // ntfy abre outra sessão TLS: espera o OTA soltar a dele (heap)
         if (!ota.slim() && !ota.busy()) ntfy.tick(now);
+        // MQTT é TCP simples, sem TLS: só solta durante o download do OTA
+        mqtt.hold(ota.slim() || ota.inProgress());
+        mqtt.tick(now);
     }
 };

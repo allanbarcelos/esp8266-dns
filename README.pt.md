@@ -28,6 +28,7 @@ Cada serviço é um header com dependências injetadas por referência, composta
 | `PublicIPResolver.h` | IPv4 público via HTTPS (raízes em `CloudflareCA.h`), em cache por 60 s          |
 | `CloudflareDNS.h`    | PATCH dos registros pela API do Cloudflare                                       |
 | `NtfyNotifier.h`     | ntfy nos dois sentidos: publica IP e eventos do IoT; assina o tópico de comandos |
+| `MqttService.h`      | MQTT na rede local: estado, comandos e disponibilidade                            |
 | `OTAService.h`       | Checagem de versão e download do firmware assinado                               |
 | `IoTCatalog.h`       | Catálogo de sensores e atuadores, por identificador estável e capacidade        |
 | `IoTCommand.h`       | Interpretador de comandos de texto, o mesmo no painel, na API e no ntfy         |
@@ -168,6 +169,23 @@ Defina um **tópico de comandos** na página ntfy (o botão gera um nome aleató
 - **O certificado do ntfy.sh é validado** (ISRG Root X1, já embutida), no fluxo de comandos e no envio: um comando forjado no caminho acionaria equipamento de verdade, e o envio leva o token e, nos botões de ação, o tópico de comandos. Até o relógio sincronizar nada é enviado; a mensagem espera a próxima tentativa.
 - Comandos com mais de 10 minutos são ignorados. Conexões que falham tentam de novo de 5 s até 5 min. Um fluxo sem nada por 2 minutos é reaberto (o ntfy manda keepalive a cada 45 s).
 - Tópicos do ntfy.sh são públicos pelo nome: quem souber o tópico de comandos pode mandar comandos. Use um nome longo e aleatório, diferente do tópico de dados, ou um **token de acesso do ntfy** (usado no envio e na assinatura). Os botões de ação levam o tópico de comandos (e o token, se houver): mantenha o tópico de dados privado também.
+
+---
+
+## 📡 MQTT
+
+Para o Home Assistant, o Node-RED ou scripts na rede local. Configure na página **MQTT**: o broker (`host` ou `host:porta`, padrão 1883), o usuário e a senha. Em branco, desativado.
+
+| Tópico (`<id>` = chip ID em hexadecimal) | Sentido | Conteúdo |
+| --- | --- | --- |
+| `esp8266iot/<id>/state` | aparelho → broker, retido | O mesmo JSON da `/api/state`. Sai na conexão e quando muda (no máximo uma vez por segundo). |
+| `esp8266iot/<id>/cmd` | broker → aparelho | O mesmo texto de comando do painel e da API (`ligar`, `pulso 5`, `50%`…). |
+| `esp8266iot/<id>/avail` | aparelho → broker, retido | `online`; `offline` vem do testamento quando a conexão cai. |
+
+- **Sem TLS.** A única sessão TLS do aparelho já é disputada pelo DNS, pelo ntfy e pelo OTA. Use um broker na rede local, com usuário e senha: quem puder publicar no broker comanda o atuador.
+- Use o IP do broker: nomes `.local` (mDNS) não resolvem.
+- Comando que chega retido (de antes da conexão) é ignorado: seria repetido a cada reconexão.
+- Cliente próprio e mínimo (MQTT 3.1.1, QoS 0, sem biblioteca). A conexão só fecha durante o download do OTA. Falhas tentam de novo de 5 s até 5 min.
 
 ---
 

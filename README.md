@@ -28,6 +28,7 @@ Each service is a header with dependencies injected by reference, composed in la
 | `PublicIPResolver.h` | Public IPv4 over HTTPS (CA bundle in `CloudflareCA.h`), cached for 60 s         |
 | `CloudflareDNS.h`    | PATCHes records through the Cloudflare API                                       |
 | `NtfyNotifier.h`     | ntfy both ways: publishes IP and IoT events; subscribes to the command topic    |
+| `MqttService.h`      | MQTT on the local network: state, commands and availability                     |
 | `OTAService.h`       | Version check and signed firmware download                                       |
 | `IoTCatalog.h`       | Sensor and actuator catalog, by stable identifier and capability                |
 | `IoTCommand.h`       | Text command parser shared by panel, API and ntfy                               |
@@ -168,6 +169,23 @@ Set a **command topic** on the ntfy page (the button generates a random name). T
 - **The ntfy.sh certificate is validated** (ISRG Root X1, already embedded), on the command stream and when publishing: a command forged on the path would switch real equipment, and a publish carries the token and, in the action buttons, the command topic. Until the clock syncs nothing is published; the message waits for the next attempt.
 - Commands older than 10 minutes are ignored. Failed connections retry from 5 s up to 5 min. A stream silent for 2 minutes is reopened (ntfy sends a keepalive every 45 s).
 - ntfy.sh topics are public by name: whoever knows the command topic can send commands. Use a long random name, different from the data topic, or an **ntfy access token** (used for both publishing and subscribing). The action buttons carry the command topic (and the token, if any), so keep the data topic private too.
+
+---
+
+## 📡 MQTT
+
+For Home Assistant, Node-RED or scripts on the local network. Set it on the **MQTT** page: the broker (`host` or `host:port`, default 1883), user and password. Blank disables it.
+
+| Topic (`<id>` = chip ID in hex) | Direction | Content |
+| --- | --- | --- |
+| `esp8266iot/<id>/state` | device → broker, retained | The same JSON as `/api/state`. Sent on connect and when it changes (at most once per second). |
+| `esp8266iot/<id>/cmd` | broker → device | The same command text as the panel and the API (`ligar`, `pulso 5`, `50%`…). |
+| `esp8266iot/<id>/avail` | device → broker, retained | `online`; `offline` comes from the last will when the connection drops. |
+
+- **No TLS.** The device's only TLS session is already shared by DNS, ntfy and OTA. Use a broker on the local network, with a user and password: whoever can publish to the broker controls the actuator.
+- Use the broker's IP: `.local` names (mDNS) do not resolve.
+- A command that arrives retained (from before the connection) is ignored: it would repeat on every reconnect.
+- Own minimal client (MQTT 3.1.1, QoS 0, no library). The connection only closes during the OTA download. Failures retry from 5 s up to 5 min.
 
 ---
 

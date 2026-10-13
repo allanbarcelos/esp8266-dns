@@ -22,11 +22,14 @@ struct Fixture {
     Clock            clock;
     PublicIPResolver resolver{logger, clock};
     NtfyNotifier     ntfy{cfg, logger, resolver, clock, &iot};
+    WiFiClient       mqttNet;
+    MqttService      mqtt{cfg, logger, iot, mqttNet};
     WebService  web;
     ESP8266WebServer& srv = *ESP8266WebServer::instance();
 
-    explicit Fixture(bool withNtfy = true)
-        : web(cfg, logger, store, wifi, ota, iot, withNtfy ? &ntfy : nullptr) { web.begin(); }
+    explicit Fixture(bool withNtfy = true, bool withMqtt = true)
+        : web(cfg, logger, store, wifi, ota, iot, withNtfy ? &ntfy : nullptr,
+              withMqtt ? &mqtt : nullptr) { web.begin(); }
 
     bool get(const char* path)              { return srv.request(HTTP_GET, path); }
     bool post(const char* path, Args a = {}) {
@@ -91,7 +94,7 @@ void test_format_bytes() {
 void test_begin_registra_rotas_e_gera_csrf_aleatorio() {
     Fixture f;
     TEST_ASSERT_TRUE(f.srv.started);
-    TEST_ASSERT_EQUAL(26, (int)f.srv.routes.size());
+    TEST_ASSERT_EQUAL(28, (int)f.srv.routes.size());
     TEST_ASSERT_EQUAL(16, (int)std::strlen(f.web.csrfToken()));
 
     std::string first = f.web.csrfToken();
@@ -121,13 +124,13 @@ void test_sem_senha_redireciona_para_definir_senha() {
 void test_autenticacao_obrigatoria() {
     Fixture f;
     f.srv.authOk = false;
-    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/password", "/update", "/iot"};
+    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/mqtt", "/password", "/update", "/iot"};
     for (const char* p : paths) {
         f.get(p);
         TEST_ASSERT_EQUAL(401, f.srv.code);
         TEST_ASSERT_EQUAL_STRING("Basic realm=\"ESP8266\"", f.srv.headers["WWW-Authenticate"].c_str());
     }
-    const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/password/save",
+    const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/mqtt/save", "/password/save",
                            "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token", "/iot/clear"};
     for (const char* p : posts) {
         f.post(p);
@@ -169,7 +172,7 @@ void test_autenticacao_basic() {
 
 void test_csrf_invalido_rejeitado_em_todos_os_posts() {
     Fixture f;
-    const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/password/save",
+    const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/mqtt/save", "/password/save",
                            "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token", "/iot/clear"};
     for (const char* p : posts) {
         f.srv.request(HTTP_POST, p, {{"_csrf", "00000000deadbeef"}});
@@ -522,6 +525,90 @@ void test_ntfy_save_falha_ao_gravar() {
     MockFS::failWriteOpen = true;
     f.post("/ntfy/save", {{"topic", "x"}});
     TEST_ASSERT_EQUAL(400, f.srv.code);
+}
+
+// ── /mqtt ────────────────────────────────────────────────────────────────────
+
+void test_mqtt_pagina() {
+    Fixture f;
+    f.get("/mqtt");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "<b>desligado</b>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "esp8266iot/00dead/state, /cmd, /avail"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='host' value=''"));
+    TEST_ASSERT_TRUE(contains(f.out(), "href='/mqtt'"));
+
+    strlcpy(cfg.mqtt_host, "10.0.0.2:1884", sizeof(cfg.mqtt_host));
+    strlcpy(cfg.mqtt_user, "casa", sizeof(cfg.mqtt_user));
+    strlcpy(cfg.mqtt_pass, "segredo", sizeof(cfg.mqtt_pass));
+    f.get("/mqtt");
+    TEST_ASSERT_TRUE(contains(f.out(), "value='10.0.0.2:1884'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "value='casa'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "segredo"));          // a senha nunca volta à página
+    TEST_ASSERT_TRUE(contains(f.out(), "<b>conectando</b>"));
+}
+
+void test_mqtt_pagina_sem_servico() {
+    Fixture f(true, false);
+    f.get("/mqtt");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_FALSE(contains(f.out(), "Situacao"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='host'"));
+    f.post("/mqtt/save", {{"host", "10.0.0.2"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+}
+
+void test_mqtt_save() {
+    Fixture f;
+    f.post("/mqtt/save", {{"host", " 10.0.0.2:1884 "}, {"user", " casa "}, {"pass", "s3nha"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Configuracao MQTT salva!"));
+    TEST_ASSERT_EQUAL_STRING("10.0.0.2:1884", cfg.mqtt_host);
+    TEST_ASSERT_EQUAL_STRING("casa", cfg.mqtt_user);
+    TEST_ASSERT_EQUAL_STRING("s3nha", cfg.mqtt_pass);
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"mqtt_host\":\"10.0.0.2:1884\""));
+
+    // Senha em branco mantém; o interruptor apaga
+    f.post("/mqtt/save", {{"host", "10.0.0.2"}, {"user", "casa"}, {"pass", ""}});
+    TEST_ASSERT_EQUAL_STRING("s3nha", cfg.mqtt_pass);
+    f.post("/mqtt/save", {{"host", "10.0.0.2"}, {"user", "casa"}, {"pass_clear", "1"}});
+    TEST_ASSERT_EQUAL_STRING("", cfg.mqtt_pass);
+
+    // Em branco desliga
+    f.post("/mqtt/save", {{"host", ""}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("", cfg.mqtt_host);
+}
+
+void test_mqtt_save_validacoes() {
+    Fixture f;
+    f.post("/mqtt/save", {{"host", "10.0.0.2:99999"}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Broker invalido"));
+    f.post("/mqtt/save", {{"host", std::string(64, 'h')}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+
+    f.post("/mqtt/save", {{"host", "b"}, {"user", std::string(32, 'u')}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Usuario ou senha longos demais"));
+    f.post("/mqtt/save", {{"host", "b"}, {"pass", std::string(64, 'p')}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("", cfg.mqtt_host);
+
+    // No limite ainda vale
+    f.post("/mqtt/save", {{"host", std::string(63, 'h')}, {"user", std::string(31, 'u')},
+                          {"pass", std::string(63, 'p')}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+
+    MockFS::failWriteOpen = true;
+    f.post("/mqtt/save", {{"host", "b"}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Falha ao salvar"));
+
+    // Sem CSRF
+    MockFS::failWriteOpen = false;
+    f.srv.request(HTTP_POST, "/mqtt/save", {{"host", "x"}});
+    TEST_ASSERT_EQUAL(403, f.srv.code);
 }
 
 // ── /password ────────────────────────────────────────────────────────────────
@@ -1357,5 +1444,9 @@ int main() {
     RUN_TEST(test_ntfy_pagina_sem_servico_de_comandos);
     RUN_TEST(test_iot_descadastrar_pede_confirmacao);
     RUN_TEST(test_iot_descadastrar_falha_ao_gravar);
+    RUN_TEST(test_mqtt_pagina);
+    RUN_TEST(test_mqtt_pagina_sem_servico);
+    RUN_TEST(test_mqtt_save);
+    RUN_TEST(test_mqtt_save_validacoes);
     return UNITY_END();
 }

@@ -13,6 +13,7 @@
 #include "OTAService.h"
 #include "IoTService.h"
 #include "NtfyNotifier.h"
+#include "MqttService.h"
 #include "Assets.h"
 #include "WebAssets.h"
 
@@ -30,7 +31,7 @@ static const char _HTML_HEAD_B[] PROGMEM =
     "<link rel='stylesheet' href='/s.css?v=" WEB_CSS_TAG "'>"
     "</head><body><header><b>&#9679; ESP8266 DNS</b>"
     "<nav aria-label='Menu'><a href='/'>Home</a><a href='/status'>Status</a>"
-    "<a href='/log'>Logs</a><a href='/cloudflare'>Cloudflare</a><a href='/ntfy'>Ntfy</a>"
+    "<a href='/log'>Logs</a><a href='/cloudflare'>Cloudflare</a><a href='/ntfy'>Ntfy</a><a href='/mqtt'>MQTT</a>"
     "<a href='/iot'>IoT</a><a href='/update'>Atualizar</a><a href='/password'>Senha</a>"
     "</nav></header><main>";
 
@@ -51,9 +52,9 @@ public:
 
     WebService(Config& cfg, Logger& log, ConfigStore& store,
                WiFiService& wifi, OTAService& ota, IoTService& iot,
-               NtfyNotifier* ntfy = nullptr)
+               NtfyNotifier* ntfy = nullptr, MqttService* mqtt = nullptr)
         : _server(80), _cfg(cfg), _log(log), _store(store),
-          _wifi(wifi), _ota(ota), _iot(iot), _ntfy(ntfy) {
+          _wifi(wifi), _ota(ota), _iot(iot), _ntfy(ntfy), _mqtt(mqtt) {
         _csrfToken[0] = '\0';
     }
 
@@ -68,6 +69,8 @@ public:
         _server.on("/cloudflare/save", HTTP_POST, [this]() { _handleCloudflareSave(); });
         _server.on("/ntfy",            HTTP_GET,  [this]() { _handleNtfy(); });
         _server.on("/ntfy/save",       HTTP_POST, [this]() { _handleNtfySave(); });
+        _server.on("/mqtt",            HTTP_GET,  [this]() { _handleMqtt(); });
+        _server.on("/mqtt/save",       HTTP_POST, [this]() { _handleMqttSave(); });
         _server.on("/password",        HTTP_GET,  [this]() { _handlePassword(); });
         _server.on("/password/save",   HTTP_POST, [this]() { _handlePasswordSave(); });
         _server.on("/iot",             HTTP_GET,  [this]() { _handleIot(); });
@@ -174,6 +177,7 @@ private:
     OTAService&      _ota;
     IoTService&      _iot;
     NtfyNotifier*    _ntfy;
+    MqttService*     _mqtt;
 
     char _csrfToken[17]; // 16 hex + null
 
@@ -698,6 +702,66 @@ private:
             return;
         }
         _savedPage(PSTR("Configuracao ntfy salva!"), PSTR("/ntfy"));
+    }
+
+    // ── MQTT ─────────────────────────────────────────────────────────────────
+
+    void _handleMqtt() {
+        if (!_guard()) return;
+        _pageBegin();
+        _title(PSTR("MQTT"));
+        if (_mqtt) {
+            _box(PSTR("Conexao"));
+            _row(PSTR("Situacao"), _mqtt->status());
+            _row(PSTR("Topicos"), String(_mqtt->base()) + "/state, /cmd, /avail");
+            _boxEnd();
+        }
+        _p(PSTR("<form action='/mqtt/save' method='POST'>"));
+        _csrfField();
+        _input(PSTR("Broker <span class='m'>(host ou host:porta)</span>"), PSTR("host"),
+               _cfg.mqtt_host, PSTR("maxlength='63' placeholder='192.168.1.10:1883'"));
+        _input(PSTR("Usuario"), PSTR("user"), _cfg.mqtt_user,
+               PSTR("maxlength='31' autocomplete='off'"));
+        _passwordInput(PSTR("Senha <span class='m'>(em branco mantem)</span>"), PSTR("pass"),
+                       PSTR("maxlength='63'"));
+        _switch(PSTR("pass_clear"), PSTR("Apagar a senha salva"), false);
+        _p(PSTR("<p class='m'>Publica o estado (o mesmo JSON da API) e recebe comandos (o mesmo "
+                "texto do painel). Sem TLS: use um broker na rede local, com usuario e senha; "
+                "quem publicar no broker comanda o atuador. Use o IP do broker (nomes .local "
+                "nao resolvem). Em branco, desativado.</p>"));
+        _button(PSTR("Salvar"));
+        _pageEnd();
+    }
+
+    void _handleMqttSave() {
+        if (!_guard()) return;
+        if (!_checkCSRF()) return;
+
+        String host = _server.arg("host");
+        String user = _server.arg("user");
+        String pass = _server.arg("pass");
+        host.trim();
+        user.trim();
+        char h[sizeof(_cfg.mqtt_host)];
+        uint16_t port;
+        if (host.length() && !MqttService::parseBroker(host.c_str(), h, sizeof(h), port)) {
+            _errorPage(PSTR("Broker invalido (use host ou host:porta)"), PSTR("/mqtt"));
+            return;
+        }
+        if (user.length() >= sizeof(_cfg.mqtt_user) || pass.length() >= sizeof(_cfg.mqtt_pass)) {
+            _errorPage(PSTR("Usuario ou senha longos demais"), PSTR("/mqtt"));
+            return;
+        }
+        strlcpy(_cfg.mqtt_host, host.c_str(), sizeof(_cfg.mqtt_host));
+        strlcpy(_cfg.mqtt_user, user.c_str(), sizeof(_cfg.mqtt_user));
+        if (_flag("pass_clear")) _cfg.mqtt_pass[0] = '\0';
+        else if (pass.length()) strlcpy(_cfg.mqtt_pass, pass.c_str(), sizeof(_cfg.mqtt_pass));
+        if (!_store.save()) {
+            _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/mqtt"));
+            return;
+        }
+        if (_mqtt) _mqtt->reconnect();
+        _savedPage(PSTR("Configuracao MQTT salva!"), PSTR("/mqtt"));
     }
 
     void _handlePassword() {

@@ -85,7 +85,10 @@ you own.
 - **Local API**: `/api/state` and `/api/cmd` exist only while a sensor or actuator is configured,
   and require a Bearer token separate from the panel password (32 hex characters from the hardware
   RNG, compared in constant time, regenerated from the IoT page).
-- **Commands**: the panel, the local API and ntfy share one parser that accepts only the commands
+- **MQTT** (optional) runs without TLS on the local network, with the broker's user and
+  password. Whoever can publish to the device's command topic on the broker controls the
+  actuator. Retained commands are ignored, so a stale message never repeats on reconnect.
+- **Commands**: the panel, the local API, ntfy and MQTT share one parser that accepts only the commands
   the configured actuator supports. A pulse is never stored as the state to restore, and an
   optional safety timer turns an actuator off after a set time.
 - **TLS to the internet**: Cloudflare, the public-IP services and ntfy (command stream and

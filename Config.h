@@ -66,6 +66,9 @@ struct Config {
     char    ntfy_token[48]            = {};   // token de acesso do ntfy (opcional)
     bool    ota_auto                  = true; // ausência no JSON mantém o automático ligado
     char    api_token[33]             = {};   // API local (Bearer); gerado com o IoT
+    char    mqtt_host[64]             = {};   // "host" ou "host:porta"; "" desliga o MQTT
+    char    mqtt_user[32]             = {};
+    char    mqtt_pass[64]             = {};
 
     IoTConfig iot;
 

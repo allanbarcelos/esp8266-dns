@@ -340,6 +340,11 @@ void test_save_pior_caso_cabe() {
     std::memset(config.cf_zone,    'z', sizeof(config.cf_zone) - 1);
     std::memset(config.cf_host,    'h', sizeof(config.cf_host) - 1);
     std::memset(config.ntfy_topic, 'n', sizeof(config.ntfy_topic) - 1);
+    std::memset(config.ntfy_cmd,   'c', sizeof(config.ntfy_cmd) - 1);
+    std::memset(config.ntfy_token, 'k', sizeof(config.ntfy_token) - 1);
+    std::memset(config.mqtt_host,  'm', sizeof(config.mqtt_host) - 1);
+    std::memset(config.mqtt_user,  'u', sizeof(config.mqtt_user) - 1);
+    std::memset(config.mqtt_pass,  'p', sizeof(config.mqtt_pass) - 1);
     for (int i = 0; i < MAX_RECORDS; i++)
         std::memset(config.cf_records[i], 'r', sizeof(config.cf_records[0]) - 1);
     config.cf_record_count = MAX_RECORDS;
@@ -356,6 +361,9 @@ void test_save_pior_caso_cabe() {
     TEST_ASSERT_EQUAL(63, (int)std::strlen(config.cf_host));
     TEST_ASSERT_EQUAL(MAX_RECORDS, config.cf_record_count);
     TEST_ASSERT_EQUAL(15, (int)std::strlen(config.iot.offText));
+    TEST_ASSERT_EQUAL(63, (int)std::strlen(config.mqtt_host));
+    TEST_ASSERT_EQUAL(31, (int)std::strlen(config.mqtt_user));
+    TEST_ASSERT_EQUAL(63, (int)std::strlen(config.mqtt_pass));
 }
 
 void test_save_overflow_nao_grava() {
