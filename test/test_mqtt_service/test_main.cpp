@@ -574,6 +574,14 @@ void test_discovery_aparelho_e_topicos() {
     TEST_ASSERT_EQUAL_STRING("esp8266iot/00dead/cmd", doc["cmd_t"]);
     TEST_ASSERT_EQUAL_STRING("ths", active(doc).c_str());
 
+    // Com nome configurado, o HA mostra o nome
+    strlcpy(cfg.dev_name, "Estufa (fundos)", sizeof(cfg.dev_name));
+    f.mqtt.reconnect();
+    f.net.out.clear();
+    f.up(10);
+    TEST_ASSERT_TRUE(discovery(f.net.out, doc));
+    TEST_ASSERT_EQUAL_STRING("Estufa (fundos)", doc["dev"]["name"]);
+
     JsonObject t = doc["cmps"]["t"];
     TEST_ASSERT_EQUAL_STRING("sensor", t["p"]);
     TEST_ASSERT_EQUAL_STRING("temperature", t["dev_cla"]);

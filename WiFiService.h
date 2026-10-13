@@ -21,6 +21,7 @@ public:
         _keepRadioAwake();
         WiFi.persistent(false); // credenciais ficam no LittleFS; evita desgaste da flash
         WiFi.setAutoReconnect(true);
+        if (_cfg.hostname[0]) WiFi.hostname(_cfg.hostname);   // antes do DHCP
         WiFi.begin(_cfg.ssid.c_str(), _cfg.pass.c_str());
 
         _log.log(PSTR("Conectando ao Wi-Fi: %s"), _cfg.ssid.c_str());

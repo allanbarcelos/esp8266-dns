@@ -139,6 +139,7 @@ public:
     int         disconnectCalls = 0;
     std::string beginSSID, beginPass;
     std::string apSSID, apPass;
+    std::string hostName;
     bool        persistentFlag    = true;
     bool        autoReconnectFlag = false;
     WiFiSleepType_t sleepMode     = WIFI_MODEM_SLEEP;
@@ -159,6 +160,7 @@ public:
     void setSleepMode(WiFiSleepType_t mode) { sleepMode = mode; }
     bool softAP(const char* s, const char* p) { apSSID = s; apPass = p; return true; }
     void mode(WiFiMode_t m)         { _mode = m; }
+    bool hostname(const char* h)    { hostName = h; return true; }
 
     String    SSID()        { return String("Test<SSID>"); }
     IPAddress localIP()     { return IPAddress(); }

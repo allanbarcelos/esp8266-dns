@@ -50,7 +50,7 @@ Cada serviço é um header com dependências injetadas por referência, composta
 1. Grave pelo navegador no **[instalador web](https://allanbarcelos.github.io/esp8266-dns/)** (Chrome ou Edge no computador, sem instalar nada) ou pela serial (veja [Build local](#-build-local)). Nos dois casos, o ESP-01 precisa do **GPIO0 no GND** ao ligar o adaptador; solte depois de gravar e reconecte.
 2. Sem Wi-Fi configurado, o ESP cria a rede **`ESP_Config`**. A senha é **sorteada por aparelho** no primeiro boot (12 caracteres) e aparece na serial a cada 30 s (`AP ESP_Config, senha: ...`); o instalador web a lê com o botão **Ler a senha do aparelho**. Depois, ela fica no painel, em **Status**. Para uma senha fixa, compile com `-DAP_PASSWORD=\"...\"`.
 3. Abra `http://192.168.4.1`, informe o Wi-Fi e **defina usuário e senha do painel** (mínimo de 8 caracteres).
-4. Depois do reinício, abra o IP local do ESP. Configure **Cloudflare**, **ntfy** e **IoT** conforme precisar; cada parte é opcional.
+4. Depois do reinício, abra o IP local do ESP. Configure **Cloudflare**, **ntfy** e **IoT** conforme precisar; cada parte é opcional. Na página inicial, o cartão **Aparelho** dá um **nome** (aparece no topo do painel e no Home Assistant) e um **hostname** (o nome que o roteador mostra na lista de DHCP; vale na próxima conexão ao Wi-Fi).
 
 > O painel exige senha. Até ela ser definida, toda página redireciona para `/password`. Depois de 5 senhas (ou tokens da API) erradas seguidas, cada novo erro dobra uma espera de 2 s até 5 min.
 > Para usar de fora de casa, veja [Acesso remoto](docs/ACESSO-REMOTO.md): nunca abra uma porta do roteador para o aparelho.
@@ -192,7 +192,7 @@ Para o Home Assistant, o Node-RED ou scripts na rede local. Configure na página
 
 ### Home Assistant (discovery)
 
-Com o broker configurado, o aparelho aparece sozinho no Home Assistant (integração MQTT), como um dispositivo **ESP8266 IoT** com as entidades do módulo configurado:
+Com o broker configurado, o aparelho aparece sozinho no Home Assistant (integração MQTT), como um dispositivo com o nome do aparelho (**ESP8266 IoT** sem nome) e as entidades do módulo configurado:
 
 | Módulo | Entidade |
 | --- | --- |

@@ -50,7 +50,7 @@ Each service is a header with dependencies injected by reference, composed in la
 1. Flash from the browser with the **[web installer](https://allanbarcelos.github.io/esp8266-dns/)** (Chrome or Edge on a computer, nothing to install) or over serial (see [Local build](#-local-build)). Either way, the ESP-01 needs **GPIO0 tied to GND** when the adapter is plugged in; release it after flashing and plug it in again.
 2. With no Wi-Fi configured, the ESP creates the **`ESP_Config`** network. The password is **drawn per device** on first boot (12 characters) and printed on the serial port every 30 s (`AP ESP_Config, senha: ...`); the web installer reads it with the **Read the device password** button. Afterwards it shows on the panel, under **Status**. For a fixed password, build with `-DAP_PASSWORD=\"...\"`.
 3. Open `http://192.168.4.1`, enter the Wi-Fi credentials and **set the panel user and password** (at least 8 characters).
-4. After the reboot, open the ESP's local IP. Configure **Cloudflare**, **ntfy** and **IoT** as needed; each part is optional.
+4. After the reboot, open the ESP's local IP. Configure **Cloudflare**, **ntfy** and **IoT** as needed; each part is optional. On the home page, the **Aparelho** card sets a **name** (shown at the top of the panel and in Home Assistant) and a **hostname** (what the router shows in its DHCP list; it applies on the next Wi-Fi connection).
 
 > The panel requires a password. Until one is set, every page redirects to `/password`. After 5 wrong passwords (or API tokens) in a row, each new mistake doubles a wait from 2 s up to 5 min.
 > To use it away from home, see [Remote access](docs/ACESSO-REMOTO.md) (in Portuguese): never forward a router port to the device.
@@ -192,7 +192,7 @@ For Home Assistant, Node-RED or scripts on the local network. Set it on the **MQ
 
 ### Home Assistant (discovery)
 
-With the broker set, the device shows up in Home Assistant on its own (MQTT integration), as an **ESP8266 IoT** device with the entities of the configured module:
+With the broker set, the device shows up in Home Assistant on its own (MQTT integration), as a device with the device name (**ESP8266 IoT** when unnamed) and the entities of the configured module:
 
 | Module | Entity |
 | --- | --- |

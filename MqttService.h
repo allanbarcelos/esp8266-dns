@@ -428,7 +428,11 @@ private:
         const char* id = base() + 11;
         _outP(PSTR("{\"dev\":{\"ids\":\"esp8266iot_"));
         _out(id);
-        _outP(PSTR("\",\"name\":\"ESP8266 IoT\",\"mf\":\"esp8266-dns\",\"sw\":\""));
+        _outP(PSTR("\",\"name\":\""));
+        // O painel recusa " e \ no nome: vai sem escape
+        if (_cfg.dev_name[0]) _out(_cfg.dev_name);
+        else _outP(PSTR("ESP8266 IoT"));
+        _outP(PSTR("\",\"mf\":\"esp8266-dns\",\"sw\":\""));
         _out(firmware_version);
         _outP(PSTR("\"},\"o\":{\"name\":\"esp8266-dns\"},\"stat_t\":\""));
         _out(_base);

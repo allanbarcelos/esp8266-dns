@@ -79,6 +79,8 @@ public:
         strlcpy(_cfg.mqtt_host,  doc["mqtt_host"]  | "", sizeof(_cfg.mqtt_host));
         strlcpy(_cfg.mqtt_user,  doc["mqtt_user"]  | "", sizeof(_cfg.mqtt_user));
         strlcpy(_cfg.mqtt_pass,  doc["mqtt_pass"]  | "", sizeof(_cfg.mqtt_pass));
+        strlcpy(_cfg.dev_name,   doc["name"]       | "", sizeof(_cfg.dev_name));
+        strlcpy(_cfg.hostname,   doc["hostname"]   | "", sizeof(_cfg.hostname));
         strlcpy(_cfg.ntfy_token, doc["ntfy_token"] | "", sizeof(_cfg.ntfy_token));
         _cfg.ota_auto = doc["ota_auto"] | true;
         strlcpy(_cfg.api_token,  doc["api_token"]  | "", sizeof(_cfg.api_token));
@@ -121,6 +123,8 @@ public:
         doc["mqtt_host"]  = _cfg.mqtt_host;
         doc["mqtt_user"]  = _cfg.mqtt_user;
         doc["mqtt_pass"]  = _cfg.mqtt_pass;
+        doc["name"]       = _cfg.dev_name;
+        doc["hostname"]   = _cfg.hostname;
         doc["ota_auto"]   = _cfg.ota_auto;
         doc["api_token"]  = _cfg.api_token;
         doc["cf_token"]   = _cfg.cf_token;

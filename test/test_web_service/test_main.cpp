@@ -481,6 +481,78 @@ void test_cloudflare_com_token_mascarado_e_valores_escapados() {
     TEST_ASSERT_TRUE(contains(f.out(), "value='r&lt;0&gt;'"));
 }
 
+// ── Aparelho: nome e hostname ────────────────────────────────────────────────
+
+void test_nome_no_titulo_e_no_topo() {
+    Fixture f;
+    f.get("/status");
+    TEST_ASSERT_TRUE(contains(f.out(), "<title>ESP8266 DNS</title>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<b>&#9679; ESP8266 DNS</b>"));
+    strlcpy(cfg.dev_name, "Sala <1>", sizeof(cfg.dev_name));
+    f.get("/status");
+    TEST_ASSERT_TRUE(contains(f.out(), "<title>Sala &lt;1&gt;</title>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<b>&#9679; Sala &lt;1&gt;</b>"));
+
+    f.get("/");
+    TEST_ASSERT_TRUE(contains(f.out(), "action='/device/save'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='name' value='Sala &lt;1&gt;'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='hostname' value=''"));
+}
+
+void test_aparelho_salva_nome_e_hostname() {
+    Fixture f;
+    f.mqtt.tick(0);                                   // conectando ao broker
+    strlcpy(cfg.mqtt_host, "10.0.0.2", sizeof(cfg.mqtt_host));
+    f.post("/device/save", {{"name", " Portão "}, {"hostname", " portao-1 "}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Aparelho salvo!"));
+    TEST_ASSERT_EQUAL_STRING("Portão", cfg.dev_name);
+    TEST_ASSERT_EQUAL_STRING("portao-1", cfg.hostname);
+    TEST_ASSERT_EQUAL_STRING("portao-1", WiFi.hostName.c_str());
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"hostname\":\"portao-1\""));
+
+    // Em branco volta ao padrão; o hostname do core fica até reiniciar
+    WiFi.hostName = "";
+    Fixture g(true, false);
+    g.post("/device/save", {{"name", ""}, {"hostname", ""}});
+    TEST_ASSERT_EQUAL(200, g.srv.code);
+    TEST_ASSERT_EQUAL_STRING("", cfg.dev_name);
+    TEST_ASSERT_EQUAL_STRING("", cfg.hostname);
+    TEST_ASSERT_EQUAL_STRING("", WiFi.hostName.c_str());
+}
+
+void test_aparelho_recusa_nome_ou_hostname_invalido() {
+    Fixture f;
+    const char* names[] = {"com \"aspas\"", "barra \\", "tab\tx", "del\x7f",
+                           "123456789012345678901234567890123"};
+    for (const char* n : names) {
+        f.post("/device/save", {{"name", n}, {"hostname", "ok"}});
+        TEST_ASSERT_EQUAL(400, f.srv.code);
+        TEST_ASSERT_TRUE(contains(f.out(), "Nome invalido"));
+    }
+    const char* hosts[] = {"-a", "a-", "com espaco", "a_b", "a.b",
+                           "123456789012345678901234567890123"};
+    for (const char* h : hosts) {
+        f.post("/device/save", {{"name", "ok"}, {"hostname", h}});
+        TEST_ASSERT_EQUAL(400, f.srv.code);
+        TEST_ASSERT_TRUE(contains(f.out(), "Hostname invalido"));
+    }
+    TEST_ASSERT_EQUAL_STRING("", cfg.dev_name);
+    f.post("/device/save", {{"name", "ok"}, {"hostname", "a"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+
+    MockFS::failWriteOpen = true;
+    f.post("/device/save", {{"name", "x"}, {"hostname", ""}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Falha ao salvar"));
+    MockFS::failWriteOpen = false;
+
+    f.srv.request(HTTP_POST, "/device/save", {{"name", "x"}});
+    TEST_ASSERT_EQUAL(403, f.srv.code);
+    f.srv.authOk = false;
+    f.post("/device/save", {{"name", "x"}});
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+}
+
 void test_cloudflare_save_ok() {
     Fixture f;
     f.post("/cloudflare/save", {
@@ -1581,6 +1653,9 @@ int main() {
     RUN_TEST(test_status_ip_publico);
     RUN_TEST(test_cloudflare_sem_token);
     RUN_TEST(test_cloudflare_com_token_mascarado_e_valores_escapados);
+    RUN_TEST(test_nome_no_titulo_e_no_topo);
+    RUN_TEST(test_aparelho_salva_nome_e_hostname);
+    RUN_TEST(test_aparelho_recusa_nome_ou_hostname_invalido);
     RUN_TEST(test_cloudflare_save_ok);
     RUN_TEST(test_cloudflare_save_token_vazio_mantem_atual);
     RUN_TEST(test_cloudflare_save_valor_longo_rejeitado_sem_alterar);

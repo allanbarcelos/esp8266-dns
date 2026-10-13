@@ -316,10 +316,14 @@ void test_roundtrip_completo() {
     strlcpy(config.ntfy_topic, "topico",           sizeof(config.ntfy_topic));
     strlcpy(config.api_token,  "abc123",           sizeof(config.api_token));
     strlcpy(config.cf_record,  "rec_aaa",          sizeof(config.cf_record));
+    strlcpy(config.dev_name,   "Portão da garagem", sizeof(config.dev_name));
+    strlcpy(config.hostname,   "portao",           sizeof(config.hostname));
 
     TEST_ASSERT_TRUE(store.save());
     config = Config{};
     TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_STRING("Portão da garagem", config.dev_name);
+    TEST_ASSERT_EQUAL_STRING("portao",           config.hostname);
 
     TEST_ASSERT_EQUAL_STRING("user",             config.webusr.c_str());
     TEST_ASSERT_EQUAL_STRING("secret123",        config.webpss.c_str());
@@ -349,6 +353,8 @@ void test_save_pior_caso_cabe() {
     std::memset(config.mqtt_user,  'u', sizeof(config.mqtt_user) - 1);
     std::memset(config.mqtt_pass,  'p', sizeof(config.mqtt_pass) - 1);
     std::memset(config.cf_record,  'r', sizeof(config.cf_record) - 1);
+    std::memset(config.dev_name,   'd', sizeof(config.dev_name) - 1);
+    std::memset(config.hostname,   'o', sizeof(config.hostname) - 1);
     std::memset(config.iot.sensor,   's', sizeof(config.iot.sensor) - 1);
     std::memset(config.iot.actuator, 'a', sizeof(config.iot.actuator) - 1);
     std::memset(config.iot.onText,   'o', sizeof(config.iot.onText) - 1);

@@ -64,6 +64,8 @@ struct Config {
     char    mqtt_host[64]             = {};   // "host" ou "host:porta"; "" desliga o MQTT
     char    mqtt_user[32]             = {};
     char    mqtt_pass[64]             = {};
+    char    dev_name[32]              = {};   // nome no painel e no Home Assistant; "" = padrão
+    char    hostname[33]              = {};   // nome no DHCP do roteador; "" = o do core (ESP-xxxxxx)
 
     IoTConfig iot;
 

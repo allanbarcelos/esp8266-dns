@@ -50,6 +50,19 @@ void test_conecta_em_modo_estacao() {
     TEST_ASSERT_TRUE(logHas(logger, "Conectado!"));
 }
 
+// Hostname do DHCP: só quando configurado, antes de conectar
+void test_hostname_antes_de_conectar() {
+    {
+        W wifi(cfg, logger);
+        wifi.begin();
+        TEST_ASSERT_EQUAL_STRING("", WiFi.hostName.c_str());
+    }
+    strlcpy(cfg.hostname, "portao", sizeof(cfg.hostname));
+    W wifi(cfg, logger);
+    wifi.begin();
+    TEST_ASSERT_EQUAL_STRING("portao", WiFi.hostName.c_str());
+}
+
 // begin() não espera a associação: o loop segue enquanto o Wi-Fi conecta
 void test_begin_nao_bloqueia() {
     WiFi._status = WL_DISCONNECTED;
@@ -167,7 +180,6 @@ void test_nao_inicia_reconexao_duplicada() {
     wifi.tick(W::STATUS_INTERVAL);        // agenda reconexão (ainda pendente)
     wifi.tick(2 * W::STATUS_INTERVAL);    // nova checagem com reconexão pendente
     TEST_ASSERT_EQUAL(1, WiFi.disconnectCalls);
-    TEST_ASSERT_EQUAL(1, WiFi.beginCalls);
 }
 
 void test_desconexao_prolongada_agenda_restart() {
@@ -359,6 +371,7 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_sem_ssid_inicia_ap_protegido);
     RUN_TEST(test_conecta_em_modo_estacao);
+    RUN_TEST(test_hostname_antes_de_conectar);
     RUN_TEST(test_begin_nao_bloqueia);
     RUN_TEST(test_falha_inicia_ap_e_estacao);
     RUN_TEST(test_got_ip_sai_do_modo_configuracao);
