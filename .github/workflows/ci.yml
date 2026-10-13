@@ -222,6 +222,11 @@ jobs:
       - name: Testes + cobertura (100% linhas/funções/branches)
         run: ./test/coverage.sh
 
+      # Estouro de buffer, uso depois de liberar, vazamento e comportamento
+      # indefinido param o teste (a cobertura não pega nada disso)
+      - name: Testes com AddressSanitizer e UndefinedBehaviorSanitizer
+        run: pio test -e sanitize
+
   # ── Assina e publica (apenas push na main com firmware novo) ──────────────
   release:
     needs: [plan, build, test]

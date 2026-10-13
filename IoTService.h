@@ -558,9 +558,10 @@ private:
         _log.log(PSTR("IoT: leitura falhou"));
     }
 
-    static void _fmtTenths(char* b, size_t n, int v) {
-        const char* sign = v < 0 ? "-" : "";
-        if (v < 0) v = -v;
+    // Décimos de grau ou de umidade: cabem em int16_t, e o texto, no buffer
+    static void _fmtTenths(char* b, size_t n, int16_t tenths) {
+        const char* sign = tenths < 0 ? "-" : "";
+        int v = tenths < 0 ? -tenths : tenths;
         snprintf(b, n, "%s%d.%d", sign, v / 10, v % 10);
     }
 

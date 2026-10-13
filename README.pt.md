@@ -298,13 +298,14 @@ Pequeno de propósito: texto das páginas na flash (`PSTR`), raízes TLS em DER,
 
 ## 🧪 Testes
 
-Os testes nativos (Unity + PlatformIO) usam stubs do core Arduino em `test/stubs`. O CI exige **100 % de cobertura de linhas, funções e ramos** dos headers do firmware.
+Os testes nativos (Unity + PlatformIO) usam stubs do core Arduino em `test/stubs`. O CI exige **100 % de cobertura de linhas, funções e ramos** dos headers do firmware, compila sem nenhum aviso (`-Wall -Wextra -Werror`) e roda tudo de novo com **AddressSanitizer e UndefinedBehaviorSanitizer** (estouro de buffer, uso depois de liberar, vazamento, comportamento indefinido).
 
 ```bash
 python -m venv venv && . venv/bin/activate
 pip install -r requirements.txt
 
 pio test -e native        # qualquer compilador do host
+pio test -e sanitize      # ASan + UBSan (gcc ou clang)
 ./test/coverage.sh        # requer gcc (Linux) — o mesmo comando do CI
 ```
 
@@ -317,7 +318,7 @@ pio test -e native        # qualquer compilador do host
 | `plan` | sempre, primeiro | Decide: há firmware novo (desde a última tag `vN`)? só mudaram testes? qual versão? publica? |
 | `check` | sempre | Regras do repositório: todo arquivo de código tem o cabeçalho de licença SPDX |
 | `build` | firmware novo | CSS/JS embutidos em dia, compila com arduino-cli, firmware dentro de **500.000 bytes**, verificador de assinatura, tamanho do pacote OTA |
-| `test` | depois do `build`, ou sozinho quando só mudaram testes | Testes + 100 % de cobertura |
+| `test` | depois do `build`, ou sozinho quando só mudaram testes | Testes + 100 % de cobertura, sem avisos; de novo com ASan e UBSan |
 | `release` | push na `main` com firmware novo | Comprime, assina, **verifica a assinatura** e publica o release |
 | `pages` | depois do `release`, quando `install/` muda na `main` ou em *Run workflow* | Publica o [instalador web](https://allanbarcelos.github.io/esp8266-dns/) no GitHub Pages com o firmware do último release |
 

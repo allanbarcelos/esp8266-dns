@@ -298,13 +298,14 @@ Kept small on purpose: page text in flash (`PSTR`), TLS roots in DER, a single J
 
 ## 🧪 Tests
 
-Native tests (Unity + PlatformIO) use Arduino core stubs in `test/stubs`. CI requires **100 % line, function and branch coverage** of the firmware headers.
+Native tests (Unity + PlatformIO) use Arduino core stubs in `test/stubs`. CI requires **100 % line, function and branch coverage** of the firmware headers, builds with no warnings (`-Wall -Wextra -Werror`) and runs everything again under **AddressSanitizer and UndefinedBehaviorSanitizer** (buffer overflow, use after free, leaks, undefined behavior).
 
 ```bash
 python -m venv venv && . venv/bin/activate
 pip install -r requirements.txt
 
 pio test -e native        # any host compiler
+pio test -e sanitize      # ASan + UBSan (gcc or clang)
 ./test/coverage.sh        # requires gcc (Linux) — same command as CI
 ```
 
@@ -317,7 +318,7 @@ pio test -e native        # any host compiler
 | `plan` | always, first | Decides: is there new firmware (since the last `vN` tag)? only test changes? which version? publish? |
 | `check` | always | Repository rules: every source file carries the SPDX license header |
 | `build` | new firmware | Embedded CSS/JS up to date, compiles with arduino-cli, firmware within **500,000 bytes**, signature verifier, OTA package size |
-| `test` | after `build`, or alone when only tests changed | Tests + 100 % coverage |
+| `test` | after `build`, or alone when only tests changed | Tests + 100 % coverage, no warnings; again under ASan and UBSan |
 | `release` | push to `main` with new firmware | Compresses, signs, **verifies the signature** and publishes the release |
 | `pages` | after `release`, when `install/` changes on `main`, or on *Run workflow* | Publishes the [web installer](https://allanbarcelos.github.io/esp8266-dns/) to GitHub Pages with the latest release's firmware |
 

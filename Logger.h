@@ -23,11 +23,9 @@ public:
         vsnprintf_P(msg, sizeof(msg), fmt, args);
         va_end(args);
 
-        // Linha longa é cortada de propósito: guardar o retorno diz isso ao
-        // compilador (-Wformat-truncation)
-        int full = snprintf_P(_buf[_head], LOG_LINE_SIZE, PSTR("[%lus] %.*s"),
-                              millis() / 1000, LOG_LINE_SIZE - 10, msg);
-        (void)full;
+        // Prefixo de tempo (sempre cabe) e a mensagem, cortada se for longa
+        size_t k = (size_t)snprintf_P(_buf[_head], LOG_LINE_SIZE, PSTR("[%lus] "), millis() / 1000);
+        strlcpy(_buf[_head] + k, msg, LOG_LINE_SIZE - k);
         Serial.println(_buf[_head]);
 
         if (++_head >= LOG_BUFFER_SIZE) {
