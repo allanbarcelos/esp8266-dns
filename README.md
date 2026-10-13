@@ -118,6 +118,10 @@ The form writes the rule back as a sentence ("Turns the fan on when the value go
 
 Shows the reading and the actuator state, with the real control for its capability. Commands go out without reloading the page and the values refresh every 5 s (`/iot/now`), so nothing being edited in the form is lost. Values are announced to screen readers (`aria-live`); state is always written, never colour only.
 
+### Removing the modules
+
+**Descadastrar sensor e atuador**, at the end of the IoT page, opens a confirmation page (works without JavaScript) before acting. Once confirmed it deletes the sensor, the actuator, the rule, the saved state (`/iot.state`) and the API token: the actuator turns off and the local API stops answering until a new setup, which creates a new token.
+
 ---
 
 ## 🖧 Local API

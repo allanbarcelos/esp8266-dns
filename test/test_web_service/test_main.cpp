@@ -91,7 +91,7 @@ void test_format_bytes() {
 void test_begin_registra_rotas_e_gera_csrf_aleatorio() {
     Fixture f;
     TEST_ASSERT_TRUE(f.srv.started);
-    TEST_ASSERT_EQUAL(23, (int)f.srv.routes.size());
+    TEST_ASSERT_EQUAL(24, (int)f.srv.routes.size());
     TEST_ASSERT_EQUAL(16, (int)std::strlen(f.web.csrfToken()));
 
     std::string first = f.web.csrfToken();
@@ -128,7 +128,7 @@ void test_autenticacao_obrigatoria() {
         TEST_ASSERT_EQUAL(401, f.srv.code);
     }
     const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/password/save",
-                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token"};
+                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token", "/iot/clear"};
     for (const char* p : posts) {
         f.post(p);
         TEST_ASSERT_EQUAL(401, f.srv.code);
@@ -140,7 +140,7 @@ void test_autenticacao_obrigatoria() {
 void test_csrf_invalido_rejeitado_em_todos_os_posts() {
     Fixture f;
     const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/password/save",
-                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token"};
+                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token", "/iot/clear"};
     for (const char* p : posts) {
         f.srv.request(HTTP_POST, p, {{"_csrf", "00000000deadbeef"}});
         TEST_ASSERT_EQUAL(403, f.srv.code);
@@ -1186,6 +1186,59 @@ void test_ntfy_pagina_sem_servico_de_comandos() {
     TEST_ASSERT_FALSE(contains(f.out(), "Comandos pelo ntfy"));
 }
 
+void test_iot_descadastrar_pede_confirmacao() {
+    Fixture f;
+    Args a = iotForm();
+    a["restore"] = "1";
+    f.post("/iot/save", a);
+    f.post("/iot/cmd", {{"cmd", "ligar"}});
+    TEST_ASSERT_TRUE(f.iot.actuatorOn());
+    TEST_ASSERT_TRUE(MockFS::files.count("/iot.state") == 1);
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(),
+        "<form action='/iot/clear' method='POST'>"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">Descadastrar sensor e atuador</button>"));
+
+    // Primeiro passo só mostra o aviso; nada muda
+    f.post("/iot/clear");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "<h1>Descadastrar</h1>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "serao apagados"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='confirm' value='1'"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">Sim, descadastrar</button>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "href='/iot'>Voltar</a>"));
+    TEST_ASSERT_EQUAL_STRING("pir", cfg.iot.sensor);
+    TEST_ASSERT_TRUE(f.iot.actuatorOn());
+
+    // Confirmado: apaga tudo, desliga o atuador e a API some
+    std::string token = cfg.api_token;
+    f.post("/iot/clear", {{"confirm", "1"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Sensor e atuador descadastrados"));
+    TEST_ASSERT_EQUAL_STRING("", cfg.iot.sensor);
+    TEST_ASSERT_EQUAL_STRING("", cfg.iot.actuator);
+    TEST_ASSERT_EQUAL(-1, cfg.iot.sensorPin);
+    TEST_ASSERT_EQUAL(-1, cfg.iot.actuatorPin);
+    TEST_ASSERT_EQUAL_STRING("", cfg.api_token);
+    TEST_ASSERT_FALSE(contains(MockFS::files["/config.json"], token.c_str()));
+    TEST_ASSERT_TRUE(MockFS::files.count("/iot.state") == 0);
+    TEST_ASSERT_FALSE(f.iot.hasSensor());
+    TEST_ASSERT_FALSE(f.iot.hasActuator());
+    TEST_ASSERT_EQUAL(HIGH, mock::pinOut[0]);  // relé ativo em baixo: desligado
+
+    f.get("/iot");
+    TEST_ASSERT_FALSE(contains(f.out(), "/iot/clear"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='role' value='n' checked>Nada"));
+}
+
+void test_iot_descadastrar_falha_ao_gravar() {
+    Fixture f;
+    f.post("/iot/save", iotForm());
+    MockFS::failWriteOpen = true;
+    f.post("/iot/clear", {{"confirm", "1"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Falha ao salvar"));
+    TEST_ASSERT_TRUE(f.iot.hasActuator());  // o que está no ar não muda
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_escape);
@@ -1253,5 +1306,7 @@ int main() {
     RUN_TEST(test_api_sem_token_e_iot_desligado);
     RUN_TEST(test_ntfy_comandos_pagina_e_validacoes);
     RUN_TEST(test_ntfy_pagina_sem_servico_de_comandos);
+    RUN_TEST(test_iot_descadastrar_pede_confirmacao);
+    RUN_TEST(test_iot_descadastrar_falha_ao_gravar);
     return UNITY_END();
 }

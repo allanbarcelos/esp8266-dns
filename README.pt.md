@@ -118,6 +118,10 @@ O formulário escreve a regra como frase ("Liga o ventilador quando o valor fica
 
 Mostra a leitura e o estado do atuador, com o controle de verdade da capacidade dele. Os comandos saem sem recarregar a página e os valores se atualizam a cada 5 s (`/iot/now`), sem perder o que está sendo editado no formulário. Os valores são anunciados a leitores de tela (`aria-live`); o estado é sempre escrito, nunca só por cor.
 
+### Descadastrar
+
+**Descadastrar sensor e atuador**, no fim da página IoT, abre uma página de confirmação (funciona sem JavaScript) antes de agir. Confirmado, apaga o sensor, o atuador, a regra, o estado salvo (`/iot.state`) e o token da API: o atuador desliga e a API local deixa de responder até um novo cadastro, que gera um token novo.
+
 ---
 
 ## 🖧 API local

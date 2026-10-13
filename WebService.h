@@ -61,7 +61,7 @@ static const char _HTML_HEAD_B[] PROGMEM =
     ".a{background:var(--cd);border-left:4px solid var(--in);border-radius:6px;"
     "padding:10px 14px;margin-bottom:16px}"
     ".success{border-color:var(--ok)}.warning{border-color:var(--wa)}"
-    ".danger{border-color:var(--er)}"
+    ".danger{border-color:var(--er)}.bx{background:#da3633}"
     "progress{display:block;width:100%;accent-color:var(--ok)}"
     "pre{background:#010409;border:1px solid var(--ln);border-radius:8px;padding:12px;"
     "font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}"
@@ -178,6 +178,7 @@ public:
         _server.on("/iot/now",         HTTP_GET,  [this]() { _handleIotNow(); });
         _server.on("/iot/cmd",         HTTP_POST, [this]() { _handleIotCmd(); });
         _server.on("/iot/token",       HTTP_POST, [this]() { _handleIotToken(); });
+        _server.on("/iot/clear",       HTTP_POST, [this]() { _handleIotClear(); });
         // API local: mesma leitura e mesmos comandos, com token em vez do login
         _server.on("/api/state",       HTTP_GET,  [this]() { _handleApiState(); });
         _server.on("/api/cmd",         HTTP_POST, [this]() { _handleApiCmd(); });
@@ -1163,6 +1164,11 @@ private:
         _switch(PSTR("notify"), PSTR("Enviar leituras e mudancas ao ntfy"), t.notify);
         _button(PSTR("Salvar"));
         if (live) _apiBox();
+        if (hs || ha) {
+            _p(PSTR("<form action='/iot/clear' method='POST'>"));
+            _csrfField();
+            _p(PSTR("<button class='b2'>Descadastrar sensor e atuador</button></form>"));
+        }
 
         _p(PSTR("<script>var SK={"));
         for (uint8_t i = 0; i < iot::SENSOR_COUNT; i++) {
@@ -1410,6 +1416,37 @@ private:
             return;
         }
         _savedPage(PSTR("Token novo gerado; o anterior deixou de valer"), PSTR("/iot"));
+    }
+
+    // Apaga sensor, atuador, regra e token. Pede confirmação numa página
+    // própria: funciona sem JavaScript e o leitor de tela anuncia o aviso.
+    void _handleIotClear() {
+        if (!_guard()) return;
+        if (!_checkCSRF()) return;
+        if (!_flag("confirm")) {
+            _pageBegin();
+            _title(PSTR("Descadastrar"));
+            _alertP(PSTR("warning"),
+                    PSTR("O sensor e o atuador serao apagados com todos os ajustes e a regra. "
+                         "O atuador desliga, a API local deixa de responder e o token deixa de valer."));
+            _p(PSTR("<form action='/iot/clear' method='POST'>"));
+            _csrfField();
+            _p(PSTR("<input type='hidden' name='confirm' value='1'>"
+                    "<button class='bx'>Sim, descadastrar</button></form>"));
+            _backButton(PSTR("/iot"));
+            _pageEnd();
+            return;
+        }
+        _cfg.iot = IoTConfig();
+        _cfg.api_token[0] = '\0';
+        if (!_store.save()) {
+            _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/iot"));
+            return;
+        }
+        LittleFS.remove(IoTState::PATH);
+        _iot.begin();
+        _log.log(PSTR("IoT: sensor e atuador descadastrados"));
+        _savedPage(PSTR("Sensor e atuador descadastrados"), PSTR("/iot"));
     }
 
     // Token e exemplos para integrar sem internet (scripts, Home Assistant)
