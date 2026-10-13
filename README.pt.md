@@ -1,69 +1,199 @@
-# 📘 Firmware ESP8266 — DDNS Cloudflare + OTA
+# 📘 ESP8266 IoT — DDNS Cloudflare, OTA e IoT local
 
 [English](README.md) | Português
 
-Firmware para **ESP-01 (ESP8266, 1 MB)** que funciona como agente autônomo de DNS dinâmico:
+Firmware para o **ESP-01 (ESP8266, 1 MB)**. Um aparelho faz três trabalhos:
 
-1. **Mantém registros A do Cloudflare** apontando para o IP público residencial.
-2. **Notifica o IP público via [ntfy.sh](https://ntfy.sh)** no boot e sempre que ele mudar, com ou sem Cloudflare configurado.
-3. **Atualiza o próprio firmware (OTA)** a partir dos GitHub Releases, com **assinatura RSA verificada** no aparelho.
-4. Oferece um **painel web local** (autenticado) para configuração e diagnóstico.
-5. Tem **watchdogs** de Wi-Fi, memória e reinício diário.
+1. **DNS dinâmico**: mantém os registros A do Cloudflare apontando para o IP público residencial e envia esse IP pelo [ntfy.sh](https://ntfy.sh).
+2. **IoT**: um sensor e um atuador, cada um opcional. Operado pelo painel, por uma **API local** que funciona sem internet e por **comandos do ntfy** entregues em cerca de um segundo.
+3. **Manutenção sozinho**: atualização OTA assinada pelo GitHub Releases, watchdogs de Wi-Fi e memória e reinício diário.
+
+O painel web é autossuficiente (CSS e imagens ficam no firmware): funciona no modo de configuração e em redes sem internet.
 
 ---
 
 ## 🧩 Arquitetura
 
-Cada serviço é um header com dependências injetadas por referência, composto em camadas por `App.h`. O `.ino` só chama `app.begin()` e `app.tick()`. Todos os `tick(now)` são não bloqueantes.
+Cada serviço é um header com dependências injetadas por referência, compostas em camadas pelo `App.h`. O `.ino` só chama `app.begin()` e `app.tick()`. Todo `tick(now)` é não bloqueante.
 
-| Arquivo              | Responsabilidade                                                               |
-| -------------------- | ------------------------------------------------------------------------------ |
-| `App.h`              | Composição dos serviços, `setup()`/`loop()`                                    |
-| `Config.h`           | Estrutura de configuração e estado em runtime; credenciais do AP              |
-| `ConfigStore.h`      | Persistência em `/config.json` (LittleFS) com **escrita atômica**             |
-| `Logger.h`           | Buffer circular de logs (Serial + painel)                                      |
-| `Clock.h`            | Relógio via SNTP (necessário para validar certificados TLS)                   |
-| `WiFiService.h`      | Conexão, modo de configuração (AP), reconexão e watchdogs                      |
-| `PublicIPResolver.h` | IPv4 público via HTTPS (raízes de `CloudflareCA.h`), com cache de 60 s       |
-| `CloudflareDNS.h`    | PATCH dos registros via API Cloudflare (TLS validado com `CloudflareCA.h`)    |
-| `NtfyNotifier.h`     | Notificação do IP público; resolve o IP por conta própria                     |
-| `OTAService.h`       | Checagem de versão e download do firmware assinado                            |
-| `WebService.h`       | Painel HTTP (Basic Auth + CSRF + escape de HTML)                               |
-| `Version.h`          | `firmware_version` (injetado pelo CI; `"dev"` em builds locais)               |
+| Arquivo              | Responsabilidade                                                                  |
+| -------------------- | --------------------------------------------------------------------------------- |
+| `App.h`              | Composição dos serviços, `setup()`/`loop()`, uma sessão TLS por vez              |
+| `Config.h`           | Configuração e estado em runtime; credenciais do AP; `IoTConfig`                 |
+| `ConfigStore.h`      | `/config.json` (LittleFS) com **escrita atômica**, número de versão e migrações  |
+| `Logger.h`           | Buffer circular de linhas de log (Serial + painel)                               |
+| `Clock.h`            | Relógio via SNTP (necessário para validar certificados TLS)                      |
+| `WiFiService.h`      | Conexão, modo de configuração (AP), reconexão e watchdogs                        |
+| `PublicIPResolver.h` | IPv4 público via HTTPS (raízes em `CloudflareCA.h`), em cache por 60 s          |
+| `CloudflareDNS.h`    | PATCH dos registros pela API do Cloudflare                                       |
+| `NtfyNotifier.h`     | ntfy nos dois sentidos: publica IP e eventos do IoT; assina o tópico de comandos |
+| `OTAService.h`       | Checagem de versão e download do firmware assinado                               |
+| `IoTCatalog.h`       | Catálogo de sensores e atuadores, por identificador estável e capacidade        |
+| `IoTCommand.h`       | Interpretador de comandos de texto, o mesmo no painel, na API e no ntfy         |
+| `IoTService.h`       | Leitura do sensor, saída do atuador, regra, pulso, desligamento de segurança, JSON |
+| `IoTState.h`         | Último comando manual (`/iot.state`), para "ao religar"                          |
+| `Ws2812.h`           | Driver WS2812 de uma cor, sem biblioteca                                         |
+| `WebService.h`       | Painel HTTP (Basic Auth + CSRF + escape de HTML) e API local (token Bearer)     |
+| `Assets.h`           | Imagens do painel embutidas no firmware (geradas por `tools/embed_assets.py`)   |
+| `Version.h`          | `firmware_version` (injetado pelo CI; `"dev"` em build local)                    |
 
 ---
 
 ## 🚀 Primeiro uso
 
-1. Grave o firmware via serial (veja [Build local](#-build-local)).
-2. Sem Wi-Fi configurado, o ESP cria a rede **`ESP_Config`** (senha padrão **`esp8266dns`**, altere no build com `-DAP_PASSWORD=\"...\"`).
-3. Acesse `http://192.168.4.1`, informe o Wi-Fi e **defina usuário e senha do painel** (mínimo de 8 caracteres).
-4. Após reiniciar, acesse o IP local do ESP e configure **Cloudflare** (token, Zone ID, Record IDs) e, se quiser, o tópico **ntfy**.
+1. Grave pela serial (veja [Build local](#-build-local)).
+2. Sem Wi-Fi configurado, o ESP cria a rede **`ESP_Config`** (senha padrão **`esp8266dns`**, trocável no build com `-DAP_PASSWORD=\"...\"`).
+3. Abra `http://192.168.4.1`, informe o Wi-Fi e **defina usuário e senha do painel** (mínimo de 8 caracteres).
+4. Depois do reinício, abra o IP local do ESP. Configure **Cloudflare**, **ntfy** e **IoT** conforme precisar; cada parte é opcional.
 
-> O painel exige senha. Sem senha definida, todas as páginas redirecionam para `/password`.
-> Se o Wi-Fi configurado falhar no boot, o ESP sobe o AP **e** continua tentando a rede em segundo plano: ao conectar, o AP é desligado.
+> O painel exige senha. Até ela ser definida, toda página redireciona para `/password`.
+> Se o Wi-Fi configurado falhar no boot, o ESP sobe o AP **e** continua tentando a rede em segundo plano. Quando conecta, o AP é desligado.
+
+Reserve o IP do aparelho no roteador (reserva de DHCP): o painel e a API local são acessados pelo IP. A descoberta por nome via mDNS (`.local`) foi medida e não cabe (veja [Orçamento de flash](#-orçamento-de-flash)).
 
 ### Token do Cloudflare
 
-Crie um token com escopo mínimo: **Zone → DNS → Edit**, restrito à zona usada.
+Crie um token de privilégio mínimo: **Zone → DNS → Edit**, restrito à zona em uso.
 
 ---
 
-## 🌐 Atualização de DNS
+## 🔌 IoT
+
+O ESP-01 expõe quatro pinos utilizáveis (GPIO0, GPIO2, TX/GPIO1, RX/GPIO3) e nenhuma entrada analógica: o aparelho controla **um sensor e um atuador**, ambos digitais. O desenho dos pinos está na página IoT (`docs/esp01-pinout.svg`, embutido).
+
+### O que o aparelho faz
+
+A página IoT começa por uma escolha:
+
+| Papel | Comportamento |
+| --- | --- |
+| **Só sensor** | Lê e publica no ntfy (`[sensor] …`). |
+| **Só atuador** | Obedece comandos do painel, da API local e do ntfy. |
+| **Sensor e atuador** | Os dois; com a **regra** ligada, o sensor comanda o atuador no modo automático. Um comando manual vale até `auto`. |
+| **Nada** | IoT desligado; os pinos ficam livres. |
+
+Cada escolha mostra só os campos que importam. Cada tipo de sensor e de atuador mostra uma dica de ligação de uma linha (pull-up, alimentação, GPIO0/GPIO2 no boot).
+
+### Sensores
+
+| Identificador | Sensor | Leitura |
+| --- | --- | --- |
+| `dht22`, `dht11` | Temperatura e umidade | °C e % (a regra usa a grandeza escolhida) |
+| `ds18b20` | Temperatura (1-Wire) | °C |
+| `pir` | Presença | presença / livre |
+| `contato` | Porta ou janela (reed) | aberta / fechada |
+| `botao` | Botão ou interruptor | pressionado / solto |
+| `digital` | Saída digital genérica (chuva, gás, chama, solo, boia, som) | nomes de estado escolhidos por você |
+| `distancia` | HC-SR04 / JSN-SR04T (trig e echo no mesmo pino) | cm |
+| `pulsos` | Vazão ou pulsos (YF-S201) | pulsos a cada 10 s |
+
+### Atuadores, por capacidade
+
+A capacidade define o controle mostrado no painel e os comandos aceitos.
+
+| Capacidade | Identificadores | Controle no painel | Comandos |
+| --- | --- | --- | --- |
+| **Liga/desliga** | `rele`, `bomba`, `valvula`, `fechadura`, `buzzer` | interruptor + pulso | `ligar`, `desligar`, `alternar`, `pulso 5` |
+| **Intensidade (PWM)** | `led`, `ventilador`, `motor` | interruptor + faixa 0–100 % + pulso | os acima + `50%`, `nivel 50` |
+| **Posição** | `servo` | abrir/fechar + faixa 0–180° + pulso | `abrir`, `fechar`, `angulo 90`, `pulso 3` |
+| **Cor** | `fita` (WS2812, até 60 LEDs) | interruptor + seletor de cor + brilho | os acima + `cor #ff8800`, `brilho 40` |
+
+Todo atuador aceita também `auto` (volta à regra) e `status` (não muda nada; devolve o estado). Maiúsculas e minúsculas tanto faz, e há sinônimos em inglês (`on`, `off`, `toggle`, `pulse`, `level`, `angle`, `color`, `open`, `close`). `abrir`/`fechar` são ligar/desligar: o servo vai para o ângulo aberto ou fechado.
+
+Para cada atuador:
+
+- **Pulso**: liga por N segundos (1–3600) e desliga. Um pulso nunca é gravado como estado a restaurar: uma fechadura não reabre sozinha depois de uma queda de energia. Com a regra, o fim do pulso volta ao automático.
+- **Desligamento de segurança**: "desligar sozinho depois de N minutos" (0 = nunca), para bombas, válvulas e aquecedores. Com a regra, o atuador fica no manual depois, senão a regra religaria na hora.
+- **Ao religar o aparelho**: desligado, ou o último comando manual (`/iot.state`).
+
+### Regra (sensor e atuador)
+
+- **Sensor digital**: acompanhar (ligado enquanto ativo) ou inverter (cada acionamento inverte o atuador).
+- **Sensor numérico**: liga acima ou abaixo de um limite, com margem para desligar (histerese), para o relé não ficar oscilando.
+- **Intensidade proporcional**: um atuador PWM acompanha a leitura de forma linear entre o limite e um limite alto.
+
+O formulário escreve a regra como frase ("Liga o ventilador quando o valor ficar acima de 28 °C e desliga ao voltar abaixo de 26 °C") antes de salvar.
+
+### Cartão "Agora"
+
+Mostra a leitura e o estado do atuador, com o controle de verdade da capacidade dele. Os comandos saem sem recarregar a página e os valores se atualizam a cada 5 s (`/iot/now`), sem perder o que está sendo editado no formulário. Os valores são anunciados a leitores de tela (`aria-live`); o estado é sempre escrito, nunca só por cor.
+
+---
+
+## 🖧 API local
+
+A mesma leitura e os mesmos comandos, para scripts e automação residencial na rede local, **sem internet**. As rotas só existem com sensor ou atuador configurado (404 sem eles).
+
+```bash
+curl -H 'Authorization: Bearer <token>' http://192.168.1.50/api/state
+curl -H 'Authorization: Bearer <token>' -d ligar http://192.168.1.50/api/cmd
+curl -H 'Authorization: Bearer <token>' -d 'cmd=pulso 5' http://192.168.1.50/api/cmd
+```
+
+```json
+{"api":1,
+ "sensor":{"type":"dht22","status":"ok","text":"24.5 C, 61.0%","temperature":24.5,"humidity":61.0},
+ "actuator":{"type":"ventilador","capability":"level","on":true,"mode":"auto","text":"ligado 60%","level":60}}
+```
+
+- O token (32 caracteres hexadecimais do gerador aleatório de hardware) é separado da senha do painel. Ele é criado quando o IoT é configurado pela primeira vez e aparece na página IoT com estes exemplos; **Gerar token novo** invalida o anterior. A comparação é feita em tempo constante.
+- `sensor` ou `actuator` vem `null` quando não está em uso. `status` é `ok`, `waiting` ou `error`. Campos extras por tipo: `active`, `temperature`, `humidity`, `distance`, `pulses`, `level`, `angle`, `color`, `pulse` (segundos restantes).
+- Um comando que não é entendido ou não serve ao atuador devolve **400** com `{"error":"..."}`; nada muda.
+- O Home Assistant lê com o sensor `rest` e envia comandos com `rest_command`.
+
+> O painel e a API usam HTTP puro (o ESP-01 não tem memória para um servidor TLS). Use-os numa rede confiável e não redirecione a porta 80 para o aparelho.
+
+---
+
+## 📣 ntfy
+
+### Tópico de dados (envio)
+
+- `[ip] 1.2.3.4` no boot e sempre que o IP público muda. Não depende do Cloudflare.
+- `[sensor] …` e `[atuador] …` com **Enviar leituras e mudanças ao ntfy** ligado. Mudanças e respostas a comandos saem em segundos; leituras numéricas periódicas, no máximo uma vez por minuto (limite do ntfy.sh).
+- Com tópico de comandos configurado, cada notificação do IoT traz até **três botões de ação**, que publicam um comando de volta: Ligar/Desligar/Pulso, Desligar/50 %/100 % ou Abrir/Fechar/Pulso, conforme o atuador. Com a regra ligada, o terceiro botão é **Auto**. Dá para operar pela notificação do celular, sem digitar.
+
+### Tópico de comandos (recebimento)
+
+Defina um **tópico de comandos** na página ntfy (o botão gera um nome aleatório). O aparelho assina o tópico com uma conexão contínua (`GET /<tópico>/json`) e cada mensagem vira um comando, entregue em cerca de um segundo. Respostas a comandos inválidos vão ao tópico de dados como `[erro] …`.
+
+- **Uma sessão TLS por vez.** O ESP-01 tem memória para uma única sessão TLS. Antes de publicar, ou quando o Cloudflare ou o OTA vão usar a rede, o fluxo fecha. Ao reabrir, ele pede `since=<último id>`, e o ntfy (que guarda as mensagens por 12 horas) entrega o que chegou no intervalo. Nada se perde; no pior caso, um comando espera alguns segundos.
+- **O certificado do ntfy.sh é validado** (ISRG Root X1, já embutida): um comando forjado no caminho acionaria equipamento de verdade.
+- Comandos com mais de 10 minutos são ignorados. Conexões que falham tentam de novo de 5 s até 5 min. Um fluxo sem nada por 2 minutos é reaberto (o ntfy manda keepalive a cada 45 s).
+- Tópicos do ntfy.sh são públicos pelo nome: quem souber o tópico de comandos pode mandar comandos. Use um nome longo e aleatório, diferente do tópico de dados, ou um **token de acesso do ntfy** (usado no envio e na assinatura). Os botões de ação levam o tópico de comandos (e o token, se houver): mantenha o tópico de dados privado também.
+
+---
+
+## 🔁 Compatibilidade e novos módulos
+
+Os aparelhos instalados se atualizam sozinhos, então o firmware nunca quebra uma configuração existente:
+
+- **Identificadores estáveis.** A configuração grava um sensor ou atuador pelo identificador (`"actuator":"rele"`), nunca pela posição numa tabela. Identificadores nunca são renomeados nem reaproveitados; nomes de exibição e ordem podem mudar à vontade.
+- **Configuração com versão.** O `/config.json` tem `"v"`. Ao carregar, uma versão antiga passa pelas migrações em sequência. A versão 1 (tipos gravados pela posição na tabela) vira a versão 2 no primeiro boot, e o original fica em `/config.v1.json`. Campo que falta recebe o padrão; campo desconhecido é ignorado. Na v1 o módulo só funcionava com sensor; depois da migração, um módulo sem sensor continua parado, então nenhum pino passa a ser acionado com a atualização. O "comando" da v1 (forçar ligado/desligado) vira o estado manual guardado.
+- **Tipo desconhecido, parada segura.** Se um OTA que voltou atrás deixar um firmware mais antigo lendo uma configuração mais nova, o tipo desconhecido deixa aquela parte desligada (atuador solto), mostra um aviso na página IoT e **o arquivo não é regravado**. Atualizar de novo volta tudo.
+- **Contrato da API.** Campos e comandos só são acrescentados; os existentes mantêm nome e significado. `"api":1` marca a versão.
+
+Um módulo novo que usa uma capacidade existente é **uma linha** no `IoTCatalog.h`; painel, comandos, API, ntfy e botões de ação passam a funcionar sem outro código:
+
+```cpp
+{"aquecedor", _A_HEATER, C_ONOFF, 60},   // identificador, nome, capacidade, pulso sugerido (s)
+```
+
+Só uma capacidade nova (um motor de passo, por exemplo) pede código: uma saída no `IoTService` e um controle no `WebService`. O CI testa as migrações com arquivos de configuração reais de cada versão.
+
+---
+
+## 🌐 Atualização do DNS
 
 A cada 60 s (com Wi-Fi conectado e relógio sincronizado):
 
-1. Obtém o IP público por HTTPS. O corpo precisa ser um único IPv4 e o certificado precisa encadear nas raízes de `CloudflareCA.h`.
-2. Se o IP for diferente do **último IP sincronizado** (em memória), envia `PATCH` para cada registro.
-3. Só marca como sincronizado quando **todos** os registros são atualizados. Em caso de falha, tenta de novo no próximo ciclo.
+1. Busca o IP público via HTTPS. A resposta precisa ser um único IPv4 e o certificado precisa chegar às raízes do `CloudflareCA.h`.
+2. Se for diferente do **último IP sincronizado** (guardado em memória), envia um `PATCH` para cada registro.
+3. Só marca como sincronizado quando **todos** os registros dão certo. Em qualquer falha, tenta de novo no ciclo seguinte.
 
-A busca tenta `api4.ipify.org`, depois `icanhazip.com`, depois `ifconfig.co`. Os três respondem com um IPv4 puro e apresentam a cadeia WE1 → GTS Root R4, a mesma que `api.cloudflare.com` já valida nos aparelhos em campo. Nenhuma raiz nova é adicionada. A primeira resposta válida fica em cache por 60 s e é compartilhada: DNS e ntfy abrem uma sessão TLS por ciclo.
+A busca tenta `api4.ipify.org`, depois `icanhazip.com`, depois `ifconfig.co`. Os três respondem só o IPv4 e apresentam a cadeia WE1 → GTS Root R4, a mesma que o `api.cloudflare.com` já valida nos aparelhos em campo. A primeira resposta válida fica em cache por 60 s e é compartilhada: DNS e ntfy abrem uma sessão TLS por ciclo.
 
-O ntfy lê esse resultado por conta própria. Um tópico sem token Cloudflare continua resolvendo e notificando.
-
-Não dependemos do DNS resolvido localmente: ele tem cache/TTL e, em registros *proxied*, devolve IPs da Cloudflare. Após cada boot há um `PATCH` inicial, que é idempotente.
-
-A conexão com `api.cloudflare.com` valida o certificado contra as raízes em `CloudflareCA.h` (GTS Root R1/R4, ISRG Root X1/X2).
+O firmware não depende da resolução DNS local: ela tem cache por TTL e devolve IPs do Cloudflare em registros *proxied*. Cada boot faz um `PATCH` inicial, que é idempotente. A conexão com `api.cloudflare.com` valida o certificado pelas raízes do `CloudflareCA.h` (GTS Root R1/R4, ISRG Root X1/X2).
 
 ---
 
@@ -74,27 +204,18 @@ GitHub Releases ──(vN)──► ESP8266
   firmware.signed.bin = gzip(firmware) + assinatura RSA-2048/SHA-256
 ```
 
-- De hora em hora (até ~23 h de uptime), consulta `releases/latest`. Só instala tags `vN` **maiores** que a atual, o que impede downgrade.
-- O build com `public.key` faz o `Updater` **verificar a assinatura** em `Update.end()` e gravar só o gzip. A instalação manual baixa o mesmo arquivo da automática: `firmware.signed.bin` se a chave está no build, `firmware.bin` se não está. O eboot lê o tamanho descomprimido nos 4 últimos bytes; no arquivo assinado esses bytes são o tamanho da assinatura, e gravá-lo sem remover o trailer corrompe o sketch.
-- O PlatformIO embute `public.key` antes de compilar (`pre:tools/embed_pubkey.py`), como o arduino-cli no CI. O link falha se o ELF não tiver o verificador e essa chave. O teste nativo não define `ARDUINO_SIGNING` e por isso exige `firmware.bin`.
-- A imagem é **comprimida com gzip** (o bootloader descomprime). Sem isso, firmware atual + novo não cabem juntos na área de sketch de 1 MB.
-- O linker `ld/eagle.flash.1m64.ota.ld` encolhe o IROM em **400 KB**. Esse buraco fica contra o sistema de arquivos e o sketch nunca o ocupa; firmware maior que o teto falha no link. O `package_ota.py` também recusa gzip/assinatura maior que a reserva.
-- O download é abortado se o Wi-Fi cair, em erro de escrita ou após 60 s sem dados. A sessão TLS com o GitHub usa 16 KB (o GitHub não negocia MFLN; 4 KB travam o handshake). O GET do asset segue os 302 num buffer fixo de headers (o `String` por linha do HTTPClient com 16 KB de TLS gerava Exception 29). No CDN o aparelho tenta MFLN e cai para 4 KB se o host aceitar. DNS e ntfy param durante o download. Falha transitória retenta com backoff; se a heap não bastar, grava `/ota.pending` e reinicia em modo recuperação (sem IoT) para concluir o OTA.
-
-### Assets do release
-
-| Arquivo               | Uso                                                                              |
-| --------------------- | -------------------------------------------------------------------------------- |
-| `firmware.signed.bin` | gzip + assinatura: build que embute `public.key`                                |
-| `firmware.bin`        | gzip puro: build sem a chave, para o eboot ler o tamanho certo                  |
+- A cada hora (até ~23 h ligado) consulta `releases/latest`. Só instala tags `vN` **maiores** que a atual, o que impede downgrade.
+- Um build que embute `public.key` faz o `Updater` do core **verificar a assinatura** em `Update.end()` e gravar só o gzip. A instalação manual baixa o mesmo arquivo da checagem por hora: `firmware.signed.bin` quando a chave está no build, `firmware.bin` quando não está. O bootloader lê o tamanho descomprimido nos 4 bytes finais; no arquivo assinado esses bytes são o tamanho da assinatura, e gravar esse final corromperia o sketch.
+- O gzip é completado (campo FNAME) até um múltiplo de 4 bytes: o `Updater` do core faz o hash em leituras de 4 bytes e falha em silêncio com um final de outro tamanho.
+- O PlatformIO embute `public.key` antes de compilar (`pre:tools/embed_pubkey.py`), como o arduino-cli faz no CI. O link falha se o ELF não tiver o verificador e essa chave.
+- O linker script `ld/eagle.flash.1m64.ota.ld` encurta a IROM em **400 KB**. Esse espaço fica junto ao sistema de arquivos e o sketch nunca o ocupa; um firmware que passar do limite falha no link. O `package_ota.py` também recusa um gzip/assinatura maior que a reserva.
+- O download é abortado se o Wi-Fi cair, uma escrita na flash falhar ou nenhum dado chegar por 60 s. O TLS do GitHub usa buffer de 16 KB. DNS, ntfy e o fluxo de comandos do ntfy pausam durante o download. Se a heap não comportar a sessão, o aparelho grava `/ota.pending` e reinicia em modo de recuperação (IoT desligado) para concluir o OTA. Uma versão recusada por `Update.end()` fica marcada em `/ota.rejected` e só uma instalação manual a baixa de novo.
 
 ### Chave de assinatura
 
-- `public.key` fica versionada no repositório.
-- A chave privada **nunca** vai para o repositório (está no `.gitignore`). No CI ela vem do secret **`OTA_SIGNING_KEY`** (conteúdo PEM).
-- **Guarde um backup da chave privada.** Sem ela, aparelhos com o firmware novo não aceitam mais atualizações OTA e só podem ser regravados via serial.
-
-Para gerar um novo par:
+- `public.key` fica no repositório.
+- A chave privada **nunca** vai para o repositório (está no `.gitignore`). O CI lê do segredo **`OTA_SIGNING_KEY`** (conteúdo PEM).
+- **Faça backup da chave privada.** Sem ela, os aparelhos com o firmware novo recusam todo OTA e só podem ser regravados pela serial.
 
 ```bash
 openssl genrsa -out private.key 2048
@@ -104,83 +225,84 @@ gh secret set OTA_SIGNING_KEY < private.key
 
 ---
 
+## 📏 Orçamento de flash
+
+A flash de 1 MB guarda o firmware, uma **reserva OTA de 400 KB** (o próximo firmware, comprimido) e um **LittleFS de 64 KB** para a configuração. Toda função precisa caber na área de programa e, comprimida, na reserva OTA.
+
+| Item | Tamanho |
+| --- | --- |
+| Firmware | ~541 KB de 549 KB (cerca de 11 KB livres) |
+| Pacote OTA assinado | ~388 KB de 400 KB (cerca de 21 KB livres) |
+| Imagens embutidas | foto de 5,4 KB (WebP) + pinos de 1,2 KB (SVG com gzip) |
+| Sistema de arquivos da configuração | 64 KB, sem mudança |
+
+Pequeno de propósito: texto das páginas na flash (`PSTR`), sem `printf` de float, uma sessão TLS por vez, driver WS2812 sem biblioteca, tabela de palavras dos comandos na flash. O **mDNS** foi medido em cerca de 21 KB e não cabe; use uma reserva de DHCP.
+
+---
+
 ## 🛡️ Resiliência
 
-| Mecanismo                | Comportamento                                                                  |
-| ------------------------ | ------------------------------------------------------------------------------ |
-| Wi-Fi caiu               | Checagem a cada 15 s, reconexão; 5 falhas seguidas → reinício                 |
-| WAN inacessível          | A busca do IP falha, é registrada e tenta de novo em 60 s. O reinício fica reservado à perda de associação Wi-Fi (5 falhas) e ao ciclo diário. |
-| Memória crítica          | Heap < 15 KB ou fragmentação > 50 % em 3 checagens seguidas (10 s) → reinício |
-| Reinício diário          | Após 24 h de uptime (adiado durante OTA)                                       |
-| Modo de configuração     | Nenhum watchdog derruba o AP enquanto ele está ativo                           |
+| Mecanismo            | Comportamento                                                                 |
+| -------------------- | ----------------------------------------------------------------------------- |
+| Wi-Fi perdido        | Checado a cada 15 s e reconectado; 5 falhas seguidas → reinício              |
+| Sem internet         | As buscas falham, ficam no log e tentam de novo; painel, API, sensor, atuador e regra seguem funcionando. Reinício só por perda da associação Wi-Fi e no reinício diário. |
+| Memória crítica      | Heap < 15 KB ou fragmentação > 50 % em 3 checagens seguidas (10 s) → reinício |
+| Reinício diário      | Depois de 24 h ligado (adiado durante o OTA)                                  |
+| Modo de configuração | Nenhum watchdog derruba o AP enquanto ele está ativo                          |
 
 ---
 
 ## 🧪 Testes
 
-Testes nativos (Unity + PlatformIO) com stubs do core Arduino em `test/stubs`. O CI exige **100 % de cobertura** de linhas, funções e branches dos headers do firmware.
+Os testes nativos (Unity + PlatformIO) usam stubs do core Arduino em `test/stubs`. O CI exige **100 % de cobertura de linhas, funções e ramos** dos headers do firmware.
 
 ```bash
 python -m venv venv && . venv/bin/activate
 pip install -r requirements.txt
 
 pio test -e native        # qualquer compilador do host
-./test/coverage.sh        # requer gcc (Linux) — mesmo comando do CI
+./test/coverage.sh        # requer gcc (Linux) — o mesmo comando do CI
 ```
 
 ---
 
-## 🤖 CI/CD (`.github/workflows/ci.yml`)
+## 🤖 CI/CD
 
-| Job       | Quando                              | O que faz                                                                    |
-| --------- | ----------------------------------- | ---------------------------------------------------------------------------- |
-| `plan`    | sempre                              | Decide se haverá release e calcula a próxima tag `vN` (ordenação numérica)   |
-| `test`    | sempre                              | Testes + cobertura 100 %                                                      |
-| `build`   | sempre                              | Compila com arduino-cli, confere verificador de assinatura e limites de flash |
-| `release` | push na `main` alterando firmware   | Comprime, assina, **verifica a assinatura** e publica o release              |
+| Workflow / job | Quando | O que faz |
+| --- | --- | --- |
+| `ci.yml` → `plan` | sempre | Decide se gera release e calcula a próxima tag `vN` |
+| `ci.yml` → `test` | sempre | Testes + 100 % de cobertura |
+| `ci.yml` → `build` | sempre | Compila com arduino-cli, confere o verificador de assinatura e os limites da flash |
+| `ci.yml` → `release` | push na `main` mexendo no firmware | Comprime, assina, **verifica a assinatura** e publica o release |
+| `headers.yml` | push e PR | Todo arquivo de código tem o cabeçalho de licença SPDX |
 
-Mudanças só em testes, docs ou workflow não geram release. Para forçar, use *Run workflow* com `release: true`.
-
----
-
-## 🔌 IoT
-
-A página **IoT** configura um sensor e um módulo na ESP-01, sem editar o firmware. Os pinos possíveis são GPIO0, GPIO2, TX e RX. O desenho fica em `docs/esp01-pinout.png` e o painel carrega essa imagem do repositório. A página inicial mostra a foto do módulo em `docs/esp-01.jpg` (SparkFun Electronics, CC BY 2.0).
-
-O sensor pode ser digital, PIR, porta, chuva, chama, gás, solo, luz, som, boia ou botão. Por padrão seguem o nível. No modo alternar, cada pulso inverte o módulo e ele permanece. DHT11, DHT22, DS18B20, pulsos a cada 10 s ou ultrassom HC-SR04 no mesmo pino (trig e echo juntos, em cm) ligam o módulo acima ou abaixo de um limite, com margem para não oscilar. O módulo pode ser relé, LED, buzzer, bomba ou válvula (nível fixo), servo (um ângulo para ligado e outro para desligado) ou ventilador e motor em PWM de 0 a 100. O PWM proporcional varia a potência entre o limite e o limite alto. O comando manual força ligado ou desligado e ignora o sensor até voltar ao automático. DHT e DS18B20 pedem resistor de pull-up. O servo usa fonte de 5 V separada e o GND em comum.
-
-Sem as chaves novas no `/config.json`, o comando fica automático, o botão segue o nível, o PWM fica em dois patamares, sensor e módulo ficam digitais e a função continua desligada até o usuário escolher os pinos. A leitura segue no tópico ntfy já cadastrado como `[sensor]`. O aviso de IP no mesmo tópico usa `[ip]`.
+Mudanças só em testes, documentação ou workflow não geram release. Para forçar, use *Run workflow* com `release: true`.
 
 ---
 
-## 📋 Log remoto (implementação futura)
+## 📋 Log remoto (trabalho futuro)
 
-Ainda não está no firmware. O anel local (`Logger.h`, 10 linhas de 128 caracteres, Serial e painel) permanece o limite da RAM. A cópia segue pelo [ntfy.sh](https://ntfy.sh), no tópico já cadastrado, com o prefixo `[log]`. O IP já sai como `[ip]` e o sensor como `[sensor]`.
-
-- Um POST reúne várias linhas, no mesmo intervalo de 60 s do aviso de IP, e só quando há heap e bloco livres para o TLS. O ESP continua falando com esse único host.
-- Sem a chave nova no `/config.json`, o envio fica desligado. Aparelhos já em campo seguem só com o log local.
-- O ntfy.sh público retém cada mensagem por 12 horas. Para arquivo sem prazo, `ntfy subscribe` nesse tópico grava a saída num arquivo.
-- A linha `Reset:` logo após o boot entra nesse envio e registra a causa do ciclo anterior. Uma queda no meio do TLS não chega a ser publicada.
+Ainda não está no firmware. O buffer local (`Logger.h`, 10 linhas de 128 caracteres, Serial e painel) continua sendo o limite de RAM. A cópia iria pelo ntfy no tópico de dados, com o prefixo `[log]`, várias linhas por POST no mesmo intervalo de 60 s do aviso de IP.
 
 ---
 
 ## 🔧 Build local
 
-O ESP-01 não tem reset automático: para gravar, ligue o **GPIO0 ao GND** e reconecte o adaptador. Depois da gravação, solte o GPIO0 e reconecte de novo para rodar o firmware.
+O ESP-01 não tem reset automático: para gravar, ligue **GPIO0 ao GND** e reconecte o adaptador. Depois de gravar, solte o GPIO0 e reconecte de novo para rodar o firmware.
 
-**PlatformIO** (o `platformio.ini` já embute a `public.key`, o linker script do OTA e tira o `float` do `printf`):
+**PlatformIO** (o `platformio.ini` já embute o `public.key`, o linker script do OTA e tira o `printf` de float):
 
 ```bash
 pio run -e esp8266                                   # compila
-pio run -e esp8266 -t erase  --upload-port COM4      # opcional: apaga a flash (inclusive a configuração)
-pio run -e esp8266 -t upload --upload-port COM4      # depois de apagar, volte ao modo de gravação
+pio run -e esp8266 -t erase  --upload-port COM4      # opcional: apaga a flash (inclusive a config)
+pio run -e esp8266 -t upload --upload-port COM4      # volte ao modo de gravação depois de apagar
 pio device monitor -b 115200 -p COM4
 ```
 
-**arduino-cli** (mesmas flags do CI):
+**arduino-cli** (as mesmas flags do CI):
 
 ```bash
-arduino-cli config init   # pule se já tiver configuração do arduino-cli
+arduino-cli config init   # pule se já tiver uma configuração do arduino-cli
 arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
 arduino-cli core update-index
 arduino-cli core install esp8266:esp8266@3.1.2
@@ -195,7 +317,7 @@ arduino-cli upload  --fqbn esp8266:esp8266:generic:eesz=1M64 -p /dev/ttyUSB0 --i
 arduino-cli monitor -p /dev/ttyUSB0 --config 115200
 ```
 
-Builds locais têm versão `dev` e atualizam para o último release na primeira checagem OTA (se a atualização automática estiver ligada).
+Builds locais têm versão `dev` e atualizam para o último release na primeira checagem OTA (se a atualização automática estiver ligada). Depois de mudar `docs/esp-01.jpg` ou `docs/esp01-pinout.svg`, rode `python3 tools/embed_assets.py` (requer Pillow) e faça commit do `Assets.h`.
 
 ---
 
