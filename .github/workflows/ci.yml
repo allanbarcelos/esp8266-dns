@@ -147,6 +147,9 @@ jobs:
       - name: CSS e JS embutidos (WebAssets.h igual a web/)
         run: python3 tools/embed_web.py --check
 
+      - name: Raízes TLS embutidas (CloudflareCA.h igual a ca/roots.pem)
+        run: python3 tools/embed_ca.py --check
+
       - uses: ./.github/actions/setup-arduino
 
       - uses: ./.github/actions/compile

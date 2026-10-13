@@ -83,7 +83,8 @@ public:
             return false;
         }
 
-        BearSSL::X509List trust(CLOUDFLARE_CA);
+        BearSSL::X509List trust;
+        cloudflareRoots(trust);
         for (uint8_t i = 0; i < NUM_IP_SERVICES; i++) {
             char url[48];
             strcpy_P(url, (char*)pgm_read_ptr(&IP_SERVICES[i]));

@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+
+"""Gera CloudflareCA.h com as raízes de ca/roots.pem em DER.
+
+DER em vez de PEM: 1,4 KB a menos na flash (sem o base64 e os cabeçalhos)
+e nada para decodificar a cada conexão. O X509List lê um bloco DER como um
+certificado só, então cada raiz entra com o próprio tamanho.
+
+    python3 tools/embed_ca.py           gera o CloudflareCA.h
+    python3 tools/embed_ca.py --check   só confere (o CI usa); erro se diferente
+"""
+import base64
+import os
+import re
+import sys
+
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+SRC = os.path.join(ROOT, "ca", "roots.pem")
+OUT = os.path.join(ROOT, "CloudflareCA.h")
+
+
+def roots():
+    text = open(SRC, encoding="utf-8").read().replace("\r\n", "\n")
+    found = re.findall(r"^# ([^\n]+)\n(?:#[^\n]*\n)*-----BEGIN CERTIFICATE-----\n(.*?)-----END CERTIFICATE-----",
+                       text, re.M | re.S)
+    if len(found) != text.count("-----BEGIN CERTIFICATE-----"):
+        sys.exit("ERRO: todo certificado precisa de uma linha \"# Nome\" logo antes")
+    out = []
+    for name, body in found:
+        der = base64.b64decode("".join(body.split()), validate=True)
+        if der[:1] != b"\x30":
+            sys.exit(f"ERRO: {name} não é um certificado DER")
+        out.append((name.strip(), der))
+    if not out:
+        sys.exit("ERRO: nenhum certificado em ca/roots.pem")
+    return out
+
+
+def header(certs):
+    blob = b"".join(der for _, der in certs)
+    rows = ",\n    ".join(", ".join(f"0x{b:02x}" for b in blob[i:i + 16])
+                           for i in range(0, len(blob), 16))
+    names = "".join(f"//   {name} ({len(der)} bytes)\n" for name, der in certs)
+    lens = ", ".join(str(len(der)) for _, der in certs)
+    return (
+        "// SPDX-License-Identifier: MIT\n"
+        "// Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: "
+        "https://github.com/allanbarcelos/esp8266-iot\n\n"
+        "#pragma once\n"
+        "// Gerado por tools/embed_ca.py a partir de ca/roots.pem. Não edite.\n"
+        "#include <Arduino.h>\n"
+        "#include <ESP8266WiFi.h>\n\n"
+        "// Raízes confiáveis para api.cloudflare.com (cadeia atual: WE1 → GTS Root R4),\n"
+        "// ntfy.sh e os serviços de IP público. As demais sobrevivem a trocas de CA.\n"
+        "// O OTA não depende destas raízes: a integridade do firmware é garantida\n"
+        "// pela assinatura RSA verificada pelo Updater.\n"
+        + names +
+        f"static const uint8_t CLOUDFLARE_DER[] PROGMEM = {{\n    {rows}\n}};\n"
+        f"static const uint16_t CLOUDFLARE_LEN[] = {{{lens}}};\n\n"
+        "// Uma raiz por append: o X509List lê um bloco DER como um certificado só\n"
+        "inline void cloudflareRoots(BearSSL::X509List& list) {\n"
+        "    const uint8_t* der = CLOUDFLARE_DER;\n"
+        "    for (uint16_t len : CLOUDFLARE_LEN) {\n"
+        "        list.append(der, len);\n"
+        "        der += len;\n"
+        "    }\n"
+        "}\n"
+    )
+
+
+def main():
+    text = header(roots())
+    if "--check" in sys.argv[1:]:
+        current = open(OUT, encoding="utf-8").read().replace("\r\n", "\n") if os.path.exists(OUT) else ""
+        if current != text:
+            print("CloudflareCA.h difere de ca/roots.pem. Rode: python3 tools/embed_ca.py")
+            return 1
+        print("CloudflareCA.h confere com ca/roots.pem")
+        return 0
+    with open(OUT, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    print(f"CloudflareCA.h: {len(roots())} raízes")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

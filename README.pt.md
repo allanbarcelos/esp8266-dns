@@ -37,6 +37,7 @@ Cada serviço é um header com dependências injetadas por referência, composta
 | `WebService.h`       | Painel HTTP (Basic Auth + CSRF + escape de HTML) e API local (token Bearer)     |
 | `Assets.h`           | Imagens do painel embutidas no firmware (geradas por `tools/embed_assets.py`)   |
 | `WebAssets.h`        | CSS e JavaScript do painel, em gzip (gerados de `web/` por `tools/embed_web.py`) |
+| `CloudflareCA.h`     | Raízes TLS em DER (geradas de `ca/roots.pem` por `tools/embed_ca.py`)            |
 | `Version.h`          | `firmware_version` (injetado pelo CI; `"dev"` em build local)                    |
 
 ---
@@ -242,7 +243,7 @@ A flash de 1 MB guarda o firmware, uma **reserva OTA de 400 KB** (o próximo fir
 | Imagens embutidas | foto de 5,4 KB (WebP) + pinos de 1,2 KB (SVG com gzip) |
 | Sistema de arquivos da configuração | 64 KB, sem mudança |
 
-Pequeno de propósito: texto das páginas na flash (`PSTR`), sem `printf` de float, uma sessão TLS por vez, TLS só com ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519 e certificado de cliente ficam fora do link pelo `TlsTrim.h`, cerca de 27 KB; todos os servidores que o aparelho usa negociam ECDHE + AES-128-GCM), lwIP sem extras (`ip=lm2n`, cerca de 10 KB: sem NAT, fragmentação IP nem AutoIP; o SNTP guarda um servidor só, então o `Clock` alterna entre `pool.ntp.org` e `time.google.com` até sincronizar), login do painel só Basic (o código de Digest do core fica de fora), driver WS2812 sem biblioteca, tabela de palavras dos comandos na flash. O **mDNS** foi medido em cerca de 21 KB e não cabe; use uma reserva de DHCP.
+Pequeno de propósito: texto das páginas na flash (`PSTR`), raízes TLS em DER, um só leitor de JSON (tudo analisado no lugar, como `char*`), sem `printf` de float, uma sessão TLS por vez, TLS só com ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519 e certificado de cliente ficam fora do link pelo `TlsTrim.h`, cerca de 27 KB; todos os servidores que o aparelho usa negociam ECDHE + AES-128-GCM), lwIP sem extras (`ip=lm2n`, cerca de 10 KB: sem NAT, fragmentação IP nem AutoIP; o SNTP guarda um servidor só, então o `Clock` alterna entre `pool.ntp.org` e `time.google.com` até sincronizar), login do painel só Basic (o código de Digest do core fica de fora), driver WS2812 sem biblioteca, tabela de palavras dos comandos na flash. O **mDNS** foi medido em cerca de 21 KB e não cabe; use uma reserva de DHCP.
 
 ---
 
@@ -327,6 +328,8 @@ arduino-cli monitor -p /dev/ttyUSB0 --config 115200
 Builds locais têm versão `dev` e atualizam para o último release na primeira checagem OTA (se a atualização automática estiver ligada). Depois de mudar `docs/esp-01.jpg` ou `docs/esp01-pinout.svg`, rode `python3 tools/embed_assets.py` (requer Pillow) e faça commit do `Assets.h`.
 
 O estilo do painel e o script da página IoT ficam em `web/panel.css` e `web/iot.js`. O aparelho entrega os dois em gzip (`/s.css`, `/iot.js`): o navegador descomprime e guarda no cache, e a URL leva um hash do conteúdo, então uma versão nova nunca usa cópia antiga. Depois de editar, rode `python3 tools/embed_web.py` e faça commit do `WebAssets.h`; o CI roda `python3 tools/embed_web.py --check`.
+
+As raízes TLS ficam legíveis em `ca/roots.pem` (nome, validade e SHA-256 de cada uma). O firmware as leva em DER, que ocupa menos flash e não precisa ser decodificado a cada conexão. Depois de trocar uma raiz, rode `python3 tools/embed_ca.py` e faça commit do `CloudflareCA.h`; o CI roda `python3 tools/embed_ca.py --check`.
 
 ---
 

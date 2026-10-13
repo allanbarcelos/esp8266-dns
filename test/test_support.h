@@ -10,6 +10,7 @@
 #include <Updater.h>
 #include <cstring>
 #include "Logger.h"
+#include "CloudflareCA.h"
 
 // malloc falha uma vez para o tamanho pedido (link com -Wl,--wrap=malloc
 // no env native). Só o tamanho exato falha: libc e Unity seguem normais.
@@ -49,4 +50,11 @@ inline bool logHas(const Logger& log, const char* needle) {
 
 inline bool contains(const std::string& hay, const char* needle) {
     return hay.find(needle) != std::string::npos;
+}
+
+// A conexão confia exatamente nas raízes de CloudflareCA.h, uma por append
+inline bool cloudflareTrust(const MockTLS::Trust& t) {
+    return t.first == CLOUDFLARE_DER
+        && t.count == sizeof(CLOUDFLARE_LEN) / sizeof(CLOUDFLARE_LEN[0])
+        && t.bytes == sizeof(CLOUDFLARE_DER);
 }

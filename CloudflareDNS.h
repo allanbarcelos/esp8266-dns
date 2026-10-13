@@ -80,7 +80,8 @@ private:
     // Retorna true somente se TODOS os registros foram atualizados;
     // caso contrário a próxima verificação tenta de novo.
     bool _patchRecords(const char* ip) {
-        BearSSL::X509List trust(CLOUDFLARE_CA);
+        BearSSL::X509List trust;
+        cloudflareRoots(trust);
         bool allOk = true;
 
         for (uint8_t i = 0; i < _cfg.cf_record_count; i++) {

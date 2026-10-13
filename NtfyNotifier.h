@@ -155,7 +155,8 @@ private:
             _log.log(PSTR("ntfy: relogio nao sincronizado"));
             return false;
         }
-        BearSSL::X509List trust(CLOUDFLARE_CA);  // inclui ISRG Root X1
+        BearSSL::X509List trust;
+        cloudflareRoots(trust);  // inclui ISRG Root X1
         TlsClient client;
         client.setTrustAnchors(&trust);
         client.setX509Time(_clock.now());
@@ -284,7 +285,8 @@ private:
             _fail(now);
             return;
         }
-        _trust = new BearSSL::X509List(CLOUDFLARE_CA);  // inclui ISRG Root X1
+        _trust = new BearSSL::X509List();
+        cloudflareRoots(*_trust);  // inclui ISRG Root X1
         _tls.setTrustAnchors(_trust);
         _tls.setX509Time(_clock.now());
         if (!_tls.prepare(CONNECT_MS) || !_tls.connect("ntfy.sh", 443)) {

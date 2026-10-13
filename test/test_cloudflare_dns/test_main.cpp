@@ -102,7 +102,7 @@ void test_atualiza_todos_os_records() {
     TEST_ASSERT_TRUE(contains(MockHTTP::requests[2].url, "/dns_records/REC1"));
 
     // TLS validado com as raízes embarcadas e relógio atual
-    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockTLS::lastTrustPem);
+    TEST_ASSERT_TRUE(cloudflareTrust(MockTLS::lastTrust));
     TEST_ASSERT_EQUAL((long)fakeNow, (long)MockTLS::lastTime);
     TEST_ASSERT_EQUAL(0, MockTLS::insecureCalls);
 

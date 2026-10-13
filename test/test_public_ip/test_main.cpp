@@ -32,7 +32,7 @@ void test_primeiro_servico_ok() {
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
     TEST_ASSERT_EQUAL_STRING("https://api4.ipify.org", MockHTTP::calledURLs[0].c_str());
     TEST_ASSERT_EQUAL_STRING("ESP8266", MockHTTP::requests[0].headers[0].second.c_str());
-    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockTLS::lastTrustPem);
+    TEST_ASSERT_TRUE(cloudflareTrust(MockTLS::lastTrust));
     TEST_ASSERT_EQUAL((long)fakeNow, (long)MockTLS::lastTime);
     TEST_ASSERT_EQUAL(0, MockTLS::insecureCalls);
     // wrapper e contexto BearSSL recebem o mesmo orçamento
@@ -201,6 +201,25 @@ void test_falha_recente_nao_repete() {
     TEST_ASSERT_EQUAL(NUM_IP_SERVICES + 1, (int)MockHTTP::calledURLs.size());
 }
 
+// O CloudflareCA.h gerado: cada raiz é um certificado DER completo
+// (SEQUENCE com tamanho longo), e os tamanhos cobrem o bloco todo
+void test_raizes_der_inteiras() {
+    size_t off = 0;
+    for (uint16_t len : CLOUDFLARE_LEN) {
+        const uint8_t* d = CLOUDFLARE_DER + off;
+        TEST_ASSERT_EQUAL_HEX8(0x30, d[0]);
+        TEST_ASSERT_EQUAL_HEX8(0x82, d[1]);
+        TEST_ASSERT_EQUAL(len, ((d[2] << 8) | d[3]) + 4);
+        off += len;
+    }
+    TEST_ASSERT_EQUAL(sizeof(CLOUDFLARE_DER), off);
+    TEST_ASSERT_EQUAL(4, (int)(sizeof(CLOUDFLARE_LEN) / sizeof(CLOUDFLARE_LEN[0])));
+
+    BearSSL::X509List list;
+    cloudflareRoots(list);
+    TEST_ASSERT_TRUE(cloudflareTrust(list.trust));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_primeiro_servico_ok);
@@ -218,5 +237,6 @@ int main() {
     RUN_TEST(test_cache_nao_cabe_no_buffer);
     RUN_TEST(test_cache_expira_e_busca_de_novo);
     RUN_TEST(test_falha_recente_nao_repete);
+    RUN_TEST(test_raizes_der_inteiras);
     return UNITY_END();
 }

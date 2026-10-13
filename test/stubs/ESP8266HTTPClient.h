@@ -45,7 +45,7 @@ public:
         _req = MockHTTP::Request();
         _req.url = url.c_str();
         if (auto* tls = dynamic_cast<WiFiClientSecure*>(&client)) {
-            _req.trustPem = tls->trustPem;
+            _req.trust = tls->trust;
             _req.x509Time = (long)tls->x509Time;
             _req.insecure = tls->insecure;
         }

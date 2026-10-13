@@ -7,6 +7,15 @@
 #include <vector>
 #include <utility>
 
+// Raízes que uma conexão TLS recebeu (X509List::append)
+namespace MockTLS {
+    struct Trust {
+        const uint8_t* first = nullptr;   // primeira raiz
+        size_t         count = 0;
+        size_t         bytes = 0;
+    };
+}
+
 // ── Fila HTTP compartilhada (API via HTTPClient, download via TLS cru) ───────
 namespace MockHTTP {
     struct Response {
@@ -20,7 +29,7 @@ namespace MockHTTP {
         std::string method, url, payload;
         std::vector<std::pair<std::string, std::string>> headers;
         // TLS do cliente que fez a requisição (validação do certificado)
-        const char* trustPem = nullptr;
+        MockTLS::Trust trust;
         long        x509Time = 0;
         bool        insecure = false;
     };
@@ -180,14 +189,20 @@ protected:
 namespace BearSSL {
     class X509List {
     public:
-        explicit X509List(const char* pem) : pem(pem) {}
-        const char* pem;
+        X509List() {}
+        bool append(const uint8_t* der, size_t len) {
+            if (!trust.count) trust.first = der;
+            trust.count++;
+            trust.bytes += len;
+            return true;
+        }
+        MockTLS::Trust trust;
     };
 }
 
 namespace MockTLS {
     inline int                       insecureCalls = 0;
-    inline const char*               lastTrustPem  = nullptr; // o X509List em si é temporário
+    inline Trust                     lastTrust;               // o X509List em si é temporário
     inline time_t                    lastTime      = 0;
     inline int                       timeoutCalls  = 0;
     inline unsigned long             lastTimeoutMs = 0;
@@ -207,7 +222,7 @@ namespace MockTLS {
     inline uint32_t                  shrinkBlockTo = 0;
     inline void reset() {
         buffersCalls = 0; shrinkOnBuffers = 0; shrinkBlockTo = 0;
-        insecureCalls = 0; lastTrustPem = nullptr; lastTime = 0;
+        insecureCalls = 0; lastTrust = Trust{}; lastTime = 0;
         timeoutCalls = 0; lastTimeoutMs = 0;
         bufIn = 0; bufOut = 0; nullOwned = false;
         failConnect = false; connectCalls = 0; failOnConnect = 0;
@@ -232,7 +247,7 @@ public:
     void inject(const std::string& data) { _rx += data; }
     bool isConnected() const { return _connected; }
     WiFiClient _ctx;
-    const char* trustPem = nullptr;
+    MockTLS::Trust trust;
     time_t      x509Time = 0;
     bool        insecure = false;
 
@@ -242,7 +257,7 @@ public:
     }
     void setInsecure()                                 { MockTLS::insecureCalls++; insecure = true; }
     bool setCiphers(const uint16_t* list, int n)       { MockTLS::suites.assign(list, list + n); return true; }
-    void setTrustAnchors(const BearSSL::X509List* ta)  { MockTLS::lastTrustPem = trustPem = ta->pem; }
+    void setTrustAnchors(const BearSSL::X509List* ta)  { MockTLS::lastTrust = trust = ta->trust; }
     void setX509Time(time_t t)                         { MockTLS::lastTime = x509Time = t; }
     bool probeMaxFragmentLength(const char*, uint16_t, uint16_t) { return MockTLS::mfln; }
 

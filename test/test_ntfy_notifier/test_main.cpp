@@ -61,7 +61,7 @@ void test_envia_no_boot_sem_cloudflare() {
     TEST_ASSERT_EQUAL_STRING("1.2.3.4", cfg.publicIP);
     TEST_ASSERT_TRUE(logHas(logger, "ntfy enviado (200)"));
     for (auto& r : MockHTTP::requests) {
-        TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, r.trustPem);
+        TEST_ASSERT_TRUE(cloudflareTrust(r.trust));
         TEST_ASSERT_EQUAL((long)fakeNow, r.x509Time);
         TEST_ASSERT_FALSE(r.insecure);
     }
@@ -246,7 +246,7 @@ void test_comandos_conecta_validando_o_certificado() {
     TEST_ASSERT_TRUE(contains(MockHTTP::lastRaw,
         "GET /cmd-abc/json HTTP/1.0\r\nHost: ntfy.sh\r\nUser-Agent: ESP8266\r\n\r\n"));
     TEST_ASSERT_FALSE(contains(MockHTTP::lastRaw, "Authorization"));
-    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockTLS::lastTrustPem);
+    TEST_ASSERT_TRUE(cloudflareTrust(MockTLS::lastTrust));
     TEST_ASSERT_EQUAL((long)fakeNow, (long)MockTLS::lastTime);
     TEST_ASSERT_EQUAL(0, MockTLS::insecureCalls);
     TEST_ASSERT_EQUAL(NtfyNotifier::CONNECT_MS, MockTLS::lastTimeoutMs);
@@ -323,7 +323,7 @@ void test_comandos_invalidos_respondem_no_topico_de_dados() {
     for (auto& h : MockHTTP::requests[0].headers)
         auth = auth || (h.first == "Authorization" && h.second == "Bearer tk_x");
     TEST_ASSERT_TRUE(auth);
-    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockHTTP::requests[0].trustPem);
+    TEST_ASSERT_TRUE(cloudflareTrust(MockHTTP::requests[0].trust));
     TEST_ASSERT_EQUAL((long)fakeNow, MockHTTP::requests[0].x509Time);
     TEST_ASSERT_FALSE(MockHTTP::requests[0].insecure);
     TEST_ASSERT_FALSE(MockTLS::live && MockTLS::live->isConnected());
@@ -534,7 +534,7 @@ static std::string actionsFor(const char* actuator, const char* sensor = "") {
     MockHTTP::push(200, "ok");
     ntfy.tick(0);
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
-    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockHTTP::requests[0].trustPem);
+    TEST_ASSERT_TRUE(cloudflareTrust(MockHTTP::requests[0].trust));
     TEST_ASSERT_FALSE(MockHTTP::requests[0].insecure);
     return header(MockHTTP::requests[0], "Actions");
 }
@@ -624,7 +624,7 @@ void test_envio_valida_o_certificado() {
     const MockHTTP::Request& r = MockHTTP::requests[0];
     TEST_ASSERT_EQUAL_STRING("POST", r.method.c_str());
     TEST_ASSERT_EQUAL_STRING("Bearer tk_segredo", header(r, "Authorization").c_str());
-    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, r.trustPem);
+    TEST_ASSERT_TRUE(cloudflareTrust(r.trust));
     TEST_ASSERT_EQUAL((long)fakeNow, r.x509Time);
     TEST_ASSERT_FALSE(r.insecure);
     TEST_ASSERT_EQUAL(0, MockTLS::insecureCalls);
@@ -655,7 +655,7 @@ void test_envio_espera_o_relogio() {
     MockHTTP::push(200, "ok");
     ntfy.tick(NtfyNotifier::POST_GAP);
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
-    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockHTTP::requests[0].trustPem);
+    TEST_ASSERT_TRUE(cloudflareTrust(MockHTTP::requests[0].trust));
     TEST_ASSERT_EQUAL((long)fakeNow, MockHTTP::requests[0].x509Time);
     TEST_ASSERT_FALSE(iot.pending());
 }
@@ -693,7 +693,7 @@ void test_envio_certificado_recusado_tenta_de_novo() {
     ntfy.tick(NtfyNotifier::POST_GAP);
     TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
     TEST_ASSERT_FALSE(iot.pending());
-    for (auto& r : MockHTTP::requests) TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, r.trustPem);
+    for (auto& r : MockHTTP::requests) TEST_ASSERT_TRUE(cloudflareTrust(r.trust));
 }
 
 // Memória curta: nem relógio nem TLS são consultados
@@ -724,7 +724,7 @@ void test_nenhum_caminho_usa_tls_sem_validacao() {
 
     c.open(1);                                         // fluxo de comandos
     TEST_ASSERT_EQUAL_STRING("conectado", c.ntfy.commandStatus());
-    TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, MockTLS::live->trustPem);
+    TEST_ASSERT_TRUE(cloudflareTrust(MockTLS::live->trust));
     TEST_ASSERT_FALSE(MockTLS::live->insecure);
     c.send(message("z1", "voar"));                    // resposta de erro
     c.ntfy.tick(3);
@@ -741,7 +741,7 @@ void test_nenhum_caminho_usa_tls_sem_validacao() {
     TEST_ASSERT_FALSE(header(MockHTTP::requests[3], "Actions").empty());
 
     for (auto& r : MockHTTP::requests) {
-        TEST_ASSERT_EQUAL_PTR(CLOUDFLARE_CA, r.trustPem);
+        TEST_ASSERT_TRUE(cloudflareTrust(r.trust));
         TEST_ASSERT_EQUAL((long)fakeNow, r.x509Time);
         TEST_ASSERT_FALSE(r.insecure);
     }
