@@ -51,12 +51,14 @@ Repita a gravação **sem** apagar o aparelho: a senha do AP tem que continuar a
 
 **Esperado:** no primeiro caso o aparelho volta sozinho, sem reiniciar por falta de internet. No segundo, volta com a mesma configuração e o atuador no estado definido em "ao religar". No terceiro, o AP `ESP_Config` volta com a **mesma** senha do passo 2, e o aparelho segue tentando a rede em segundo plano.
 
-## 5. DNS do Cloudflare (se usar)
+## 5. IP público e DNS do Cloudflare
 
-1. Configure token, zona e registros na página **Cloudflare**.
-2. Mude o IP de um registro no painel do Cloudflare para `1.1.1.1` e reinicie o aparelho. Ele compara o IP público com o último que enviou, não com o registro, mas todo boot faz um envio.
+1. Sem Cloudflare nem ntfy configurados, espere o relógio sincronizar e abra **Status**.
+2. Deixe o aparelho ligado por 15 minutos e olhe o log.
+3. Se usar o Cloudflare: configure token, zona e o record ID na página **Cloudflare**.
+4. Mude o IP desse registro no painel do Cloudflare para `1.1.1.1` e reinicie o aparelho. Ele compara o IP público com o último que enviou, não com o registro, mas todo boot faz um envio.
 
-**Esperado:** no log, `Atualizando DNS para ...` e depois `DNS atualizado!`. O registro volta para o IP da casa. Com o relógio ainda em 1970 (logo depois de ligar), o aparelho espera em vez de falhar. Depois disso, a verificação roda a cada minuto e só envia quando o IP da casa muda.
+**Esperado:** o cartão **IP Publico** do Status mostra o IP da casa, o nome reverso do provedor (ou `-`, se o provedor não tiver) e a última verificação, que avança a cada 5 minutos. O log tem uma linha `IP publico: ...` no boot e nada mais enquanto o IP não muda. Com o Cloudflare, o log mostra `Atualizando DNS para ...` e depois `DNS atualizado!`, e o registro volta para o IP da casa. Com o relógio ainda em 1970 (logo depois de ligar), o aparelho espera em vez de falhar.
 
 ## 6. ntfy (se usar)
 

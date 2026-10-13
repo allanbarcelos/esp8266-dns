@@ -4,7 +4,7 @@ English | [Português](README.pt.md)
 
 Firmware for the **ESP-01 (ESP8266, 1 MB)**. One device does three jobs:
 
-1. **Dynamic DNS**: keeps Cloudflare A records pointing at the residential public IP and sends that IP through [ntfy.sh](https://ntfy.sh).
+1. **Dynamic DNS**: keeps a Cloudflare A record pointing at the residential public IP and sends that IP through [ntfy.sh](https://ntfy.sh).
 2. **IoT**: one sensor and one actuator, each optional. Operated from the panel, from a **local API** that works without internet, and from **ntfy commands** delivered in about a second.
 3. **Self-maintenance**: signed OTA updates from GitHub Releases, Wi-Fi/memory watchdogs and a daily reboot.
 
@@ -25,8 +25,9 @@ Each service is a header with dependencies injected by reference, composed in la
 | `Clock.h`            | SNTP wall clock (required to validate TLS certificates)                          |
 | `TlsTrim.h`          | Leaves unused BearSSL ciphers and curves out of the firmware (sketch only)       |
 | `WiFiService.h`      | Connection, configuration mode (AP), reconnection and watchdogs                  |
-| `PublicIPResolver.h` | Public IPv4 over HTTPS (CA bundle in `CloudflareCA.h`), cached for 60 s         |
-| `CloudflareDNS.h`    | PATCHes records through the Cloudflare API                                       |
+| `PublicIPResolver.h` | Public IPv4 over HTTPS every 5 min (CA bundle in `CloudflareCA.h`)               |
+| `ReverseDNS.h`       | Reverse name (PTR) of the public IP, asked to the network's DNS over UDP        |
+| `CloudflareDNS.h`    | PATCHes the record through the Cloudflare API                                    |
 | `NtfyNotifier.h`     | ntfy both ways: publishes IP and IoT events; subscribes to the command topic    |
 | `MqttService.h`      | MQTT on the local network: state, commands and availability                     |
 | `OTAService.h`       | Version check and signed firmware download                                       |
@@ -228,17 +229,17 @@ Only a new capability (for example a stepper motor) needs code: an output in `Io
 
 ---
 
-## 🌐 DNS updates
+## 🌐 Public IP and DNS updates
 
-Every 60 s (while Wi-Fi is up and the clock is synchronized):
+The device checks its public IP **every 5 minutes** (while Wi-Fi is up and the clock is synchronized), whether or not Cloudflare or ntfy are configured:
 
-1. Fetch the public IP over HTTPS. The body must be a single IPv4 and the certificate must chain to the roots in `CloudflareCA.h`.
-2. If it differs from the **last synchronized IP** (kept in memory), send a `PATCH` for each record.
-3. Mark it synchronized only when **all** records succeed. On any failure, retry on the next cycle.
+1. Fetch the public IP over HTTPS. The body must be a single IPv4 and the certificate must chain to the roots in `CloudflareCA.h`. The lookup tries `api4.ipify.org`, then `icanhazip.com`, then `ifconfig.co`; all three present the WE1 → GTS Root R4 chain, the same one `api.cloudflare.com` already validates on devices in the field.
+2. The log only records changes: the first IP, a new IP (`IP publico mudou: old -> new`), or the lookup starting to fail. A failed lookup retries every minute and keeps the last known IP.
+3. When the IP changes, the device asks the network's DNS server for the reverse name (PTR) over UDP.
 
-The lookup tries `api4.ipify.org`, then `icanhazip.com`, then `ifconfig.co`. All three answer with a bare IPv4 and present the WE1 → GTS Root R4 chain, the same chain `api.cloudflare.com` already validates on devices in the field. The first valid answer is kept for 60 s and shared, so DNS and ntfy open one TLS session per cycle.
+The **Status** page shows the public IP, its reverse name, when it last changed and when it was last checked; the home page shows it next to the local IP.
 
-The firmware does not rely on local DNS resolution: it is cached by TTL and returns Cloudflare IPs for *proxied* records. Each boot performs one initial `PATCH`, which is idempotent. The connection to `api.cloudflare.com` validates the certificate against the roots in `CloudflareCA.h` (GTS Root R1/R4, ISRG Root X1/X2).
+With Cloudflare configured (token, zone and **one record ID**), a public IP different from the **last synchronized IP** (kept in memory) sends a `PATCH` to that record; a failure retries every minute. The firmware does not rely on local DNS resolution: it is cached by TTL and returns Cloudflare IPs for *proxied* records. Each boot performs one initial `PATCH`, which is idempotent. The connection to `api.cloudflare.com` validates the certificate against the roots in `CloudflareCA.h` (GTS Root R1/R4, ISRG Root X1/X2). Older configurations with several record IDs keep the first one.
 
 ---
 
@@ -333,7 +334,7 @@ The pipeline runs `plan → check → build → test → release → pages`; if 
 
 ## 📋 Remote log (future work)
 
-Not in the firmware yet. The local ring (`Logger.h`, 10 lines of 128 characters, Serial and the panel) stays the RAM limit. The copy would go through ntfy on the data topic, prefixed `[log]`, several lines per POST on the same 60 s interval as the IP notice.
+Not in the firmware yet. The local ring (`Logger.h`, 10 lines of 128 characters, Serial and the panel) stays the RAM limit. The copy would go through ntfy on the data topic, prefixed `[log]`, several lines per POST every 60 s.
 
 ---
 
