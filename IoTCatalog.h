@@ -14,7 +14,10 @@
 namespace iot {
 
 // Como o sensor é lido
-enum Kind : uint8_t { K_NONE, K_DIGITAL, K_DHT11, K_DHT22, K_DS18, K_RANGE, K_PULSE };
+enum Kind : uint8_t { K_NONE, K_DIGITAL, K_DHT11, K_DHT22, K_DS18, K_RANGE, K_PULSE, K_SHT3X };
+
+// Temperatura e umidade juntas (DHT ou SHT3x)
+inline bool tempAndHumidity(uint8_t k) { return k == K_DHT11 || k == K_DHT22 || k == K_SHT3X; }
 
 // O que o atuador faz: define o controle na tela e os comandos aceitos
 enum Cap : uint8_t { C_NONE, C_ONOFF, C_LEVEL, C_POSITION, C_COLOR };
@@ -38,6 +41,7 @@ struct ActuatorDef {
 static const char _S_DHT22[]  PROGMEM = "Temperatura e umidade (DHT22)";
 static const char _S_DHT11[]  PROGMEM = "Temperatura e umidade (DHT11)";
 static const char _S_DS18[]   PROGMEM = "Temperatura (DS18B20)";
+static const char _S_SHT3X[]  PROGMEM = "Temperatura e umidade (SHT30/SHT31, I2C)";
 static const char _S_PIR[]    PROGMEM = "Presenca (PIR)";
 static const char _S_DOOR[]   PROGMEM = "Porta ou janela (reed)";
 static const char _S_BTN[]    PROGMEM = "Botao ou interruptor";
@@ -69,6 +73,7 @@ static const SensorDef SENSORS[] = {
     {"dht22",     _S_DHT22, K_DHT22,   0, nullptr, nullptr},
     {"dht11",     _S_DHT11, K_DHT11,   0, nullptr, nullptr},
     {"ds18b20",   _S_DS18,  K_DS18,    0, nullptr, nullptr},
+    {"sht3x",     _S_SHT3X, K_SHT3X,   0, nullptr, nullptr},
     {"pir",       _S_PIR,   K_DIGITAL, 1, _T_PRES,  _T_FREE},
     {"contato",   _S_DOOR,  K_DIGITAL, 1, _T_OPEN,  _T_SHUT},
     {"botao",     _S_BTN,   K_DIGITAL, 1, _T_PRESS, _T_REL},

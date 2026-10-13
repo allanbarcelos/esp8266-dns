@@ -4,6 +4,7 @@
 #include <unity.h>
 #include "../test_support.h"
 #include "IoTService.h"
+#include "../i2c_sim.h"
 
 static Logger logger;
 static Config cfg;
@@ -104,7 +105,8 @@ static void echo(uint8_t pin, unsigned long highUs) {
 // ── Catálogo, parse e comandos de texto ──────────────────────────────────────
 
 void test_catalogo_por_identificador() {
-    TEST_ASSERT_EQUAL(9, iot::SENSOR_COUNT);
+    TEST_ASSERT_EQUAL(10, iot::SENSOR_COUNT);
+    TEST_ASSERT_TRUE(iot::tempAndHumidity(iot::K_SHT3X) && !iot::tempAndHumidity(iot::K_DS18));
     TEST_ASSERT_EQUAL(10, iot::ACTUATOR_COUNT);
     TEST_ASSERT_EQUAL(0, iot::sensorIndex("dht22"));
     TEST_ASSERT_EQUAL(-1, iot::sensorIndex(""));
@@ -1126,6 +1128,100 @@ void test_proporcional_fora_do_horario() {
     TEST_ASSERT_EQUAL(60, iot.level());
 }
 
+// ── SHT3x (I2C) ──────────────────────────────────────────────────────────────
+
+static uint8_t shtCrc(uint8_t a, uint8_t b) {
+    uint8_t crc = 0xFF;
+    for (uint8_t v : {a, b}) {
+        crc ^= v;
+        for (int i = 0; i < 8; i++) crc = (uint8_t)(crc & 0x80 ? (crc << 1) ^ 0x31 : crc << 1);
+    }
+    return crc;
+}
+
+static std::vector<uint8_t> shtFrame(uint16_t t, uint16_t h) {
+    uint8_t t1 = (uint8_t)(t >> 8), t0 = (uint8_t)t, h1 = (uint8_t)(h >> 8), h0 = (uint8_t)h;
+    return {t1, t0, shtCrc(t1, t0), h1, h0, shtCrc(h1, h0)};
+}
+
+void test_sht3x_le_temperatura_e_umidade() {
+    TEST_ASSERT_EQUAL_HEX8(0x92, shtCrc(0xBE, 0xEF));    // exemplo da folha de dados
+    sensor("sht3x", 0);                                   // SDA em GPIO0, SCL em GPIO2
+    actuator("rele", 2);                                  // no SCL: fica de fora
+    I2cSim sim(0, 2);
+    sim.present = {0x44};
+    std::vector<uint8_t> frame = shtFrame(0x6666, 0x8000);   // 25,0 C e 50,0 %
+    sim.reply = [&](uint8_t, const std::vector<uint8_t>&) { return frame; };
+    IoTService iot{cfg, logger};
+    iot.begin();
+    TEST_ASSERT_TRUE(iot.hasSensor());
+    TEST_ASSERT_FALSE(iot.hasActuator());
+    TEST_ASSERT_TRUE(iot.sensorUses(0));
+    TEST_ASSERT_TRUE(iot.sensorUses(2));
+    TEST_ASSERT_FALSE(iot.sensorUses(1));
+    TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[2]);
+
+    iot.tick(0);                                          // pede a medida
+    TEST_ASSERT_TRUE(sim.writes.back() == std::vector<uint8_t>({0x44, 0x24, 0x00}));
+    iot.tick(IoTService::SHT_MEASURE_MS - 1);
+    TEST_ASSERT_EQUAL_STRING("aguardando", iot.sensorText());
+    iot.tick(IoTService::SHT_MEASURE_MS);
+    TEST_ASSERT_EQUAL_STRING("25.0 C, 50.0%", iot.sensorText());
+    TEST_ASSERT_TRUE(contains(json(iot), "\"temperature\":25.0,\"humidity\":50.0"));
+    size_t asked = sim.writes.size();
+    iot.tick(IoTService::READ_GAP_MS - 1);                // uma medida a cada READ_GAP_MS
+    TEST_ASSERT_EQUAL(asked, sim.writes.size());
+
+    // Abaixo de zero e no fundo da escala
+    frame = shtFrame(0x0000, 0xFFFF);
+    iot.tick(IoTService::READ_GAP_MS);
+    iot.tick(IoTService::READ_GAP_MS + IoTService::SHT_MEASURE_MS);
+    TEST_ASSERT_EQUAL_STRING("-45.0 C, 100.0%", iot.sensorText());
+
+    // CRC errado em cada metade e sensor que não responde
+    frame = shtFrame(0x6666, 0x8000);
+    frame[2] ^= 1;
+    unsigned long t = 2 * IoTService::READ_GAP_MS;
+    iot.tick(t);
+    iot.tick(t + IoTService::SHT_MEASURE_MS);
+    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+    frame = shtFrame(0x6666, 0x8000);
+    frame[5] ^= 1;
+    t += IoTService::READ_GAP_MS;
+    iot.tick(t);
+    iot.tick(t + IoTService::SHT_MEASURE_MS);
+    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+    sim.present.clear();
+    t += IoTService::READ_GAP_MS;
+    iot.tick(t);
+    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+    sim.present = {0x44};
+    frame = shtFrame(0x6666, 0x8000);
+    t += IoTService::READ_GAP_MS;
+    iot.tick(t);                                          // pede de novo
+    sim.present.clear();
+    iot.tick(t + IoTService::SHT_MEASURE_MS);             // sumiu antes da leitura
+    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+}
+
+// A regra usa a grandeza escolhida, como no DHT
+void test_sht3x_comanda_pela_temperatura() {
+    sensor("sht3x", 3);                                   // SDA em RX, SCL em TX
+    actuator("ventilador", 0);
+    cfg.iot.metric = 1;
+    cfg.iot.above = true;
+    cfg.iot.threshold = 24;
+    I2cSim sim(3, 1);
+    sim.present = {0x44};
+    sim.reply = [](uint8_t, const std::vector<uint8_t>&) { return shtFrame(0x6666, 0x1000); };
+    IoTService iot{cfg, logger};
+    iot.begin();
+    TEST_ASSERT_TRUE(iot.hasActuator());
+    iot.tick(0);
+    iot.tick(IoTService::SHT_MEASURE_MS);
+    TEST_ASSERT_TRUE(iot.actuatorOn());                   // 25,0 C acima de 24
+}
+
 void test_ultrassom_distancia_e_falhas() {
     sensor("distancia", 2);
     actuator("rele", 0);
@@ -1369,6 +1465,8 @@ int main() {
     RUN_TEST(test_regra_so_dentro_do_horario);
     RUN_TEST(test_fora_do_horario_sem_leitura);
     RUN_TEST(test_proporcional_fora_do_horario);
+    RUN_TEST(test_sht3x_le_temperatura_e_umidade);
+    RUN_TEST(test_sht3x_comanda_pela_temperatura);
     RUN_TEST(test_ultrassom_distancia_e_falhas);
     RUN_TEST(test_intensidade_proporcional);
     RUN_TEST(test_proporcional_sem_decimos_e_manual_numerico);

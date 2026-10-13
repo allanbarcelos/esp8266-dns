@@ -1438,8 +1438,7 @@ private:
                 if (!_stateText("sensor_on", t.onText)) return;
                 if (!_stateText("sensor_off", t.offText)) return;
             }
-            if ((kind == iot::K_DHT11 || kind == iot::K_DHT22) && !_u8("metric", 0, 1, t.metric))
-                return;
+            if (iot::tempAndHumidity(kind) && !_u8("metric", 0, 1, t.metric)) return;
         }
 
         if (ha) {
@@ -1452,7 +1451,8 @@ private:
             strlcpy(t.actuator, slug.c_str(), sizeof(t.actuator));
             cap = iot::ACTUATORS[i].cap;
             if (!_pinArg("actuator_pin", t.actuatorPin)) return;
-            if (hs && t.actuatorPin == t.sensorPin) {
+            if (hs && (t.actuatorPin == t.sensorPin ||
+                       (kind == iot::K_SHT3X && t.actuatorPin == I2cBus::sclFor(t.sensorPin)))) {
                 _errorPage(PSTR("Sensor e atuador precisam de pinos diferentes"), PSTR("/iot"));
                 return;
             }

@@ -642,6 +642,23 @@ void test_iot_janela_de_horario() {
     TEST_ASSERT_EQUAL(22 * 60, cfg.iot.winStart);
 }
 
+void test_iot_sht3x_usa_dois_pinos() {
+    Fixture f;
+    Args a = {{"role", "sa"}, {"sensor", "sht3x"}, {"sensor_pin", "0"}, {"metric", "1"},
+              {"actuator", "rele"}, {"actuator_pin", "2"}, {"max_on", "0"}};
+    f.post("/iot/save", a);                               // atuador no SCL
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "pinos diferentes"));
+    a["actuator_pin"] = "3";
+    f.post("/iot/save", a);
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("sht3x", cfg.iot.sensor);
+    TEST_ASSERT_EQUAL(1, cfg.iot.metric);
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value='sht3x' selected>Temperatura e umidade (SHT30/SHT31, I2C)"));
+    TEST_ASSERT_TRUE(contains(f.out(), "sht3x:7"));
+}
+
 void test_cloudflare_save_ok() {
     Fixture f;
     f.post("/cloudflare/save", {
@@ -1748,6 +1765,7 @@ int main() {
     RUN_TEST(test_fuso_horario);
     RUN_TEST(test_hora_local_no_status);
     RUN_TEST(test_iot_janela_de_horario);
+    RUN_TEST(test_iot_sht3x_usa_dois_pinos);
     RUN_TEST(test_cloudflare_save_ok);
     RUN_TEST(test_cloudflare_save_token_vazio_mantem_atual);
     RUN_TEST(test_cloudflare_save_valor_longo_rejeitado_sem_alterar);

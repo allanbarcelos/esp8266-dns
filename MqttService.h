@@ -343,8 +343,8 @@ private:
         uint8_t k = _iot.sensorKind();
         uint8_t c = _iot.capability();
         switch (key) {
-            case 't': return k == iot::K_DHT11 || k == iot::K_DHT22 || k == iot::K_DS18;
-            case 'h': return k == iot::K_DHT11 || k == iot::K_DHT22;
+            case 't': return iot::tempAndHumidity(k) || k == iot::K_DS18;
+            case 'h': return iot::tempAndHumidity(k);
             case 'd': return k == iot::K_RANGE;
             case 'n': return k == iot::K_PULSE;
             case 'b': return k == iot::K_DIGITAL;

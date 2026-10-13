@@ -110,6 +110,11 @@ namespace mock {
     inline uint8_t isrPin = 255;
     inline int isrMode = -1;
 
+    // Barramento simulado (test/i2c_sim.h): vê cada mudança de pino e
+    // responde à leitura; -1 deixa a leitura com o pinIn
+    inline void (*pinHook)() = nullptr;
+    inline int  (*readHook)(uint8_t pin) = nullptr;
+
     inline int busRead() {
         _micros += busStep;
         busAt += busStep;
@@ -144,6 +149,8 @@ namespace mock {
         isr = nullptr;
         isrPin = 255;
         isrMode = -1;
+        pinHook = nullptr;
+        readHook = nullptr;
         for (int i = 0; i < 16; i++) analogValue[i] = -1;
     }
 }
@@ -154,11 +161,17 @@ inline void analogWrite(uint8_t pin, int val) {
 
 inline void pinMode(uint8_t pin, uint8_t mode) {
     if (pin < 16) mock::pinModeV[pin] = mode;
+    if (mock::pinHook) mock::pinHook();
 }
 inline void digitalWrite(uint8_t pin, uint8_t val) {
     if (pin < 16) mock::pinOut[pin] = val;
+    if (mock::pinHook) mock::pinHook();
 }
 inline int digitalRead(uint8_t pin) {
+    if (mock::readHook) {
+        int v = mock::readHook(pin);
+        if (v >= 0) return v;
+    }
     if (mock::bus && pin == mock::busPin) return mock::busRead();
     return pin < 16 ? mock::pinIn[pin] : HIGH;
 }

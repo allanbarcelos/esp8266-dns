@@ -35,6 +35,7 @@ Each service is a header with dependencies injected by reference, composed in la
 | `IoTCommand.h`       | Text command parser shared by panel, API and ntfy                               |
 | `IoTService.h`       | Sensor reading, actuator output, rule, pulse, safety off, JSON state            |
 | `IoTState.h`         | Last manual command (`/iot.state`), for "restore after power loss"              |
+| `I2cBus.h`           | Software I2C, master only (SHT3x)                                                |
 | `Ws2812.h`           | Single-colour WS2812 driver, no library                                          |
 | `HttpServer.h`       | Own HTTP server with only what the panel uses (replaces `ESP8266WebServer`)      |
 | `WebService.h`       | HTTP panel (Basic Auth + CSRF + HTML escaping) and the local API (Bearer token) |
@@ -87,6 +88,7 @@ Each choice shows only the fields it needs. Every sensor and actuator type shows
 | --- | --- | --- |
 | `dht22`, `dht11` | Temperature and humidity | °C and % (the rule uses the one you pick) |
 | `ds18b20` | Temperature (1-Wire) | °C |
+| `sht3x` | Temperature and humidity (SHT30/SHT31, I2C at address 0x44): SDA on the chosen pin and SCL on its pair (GPIO0 with GPIO2, RX with TX), with 4.7 kΩ pull-ups on both | °C and % (like the DHT) |
 | `pir` | Presence | presence / free |
 | `contato` | Door or window (reed) | open / closed |
 | `botao` | Button or switch | pressed / released |

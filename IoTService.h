@@ -10,6 +10,7 @@
 #include "IoTCatalog.h"
 #include "IoTCommand.h"
 #include "IoTState.h"
+#include "I2cBus.h"
 #include "Ws2812.h"
 
 // Um sensor e um atuador no ESP-01, cada um opcional:
@@ -26,6 +27,8 @@ public:
     static constexpr unsigned long DEBOUNCE_MS      = 200;
     static constexpr unsigned long READ_GAP_MS      = 2000;
     static constexpr unsigned long DS_CONVERT_MS    = 800;
+    static constexpr unsigned long SHT_MEASURE_MS   = 20;   // repetibilidade alta: 15 ms
+    static constexpr uint8_t       SHT_ADDR         = 0x44;
     // Pulso de início em LOW: DHT11 pede ≥ 18 ms, DHT22 ≥ 1 ms (2 pela
     // resolução do millis). Acima do máximo o sensor pode não responder.
     static constexpr unsigned long DHT11_WAKE_MS    = 18;
@@ -97,7 +100,7 @@ public:
             _sensor = iot::sensorIndex(_r.sensor);
             if (_sensor < 0 && _r.sensor[0]) _unknown("sensor");
         }
-        if (allowedPin(_r.actuatorPin) && !(_sensor >= 0 && _r.actuatorPin == _r.sensorPin)) {
+        if (allowedPin(_r.actuatorPin) && !(_sensor >= 0 && sensorUses(_r.actuatorPin))) {
             _act = iot::actuatorIndex(_r.actuator);
             if (_act < 0 && _r.actuator[0]) _unknown("atuador");
         }
@@ -107,6 +110,7 @@ public:
             _stateName(_onText, _r.onText, s.on);
             _stateName(_offText, _r.offText, s.off);
             pinMode((uint8_t)_r.sensorPin, INPUT_PULLUP);
+            if (s.kind == iot::K_SHT3X) pinMode((uint8_t)I2cBus::sclFor(_r.sensorPin), INPUT_PULLUP);
             if (s.kind == iot::K_PULSE) attachInterrupt((uint8_t)_r.sensorPin, onPulse, FALLING);
             _log.log(PSTR("IoT: sensor %s GPIO%d"), s.slug, _r.sensorPin);
         }
@@ -156,6 +160,11 @@ public:
     }
 
     bool hasSensor()   const { return _sensor >= 0; }
+    // O sensor usa o pino: o dele e, no SHT3x (I2C), o SCL do par
+    bool sensorUses(int pin) const {
+        return pin == _r.sensorPin ||
+               (sensorKind() == iot::K_SHT3X && pin == I2cBus::sclFor(_r.sensorPin));
+    }
     // Configuração de versão mais nova: a parte fica desligada, o arquivo intacto
     bool unknownType() const { return _unknownType; }
     bool hasActuator() const { return _act >= 0; }
@@ -517,9 +526,9 @@ private:
         bool want = _ruleOn && _open;
         bool changed = want != _on;
         if (_proportional()) {
-            uint8_t level = _open ? _ruleLevel : _r.dutyOff;
-            changed = changed || level != _level;
-            _level = level;
+            uint8_t lv = _open ? _ruleLevel : _r.dutyOff;
+            changed = changed || lv != _level;
+            _level = lv;
         } else if (want && !_on) {
             if (cap == iot::C_POSITION) _angle = _r.angleOn;
             else if (cap == iot::C_LEVEL) _level = _r.dutyOn;
@@ -542,6 +551,7 @@ private:
             case iot::K_DHT11:
             case iot::K_DHT22: _tickDht(now); return;
             case iot::K_DS18:  _tickDs(now); return;
+            case iot::K_SHT3X: _tickSht(now); return;
             case iot::K_PULSE: _tickPulse(now); return;
             case iot::K_RANGE: _tickRange(now); return;
             default: break;
@@ -843,6 +853,47 @@ private:
         _owSince = now;
     }
 
+    // CRC-8 da Sensirion: polinômio 0x31, começa em 0xFF
+    static uint8_t _crcSht(const uint8_t* d) {
+        uint8_t crc = 0xFF;
+        for (int i = 0; i < 2; i++) {
+            crc ^= d[i];
+            for (int b = 0; b < 8; b++) crc = (uint8_t)(crc & 0x80 ? crc << 1 ^ 0x31 : crc << 1);
+        }
+        return crc;
+    }
+
+    // SHT3x: pede a medida (sem clock stretching) e lê no tick seguinte
+    // que cair depois de SHT_MEASURE_MS. Usa o estado do DS18B20, que
+    // também espera a conversão.
+    void _tickSht(unsigned long now) {
+        I2cBus bus((uint8_t)_r.sensorPin, (uint8_t)I2cBus::sclFor(_r.sensorPin));
+        if (_owState == OW_WAIT) {
+            if (now - _owSince < SHT_MEASURE_MS) return;
+            _owState = OW_IDLE;
+            uint8_t d[6];
+            if (!bus.read(SHT_ADDR, d, 6) || _crcSht(d) != d[2] || _crcSht(d + 3) != d[5]) {
+                _fail();
+                return;
+            }
+            // °C = -45 + 175 × t / 65535; %UR = 100 × h / 65535 (em décimos)
+            _temp = -450 + (int)(1750L * (d[0] << 8 | d[1]) / 65535);
+            _hum = (int)(1000L * (d[3] << 8 | d[4]) / 65535);
+            _accept(_r.metric == 1 ? _temp : _hum, true);
+            return;
+        }
+        if (_haveRead && now - _lastRead < READ_GAP_MS) return;
+        _lastRead = now;
+        _haveRead = true;
+        static const uint8_t MEASURE[] = {0x24, 0x00};
+        if (!bus.write(SHT_ADDR, MEASURE, 2)) {
+            _fail();
+            return;
+        }
+        _owState = OW_WAIT;
+        _owSince = now;
+    }
+
     // HC-SR04 com trig e echo no mesmo pino. A distância sai em cm.
     bool _readRange(int* cm) {
         uint8_t pin = (uint8_t)_r.sensorPin;
@@ -910,6 +961,7 @@ private:
                     break;
                 case iot::K_DHT11:
                 case iot::K_DHT22:
+                case iot::K_SHT3X:
                     _fmtTenths(a, sizeof(a), _temp);
                     _fmtTenths(b, sizeof(b), _hum);
                     k += (size_t)snprintf(out + k, _left(n, k),

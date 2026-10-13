@@ -15,7 +15,7 @@ find .pio/build/coverage -name '*.gcda' -delete
 pio test -e coverage
 
 gcovr --root . --object-directory .pio/build/coverage \
-      --filter '^[A-Za-z]+\.h$' \
+      --filter '^[A-Za-z0-9]+\.h$' \
       --exclude-unreachable-branches --exclude-throw-branches \
       --print-summary --txt - \
       --fail-under-line 100 --fail-under-function 100 --fail-under-branch 100

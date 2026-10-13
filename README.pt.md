@@ -35,6 +35,7 @@ Cada serviço é um header com dependências injetadas por referência, composta
 | `IoTCommand.h`       | Interpretador de comandos de texto, o mesmo no painel, na API e no ntfy         |
 | `IoTService.h`       | Leitura do sensor, saída do atuador, regra, pulso, desligamento de segurança, JSON |
 | `IoTState.h`         | Último comando manual (`/iot.state`), para "ao religar"                          |
+| `I2cBus.h`           | I2C por software, só mestre (SHT3x)                                             |
 | `Ws2812.h`           | Driver WS2812 de uma cor, sem biblioteca                                         |
 | `HttpServer.h`       | Servidor HTTP próprio, só com o que o painel usa (no lugar do `ESP8266WebServer`) |
 | `WebService.h`       | Painel HTTP (Basic Auth + CSRF + escape de HTML) e API local (token Bearer)     |
@@ -87,6 +88,7 @@ Cada escolha mostra só os campos que importam. Cada tipo de sensor e de atuador
 | --- | --- | --- |
 | `dht22`, `dht11` | Temperatura e umidade | °C e % (a regra usa a grandeza escolhida) |
 | `ds18b20` | Temperatura (1-Wire) | °C |
+| `sht3x` | Temperatura e umidade (SHT30/SHT31, I2C no endereço 0x44): SDA no pino escolhido e SCL no par (GPIO0 com GPIO2, RX com TX), com pull-up de 4,7 kΩ nos dois | °C e % (como o DHT) |
 | `pir` | Presença | presença / livre |
 | `contato` | Porta ou janela (reed) | aberta / fechada |
 | `botao` | Botão ou interruptor | pressionado / solto |

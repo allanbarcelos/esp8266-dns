@@ -610,7 +610,7 @@ void test_discovery_aparelho_e_topicos() {
 void test_discovery_por_tipo_de_modulo() {
     struct Case { const char* sensor; const char* actuator; const char* active; };
     const Case cases[] = {
-        {"ds18b20", "", "t"}, {"distancia", "", "d"}, {"pulsos", "", "n"},
+        {"ds18b20", "", "t"}, {"sht3x", "", "th"}, {"distancia", "", "d"}, {"pulsos", "", "n"},
         {"pir", "led", "bl"}, {"contato", "fita", "bc"}, {"botao", "servo", "bg"},
         {"digital", "bomba", "bs"}, {"", "ventilador", "l"}, {"", "", ""},
     };
