@@ -1142,6 +1142,32 @@ void test_urgente_se_acumula_ate_o_envio() {
     TEST_ASSERT_FALSE(iot.pending());
 }
 
+// O maior estado gravado cabe no texto lido; arquivo maior é ignorado
+void test_estado_no_limite_do_texto() {
+    IoTState st;
+    st.manual = false;
+    st.on     = false;
+    st.level  = 255;
+    st.angle  = 255;
+    st.rgb    = 0xFFFFFFFFUL;
+    TEST_ASSERT_TRUE(st.save());
+    TEST_ASSERT_EQUAL(55, (int)MockFS::files[IoTState::PATH].size());
+    TEST_ASSERT_TRUE(MockFS::files[IoTState::PATH].size() < IoTState::MAX_TEXT);
+    IoTState back;
+    TEST_ASSERT_TRUE(back.load());
+    TEST_ASSERT_EQUAL(255, back.level);
+    TEST_ASSERT_EQUAL(255, back.angle);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFUL, back.rgb);
+
+    // Maior que o texto: cortado, JSON inválido, padrão
+    std::string big = R"({"m":true,"on":true,"lv":40,"an":10,"c":1,"x":")";
+    big += std::string(IoTState::MAX_TEXT, 'x') + "\"}";
+    MockFS::put(IoTState::PATH, big);
+    IoTState cut;
+    TEST_ASSERT_FALSE(cut.load());
+    TEST_ASSERT_FALSE(cut.on);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_catalogo_por_identificador);
@@ -1173,5 +1199,6 @@ int main() {
     RUN_TEST(test_proporcional_sem_decimos_e_manual_numerico);
     RUN_TEST(test_regra_abre_o_servo);
     RUN_TEST(test_urgente_se_acumula_ate_o_envio);
+    RUN_TEST(test_estado_no_limite_do_texto);
     return UNITY_END();
 }

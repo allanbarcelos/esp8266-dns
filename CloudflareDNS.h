@@ -124,21 +124,19 @@ private:
         int code = http.PATCH(payload);
         String resp = (code > 0) ? http.getString() : String();
         http.end();
+        client.stop();  // o keep-alive do HTTPClient manteria a sessão TLS aberta
 
         if (code <= 0) {
             _log.log(PSTR("DNS erro de conexao: %d"), code);
             return false;
         }
 
-        // Capacidades via macros: corretas tanto no ESP8266 quanto no host (64 bits)
-        constexpr size_t SHAPE = JSON_OBJECT_SIZE(2) + JSON_ARRAY_SIZE(1) + JSON_OBJECT_SIZE(2);
-        StaticJsonDocument<SHAPE> filter;
-        filter["success"] = true;
-        filter["errors"][0]["code"]    = true;
-        filter["errors"][0]["message"] = true;
-
-        StaticJsonDocument<SHAPE + 160> doc; // + texto da mensagem de erro
-        DeserializationError err = deserializeJson(doc, resp, DeserializationOption::Filter(filter));
+        // Lida no lugar (char*), como as mensagens do ntfy: um só leitor de
+        // JSON no firmware, e as strings ficam na resposta. O documento
+        // guarda só a estrutura, uma posição por valor, e a TLS já foi
+        // fechada: a heap está livre.
+        DynamicJsonDocument doc(JSON_ARRAY_SIZE(_values(resp)));
+        DeserializationError err = deserializeJson(doc, resp.begin());
         if (err || doc["success"].isNull()) {
             _log.log(PSTR("DNS resposta invalida (HTTP %d)"), code);
             return false;
@@ -151,5 +149,15 @@ private:
             return false;
         }
         return true;
+    }
+
+    // Teto de valores no JSON: cada valor depois do primeiro de um objeto
+    // ou lista vem após uma vírgula, e o primeiro, após { ou [. Vírgula
+    // dentro de texto só aumenta a conta.
+    static size_t _values(const String& json) {
+        size_t n = 0;
+        for (const char* p = json.c_str(); *p; p++)
+            n += *p == ',' || *p == '{' || *p == '[';
+        return n;
     }
 };

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 #pragma once
+#include <memory>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include "Config.h"
@@ -22,6 +23,8 @@ public:
     static constexpr int    VERSION       = 2;
     // Folga para o pior caso (todos os campos no tamanho máximo)
     static constexpr size_t JSON_CAPACITY = 3072;
+    // Nada que save() grava chega perto: maior é arquivo estranho
+    static constexpr size_t MAX_FILE      = 4096;
 
     bool begin() {
         if (!LittleFS.begin()) {
@@ -44,9 +47,22 @@ public:
             return false;
         }
 
-        DynamicJsonDocument doc(JSON_CAPACITY);
-        DeserializationError err = deserializeJson(doc, f);
+        // Lido inteiro e analisado no lugar (char*): o mesmo leitor de JSON
+        // do resto do firmware, e as strings ficam no texto, sem cópia no
+        // documento. O texto vive até o fim do load (o doc aponta para ele).
+        size_t n = f.size();
+        std::unique_ptr<char, void (*)(void*)> text(
+            n < MAX_FILE ? (char*)malloc(n + 1) : nullptr, free);
+        if (!text) {
+            f.close();
+            _log.log(PSTR("config.json ilegivel (%u bytes)"), (unsigned)n);
+            return false;
+        }
+        text.get()[f.readBytes(text.get(), n)] = '\0';
         f.close();
+
+        DynamicJsonDocument doc(JSON_CAPACITY);
+        DeserializationError err = deserializeJson(doc, text.get());
 
         if (err) {
             _log.log(PSTR("Erro JSON: %s"), err.c_str());

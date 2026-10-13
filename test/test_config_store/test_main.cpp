@@ -45,6 +45,31 @@ void test_load_retorna_false_json_invalido() {
     TEST_ASSERT_TRUE(logHas(logger, "Erro JSON"));
 }
 
+// Arquivo maior do que qualquer save() grava: nem tenta ler
+void test_load_arquivo_grande_demais() {
+    MockFS::put("/config.json", std::string(ConfigStore::MAX_FILE, ' '));
+    TEST_ASSERT_FALSE(store.load());
+    TEST_ASSERT_TRUE(logHas(logger, "config.json ilegivel (4096 bytes)"));
+}
+
+// Sem memória para o texto: falha limpa, sem tocar na configuração
+void test_load_sem_memoria() {
+    MockFS::put("/config.json", R"({"ssid":"rede"})");
+    mock::failMallocSize = std::strlen(R"({"ssid":"rede"})") + 1;
+    TEST_ASSERT_FALSE(store.load());
+    TEST_ASSERT_TRUE(logHas(logger, "config.json ilegivel (15 bytes)"));
+    TEST_ASSERT_EQUAL_STRING("", config.ssid.c_str());
+}
+
+// Logo abaixo do teto ainda é lido
+void test_load_no_limite_do_tamanho() {
+    std::string json = R"({"ssid":"rede"})";
+    json += std::string(ConfigStore::MAX_FILE - 1 - json.size(), ' ');
+    MockFS::put("/config.json", json);
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_STRING("rede", config.ssid.c_str());
+}
+
 void test_load_defaults() {
     MockFS::put("/config.json", R"({"v":2,"ssid":"net"})");
     TEST_ASSERT_TRUE(store.load());
@@ -324,6 +349,8 @@ void test_save_pior_caso_cabe() {
     std::memset(config.iot.offText,  'f', sizeof(config.iot.offText) - 1);
 
     TEST_ASSERT_TRUE(store.save());
+    // O maior arquivo possível fica abaixo do teto de leitura
+    TEST_ASSERT_TRUE(MockFS::files["/config.json"].size() < ConfigStore::MAX_FILE);
     config = Config{};
     TEST_ASSERT_TRUE(store.load());
     TEST_ASSERT_EQUAL(63, (int)std::strlen(config.cf_host));
@@ -368,6 +395,9 @@ int main() {
     RUN_TEST(test_load_retorna_false_sem_arquivo);
     RUN_TEST(test_load_falha_ao_abrir);
     RUN_TEST(test_load_retorna_false_json_invalido);
+    RUN_TEST(test_load_arquivo_grande_demais);
+    RUN_TEST(test_load_sem_memoria);
+    RUN_TEST(test_load_no_limite_do_tamanho);
     RUN_TEST(test_load_defaults);
     RUN_TEST(test_iot_v2_ida_e_volta);
     RUN_TEST(test_migracao_v1_completa);

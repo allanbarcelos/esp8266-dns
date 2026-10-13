@@ -37,6 +37,8 @@ public:
 
     explicit operator bool() const { return _valid; }
 
+    size_t size() const { return _data.size(); }
+
     // Leitura (deserializeJson)
     int read() { return (!_writing && _pos < _data.size()) ? (uint8_t)_data[_pos++] : -1; }
     size_t readBytes(char* buf, size_t n) {

@@ -17,15 +17,20 @@ struct IoTState {
     uint32_t rgb    = 0xFFFFFF;
 
     static constexpr const char* PATH = "/iot.state";
-    // 5 campos e os nomes copiados do arquivo na leitura
-    static constexpr size_t CAPACITY = JSON_OBJECT_SIZE(5) + 16;
+    // 5 campos; na leitura os nomes ficam no texto lido
+    static constexpr size_t CAPACITY = JSON_OBJECT_SIZE(5);
+    // O maior arquivo gravado tem 55 caracteres
+    static constexpr size_t MAX_TEXT = 96;
 
     bool load() {
         File f = LittleFS.open(PATH, "r");
         if (!f) return false;
-        StaticJsonDocument<CAPACITY> doc;
-        DeserializationError err = deserializeJson(doc, f);
+        // Lido inteiro e analisado no lugar (char*), como o config.json
+        char text[MAX_TEXT];
+        text[f.readBytes(text, sizeof(text) - 1)] = '\0';
         f.close();
+        StaticJsonDocument<CAPACITY> doc;
+        DeserializationError err = deserializeJson(doc, text);
         if (err) return false;
         manual = doc["m"] | false;
         on     = doc["on"] | false;

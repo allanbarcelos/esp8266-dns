@@ -198,6 +198,7 @@ namespace MockTLS {
     inline int                       connectCalls  = 0;
     inline int                       failOnConnect = 0; // 1-based; 0 = off
     inline bool                      mfln          = false;
+    inline int                       stopCalls     = 0;
     inline std::vector<uint16_t>     suites;                  // último setCiphers
     // Na N-ésima chamada de setBufferSizes (1-based) o maior bloco livre
     // cai para shrinkBlockTo: a alocação do BearSSL fragmentou a heap.
@@ -210,7 +211,7 @@ namespace MockTLS {
         timeoutCalls = 0; lastTimeoutMs = 0;
         bufIn = 0; bufOut = 0; nullOwned = false;
         failConnect = false; connectCalls = 0; failOnConnect = 0;
-        mfln = false; suites.clear();
+        mfln = false; suites.clear(); stopCalls = 0;
     }
 }
 
@@ -295,6 +296,7 @@ public:
     }
 
     void stop(unsigned int = 0) override {
+        MockTLS::stopCalls++;
         _connected = false;
         _rx.clear();
         _rxPos = 0;

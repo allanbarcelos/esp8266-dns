@@ -195,6 +195,7 @@ public:
     }
 
     const char* c_str()   const { return _s.c_str(); }
+    char*       begin()         { return &_s[0]; }   // escrita no lugar (ArduinoJson)
     size_t      length()  const { return _s.size(); }
     bool        isEmpty() const { return _s.empty(); }
 
