@@ -13,17 +13,33 @@ public:
 
     explicit Clock(TimeFn fn = _systemTime) : _fn(fn) {}
 
+    // O lwIP sem extras (menos flash) guarda um servidor SNTP só. Sem hora
+    // depois de RETRY_MS, troca para o outro, e assim alterna até sincronizar.
     void begin() {
-        configTime(0, 0, "pool.ntp.org", "time.google.com");
+        _alt = false;
+        _last = 0;
+        _configure();
+    }
+
+    void tick(unsigned long ms) {
+        if (synced() || ms - _last < RETRY_MS) return;
+        _last = ms;
+        _alt = !_alt;
+        _configure();
     }
 
     time_t now()    const { return _fn(); }
     bool   synced() const { return now() > MIN_VALID_EPOCH; }
 
     static constexpr time_t MIN_VALID_EPOCH = 1700000000; // nov/2023
+    static constexpr unsigned long RETRY_MS = 60000;
 
 private:
-    TimeFn _fn;
+    TimeFn        _fn;
+    bool          _alt  = false;
+    unsigned long _last = 0;
+
+    void _configure() { configTime(0, 0, _alt ? "time.google.com" : "pool.ntp.org"); }
 
     static time_t _systemTime() { return time(nullptr); }
 };

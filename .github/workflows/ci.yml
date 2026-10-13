@@ -118,13 +118,13 @@ jobs:
 
       - uses: ./.github/actions/setup-arduino
 
-      - name: Compila (ESP-01 1MB, FS 64KB, reserva OTA 400KB)
+      - name: Compila (ESP-01 1MB, FS 64KB, reserva OTA 400KB, lwIP sem extras)
         env:
           VERSION: ${{ needs.plan.outputs.version }}
         run: |
           python3 tools/ota_flash_ld.py
           arduino-cli compile \
-            --fqbn esp8266:esp8266:generic:eesz=1M64 \
+            --fqbn esp8266:esp8266:generic:eesz=1M64,ip=lm2n \
             --build-property "build.flash_ld=eagle.flash.1m64.ota.ld" \
             --build-property "build.float=" \
             --build-property "build.extra_flags=-Dfirmware_version=\"$VERSION\" -DARDUINO_SIGNING=1" \

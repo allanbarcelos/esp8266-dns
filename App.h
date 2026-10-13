@@ -73,6 +73,7 @@ public:
         if (!ota.slim()) web.tick();
         wifi.tick(now);
         wifi.tickRestart(now);
+        clock.tick(now);
 
         // Uma sessão TLS por vez: o fluxo de comandos do ntfy solta a dele
         // antes de o DNS ou o OTA usarem a rede neste mesmo tick
