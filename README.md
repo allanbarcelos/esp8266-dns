@@ -121,7 +121,7 @@ Per actuator:
 - **Digital sensor**: follow (on while active) or toggle (each activation flips the actuator).
 - **Numeric sensor**: on above or below a limit, with a margin to turn off (hysteresis), so a relay does not chatter.
 - **Proportional level**: a PWM actuator follows the reading linearly between the limit and a high limit.
-- **Time window** (optional): the rule only turns the actuator on between a start and an end, in local time (22:00 to 06:00 wraps past midnight). Outside it, and while the clock is still in 1970, automatic mode keeps the actuator off. A manual command still holds until `auto`. The time zone is set on the **Configuracoes** page, in hours from UTC (`-3`, `5:30`); the local time shows under **Status**.
+- **Time window** (optional): the rule only turns the actuator on between a start and an end, in local time (22:00 to 06:00 wraps past midnight). Outside it, and while the clock is still in 1970, automatic mode keeps the actuator off. A manual command still holds until `auto`. The time zone is set on the **Configuracoes** page, from a list of the official zones (UTC−12 to UTC+14, each with an example place; no automatic daylight saving); the local time shows under **Status**.
 
 The form writes the rule back as a sentence ("Turns the fan on when the value goes above 28 °C and off when it drops below 26 °C") before you save.
 

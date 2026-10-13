@@ -564,33 +564,35 @@ void test_aparelho_recusa_nome_ou_hostname_invalido() {
 }
 
 void test_fuso_horario() {
-    struct { const char* in; bool ok; int tz; } cases[] = {
-        {"", true, 0}, {" 0 ", true, 0}, {"-3", true, -180}, {"+5:30", true, 330},
-        {"14", true, 840}, {"-12", true, -720}, {"-0:30", true, -30},
-        {"15", false, 0}, {"-13", false, 0}, {"-12:30", false, 0}, {"123", false, 0},
-        {"abc", false, 0}, {"-", false, 0}, {":30", false, 0}, {"1:6", false, 0},
-        {"1:60", false, 0}, {"1:5x", false, 0}, {"1:30x", false, 0}, {"3 h", false, 0},
-        {"1234", false, 0}, {"1:/0", false, 0}, {"1:5", false, 0},
-    };
-    for (auto& c : cases) {
-        int16_t tz = 99;
-        TEST_ASSERT_EQUAL_MESSAGE(c.ok, WebService::parseTz(c.in, tz), c.in);
-        if (c.ok) TEST_ASSERT_EQUAL_MESSAGE(c.tz, tz, c.in);
-    }
+    TEST_ASSERT_TRUE(WebService::validTz(-180));
+    TEST_ASSERT_TRUE(WebService::validTz(345));               // Nepal, +05:45
+    TEST_ASSERT_TRUE(WebService::validTz(840));
+    TEST_ASSERT_FALSE(WebService::validTz(-200));
+    TEST_ASSERT_FALSE(WebService::validTz(900));
 
     Fixture f;
-    f.post("/config/save", {{"name", ""}, {"hostname", ""}, {"tz", "-3"}});
+    f.get("/config");
+    TEST_ASSERT_TRUE(contains(f.out(), "<select name='tz'><option value='-720'>UTC-12:00 Ilha Baker</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value='0' selected>UTC+00:00 Londres, Lisboa</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value='-180'>UTC-03:00 Brasilia, Buenos Aires</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value='345'>UTC+05:45 Nepal</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value='840'>UTC+14:00 Kiritimati</option></select>"));
+
+    f.post("/config/save", {{"name", ""}, {"hostname", ""}, {"tz", "-180"}});
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL(-180, cfg.tz);
-    struct { int tz; const char* text; } shown[] = {{-180, "-3"}, {330, "5:30"}, {-90, "-1:30"}, {0, "0"}};
-    for (auto& s : shown) {
-        cfg.tz = (int16_t)s.tz;
-        f.get("/config");
-        TEST_ASSERT_TRUE(contains(f.out(), (std::string("name='tz' value='") + s.text + "'").c_str()));
+    f.get("/config");
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value='-180' selected>UTC-03:00"));
+    TEST_ASSERT_FALSE(contains(f.out(), "<option value='0' selected>"));
+
+    // Fora da lista ou lixo: recusado, nada muda
+    const char* bad[] = {"-200", "900", "-3", "abc"};
+    for (const char* v : bad) {
+        f.post("/config/save", {{"name", "x"}, {"hostname", ""}, {"tz", v}});
+        TEST_ASSERT_EQUAL(400, f.srv.code);
+        TEST_ASSERT_TRUE(contains(f.out(), "Fuso invalido"));
     }
-    f.post("/config/save", {{"name", "x"}, {"hostname", ""}, {"tz", "25"}});
-    TEST_ASSERT_EQUAL(400, f.srv.code);
-    TEST_ASSERT_TRUE(contains(f.out(), "Fuso invalido"));
+    TEST_ASSERT_EQUAL(-180, cfg.tz);
     TEST_ASSERT_EQUAL_STRING("", cfg.dev_name);
 }
 

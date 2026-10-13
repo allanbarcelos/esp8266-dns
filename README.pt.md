@@ -121,7 +121,7 @@ Para cada atuador:
 - **Sensor digital**: acompanhar (ligado enquanto ativo) ou inverter (cada acionamento inverte o atuador).
 - **Sensor numérico**: liga acima ou abaixo de um limite, com margem para desligar (histerese), para o relé não ficar oscilando.
 - **Intensidade proporcional**: um atuador PWM acompanha a leitura de forma linear entre o limite e um limite alto.
-- **Janela de horário** (opcional): a regra só liga o atuador entre um início e um fim, na hora local (22:00 às 06:00 vira a meia-noite). Fora dela, e com o relógio ainda em 1970, o modo automático deixa o atuador desligado. Um comando manual continua valendo até `auto`. O fuso fica em **Configurações**, em horas do UTC (`-3`, `5:30`); a hora local aparece em **Status**.
+- **Janela de horário** (opcional): a regra só liga o atuador entre um início e um fim, na hora local (22:00 às 06:00 vira a meia-noite). Fora dela, e com o relógio ainda em 1970, o modo automático deixa o atuador desligado. Um comando manual continua valendo até `auto`. O fuso fica em **Configurações**, numa lista com os fusos oficiais (UTC−12 a UTC+14, com um lugar de exemplo de cada; sem horário de verão automático); a hora local aparece em **Status**.
 
 O formulário escreve a regra como frase ("Liga o ventilador quando o valor ficar acima de 28 °C e desliga ao voltar abaixo de 26 °C") antes de salvar.
 

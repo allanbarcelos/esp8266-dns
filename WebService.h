@@ -43,6 +43,54 @@ static const char _HTML_FOOT_A[] PROGMEM = "</main><footer>Firmware: ";
 
 static const char _HTML_FOOT_B[] PROGMEM = "</footer></body></html>";
 
+// Fusos oficiais, de UTC-12 a UTC+14, em minutos, e um lugar de cada (na
+// mesma ordem, separados por \0). Sem horário de verão: quem tem escolhe
+// o fuso da estação.
+static const int16_t _TZ_MIN[] PROGMEM = {
+    -720, -660, -600, -570, -540, -480, -420, -360, -300, -240, -210, -180, -120,
+    -60, 0, 60, 120, 180, 210, 240, 270, 300, 330, 345, 360, 390, 420,
+    480, 525, 540, 570, 600, 630, 660, 720, 765, 780, 840,
+};
+static const char _TZ_PLACES[] PROGMEM =
+    "Ilha Baker\0"
+    "Samoa Americana\0"
+    "Havai\0"
+    "Ilhas Marquesas\0"
+    "Alasca\0"
+    "Los Angeles\0"
+    "Denver\0"
+    "Cidade do Mexico\0"
+    "Acre, Nova York\0"
+    "Manaus, Santiago\0"
+    "Terra Nova\0"
+    "Brasilia, Buenos Aires\0"
+    "Fernando de Noronha\0"
+    "Acores\0"
+    "Londres, Lisboa\0"
+    "Paris, Luanda\0"
+    "Atenas, Maputo\0"
+    "Moscou\0"
+    "Teera\0"
+    "Dubai\0"
+    "Cabul\0"
+    "Karachi\0"
+    "India\0"
+    "Nepal\0"
+    "Daca\0"
+    "Mianmar\0"
+    "Bangcoc\0"
+    "Pequim\0"
+    "Eucla\0"
+    "Toquio\0"
+    "Adelaide\0"
+    "Sydney\0"
+    "Lord Howe\0"
+    "Noumea\0"
+    "Auckland\0"
+    "Chatham\0"
+    "Tonga\0"
+    "Kiritimati\0";
+
 // Texto fixo das páginas fica na flash (PSTR/PROGMEM) e sai por
 // sendContent_P: literal comum ocupa RAM no ESP8266, e a heap livre é o
 // que o TLS do OTA precisa. Parâmetro PGM_P aceita flash ou RAM (as
@@ -551,9 +599,7 @@ private:
         _input(PSTR("Hostname <span class='m'>(roteador; vale na proxima conexao)</span>"),
                PSTR("hostname"), _cfg.hostname,
                PSTR("maxlength='32' pattern='[A-Za-z0-9]([A-Za-z0-9\\-]*[A-Za-z0-9])?'"));
-        _input(PSTR("Fuso horario <span class='m'>(horas do UTC: -3, 0, 5:30)</span>"),
-               PSTR("tz"), _tzText(_cfg.tz),
-               PSTR("maxlength='6' pattern='[+\\-]?[0-9]{1,2}(:[0-5][0-9])?'"));
+        _tzSelect();
         _pinSelect(PSTR("Medidor de bateria MAX17048 <span class='m'>(SDA; o SCL vai no par: "
                         "GPIO0 com GPIO2, RX com TX)</span>"), PSTR("bat_sda"), _cfg.bat_sda,
                    PSTR("Nenhum"));
@@ -596,8 +642,9 @@ private:
         String name = _server.arg("name");
         String host = _server.arg("hostname");
         int16_t tz = 0;
-        if (!parseTz(_server.arg("tz"), tz)) {
-            _errorPage(PSTR("Fuso invalido (de -12 a 14 horas, como -3 ou 5:30)"), PSTR("/config"));
+        String tzArg = _server.arg("tz");
+        if (tzArg.length() && (!IoTService::parseI16(tzArg, -720, 840, tz) || !validTz(tz))) {
+            _errorPage(PSTR("Fuso invalido"), PSTR("/config"));
             return;
         }
         int8_t bat = -1;
@@ -978,13 +1025,25 @@ private:
         _server.send_P(200, type, reinterpret_cast<PGM_P>(data), len);
     }
 
-    // Fuso em texto: "-3", "5:30", "0"
-    static String _tzText(int16_t tz) {
-        char b[8];
-        int a = tz < 0 ? -tz : tz;
-        if (a % 60) snprintf(b, sizeof(b), "%s%d:%02d", tz < 0 ? "-" : "", a / 60, a % 60);
-        else snprintf(b, sizeof(b), "%d", tz / 60);
-        return String(b);
+    // "UTC-03:00 Brasilia, Buenos Aires", com o fuso salvo marcado
+    void _tzSelect() {
+        _selectOpen(PSTR("Fuso horario <span class='m'>(sem horario de verao)</span>"), PSTR("tz"));
+        PGM_P place = _TZ_PLACES;
+        for (size_t i = 0; i < sizeof(_TZ_MIN) / sizeof(_TZ_MIN[0]); i++) {
+            int16_t tz = (int16_t)pgm_read_word(&_TZ_MIN[i]);
+            int a = tz < 0 ? -tz : tz;
+            char b[24];
+            snprintf(b, sizeof(b), "%d", tz);
+            _p(PSTR("<option value='"));
+            _s(b);
+            _p(tz == _cfg.tz ? PSTR("' selected>") : PSTR("'>"));
+            snprintf(b, sizeof(b), "UTC%c%02d:%02d ", tz < 0 ? '-' : '+', a / 60, a % 60);
+            _s(b);
+            _p(place);
+            _p(PSTR("</option>"));
+            place += strlen_P(place) + 1;
+        }
+        _selectEnd();
     }
 
     // "HH:MM" de um minuto do dia
@@ -1013,26 +1072,11 @@ private:
     }
 
 public:
-    // Fuso em horas, com sinal e minutos opcionais ("-3", "+5:30", "0");
-    // vazio é UTC. De -12 a +14 horas.
-    static bool parseTz(String s, int16_t& out) {
-        s.trim();
-        const char* p = s.c_str();
-        int sign = 1;
-        if (*p == '+' || *p == '-') sign = *p++ == '-' ? -1 : 1;
-        int h = 0, m = 0, digits = 0;
-        while (*p >= '0' && *p <= '9' && digits < 3) h = h * 10 + (*p++ - '0'), digits++;
-        if (*p == ':') {
-            p++;
-            if (p[0] < '0' || p[0] > '5' || p[1] < '0' || p[1] > '9') return false;
-            m = (p[0] - '0') * 10 + (p[1] - '0');
-            p += 2;
-        }
-        if (*p || (digits == 0 && s.length()) || digits > 2) return false;
-        int v = sign * (h * 60 + m);
-        if (v < -12 * 60 || v > 14 * 60) return false;
-        out = (int16_t)v;
-        return true;
+    // Um dos fusos oficiais da lista
+    static bool validTz(int16_t tz) {
+        for (size_t i = 0; i < sizeof(_TZ_MIN) / sizeof(_TZ_MIN[0]); i++)
+            if ((int16_t)pgm_read_word(&_TZ_MIN[i]) == tz) return true;
+        return false;
     }
 
 private:
