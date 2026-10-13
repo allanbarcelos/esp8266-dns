@@ -81,6 +81,7 @@ public:
         strlcpy(_cfg.mqtt_pass,  doc["mqtt_pass"]  | "", sizeof(_cfg.mqtt_pass));
         strlcpy(_cfg.dev_name,   doc["name"]       | "", sizeof(_cfg.dev_name));
         strlcpy(_cfg.hostname,   doc["hostname"]   | "", sizeof(_cfg.hostname));
+        _cfg.tz = doc["tz"] | 0;
         strlcpy(_cfg.ntfy_token, doc["ntfy_token"] | "", sizeof(_cfg.ntfy_token));
         _cfg.ota_auto = doc["ota_auto"] | true;
         strlcpy(_cfg.api_token,  doc["api_token"]  | "", sizeof(_cfg.api_token));
@@ -125,6 +126,7 @@ public:
         doc["mqtt_pass"]  = _cfg.mqtt_pass;
         doc["name"]       = _cfg.dev_name;
         doc["hostname"]   = _cfg.hostname;
+        doc["tz"]         = _cfg.tz;
         doc["ota_auto"]   = _cfg.ota_auto;
         doc["api_token"]  = _cfg.api_token;
         doc["cf_token"]   = _cfg.cf_token;
@@ -157,6 +159,9 @@ public:
         doc["toggle"]        = t.toggle;
         doc["linear"]        = t.linear;
         doc["threshold_hi"]  = t.thresholdHi;
+        doc["window"]        = t.window;
+        doc["win_start"]     = t.winStart;
+        doc["win_end"]       = t.winEnd;
 
         if (doc.overflowed()) {
             _log.log(PSTR("Config excede capacidade JSON"));
@@ -215,6 +220,9 @@ private:
         t.toggle       = doc["toggle"]        | false;
         t.linear       = doc["linear"]        | false;
         t.thresholdHi  = doc["threshold_hi"]  | 0;
+        t.window       = doc["window"]        | false;
+        t.winStart     = doc["win_start"]     | 0;
+        t.winEnd       = doc["win_end"]       | 0;
     }
 
     // v1 gravava o tipo pela posição na tabela antiga e só acionava o

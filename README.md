@@ -50,7 +50,7 @@ Each service is a header with dependencies injected by reference, composed in la
 1. Flash from the browser with the **[web installer](https://allanbarcelos.github.io/esp8266-dns/)** (Chrome or Edge on a computer, nothing to install) or over serial (see [Local build](#-local-build)). Either way, the ESP-01 needs **GPIO0 tied to GND** when the adapter is plugged in; release it after flashing and plug it in again.
 2. With no Wi-Fi configured, the ESP creates the **`ESP_Config`** network. The password is **drawn per device** on first boot (12 characters) and printed on the serial port every 30 s (`AP ESP_Config, senha: ...`); the web installer reads it with the **Read the device password** button. Afterwards it shows on the panel, under **Status**. For a fixed password, build with `-DAP_PASSWORD=\"...\"`.
 3. Open `http://192.168.4.1`, enter the Wi-Fi credentials and **set the panel user and password** (at least 8 characters).
-4. After the reboot, open the ESP's local IP. Configure **Cloudflare**, **ntfy** and **IoT** as needed; each part is optional. On the home page, the **Aparelho** card sets a **name** (shown at the top of the panel and in Home Assistant) and a **hostname** (what the router shows in its DHCP list; it applies on the next Wi-Fi connection).
+4. After the reboot, open the ESP's local IP. Configure **Cloudflare**, **ntfy** and **IoT** as needed; each part is optional. On the home page, the **Aparelho** card sets a **name** (shown at the top of the panel and in Home Assistant) a **hostname** (what the router shows in its DHCP list; it applies on the next Wi-Fi connection) and the **time zone** (for the rule's time window).
 
 > The panel requires a password. Until one is set, every page redirects to `/password`. After 5 wrong passwords (or API tokens) in a row, each new mistake doubles a wait from 2 s up to 5 min.
 > To use it away from home, see [Remote access](docs/ACESSO-REMOTO.md) (in Portuguese): never forward a router port to the device.
@@ -118,6 +118,7 @@ Per actuator:
 - **Digital sensor**: follow (on while active) or toggle (each activation flips the actuator).
 - **Numeric sensor**: on above or below a limit, with a margin to turn off (hysteresis), so a relay does not chatter.
 - **Proportional level**: a PWM actuator follows the reading linearly between the limit and a high limit.
+- **Time window** (optional): the rule only turns the actuator on between a start and an end, in local time (22:00 to 06:00 wraps past midnight). Outside it, and while the clock is still in 1970, automatic mode keeps the actuator off. A manual command still holds until `auto`. The time zone is set in the **Aparelho** card on the home page, in hours from UTC (`-3`, `5:30`); the local time shows under **Status**.
 
 The form writes the rule back as a sentence ("Turns the fan on when the value goes above 28 °C and off when it drops below 26 °C") before you save.
 

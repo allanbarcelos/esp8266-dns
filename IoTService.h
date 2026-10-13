@@ -6,6 +6,7 @@
 #include <Servo.h>
 #include "Config.h"
 #include "Logger.h"
+#include "Clock.h"
 #include "IoTCatalog.h"
 #include "IoTCommand.h"
 #include "IoTState.h"
@@ -15,7 +16,9 @@
 // - só sensor: lê e publica no ntfy;
 // - só atuador: obedece comandos (painel, API local, ntfy);
 // - os dois: com a regra ligada, o sensor comanda o atuador no modo
-//   automático. Um comando manual vale até "auto".
+//   automático. Um comando manual vale até "auto". Com a janela de
+//   horário ligada, o automático só liga dentro dela (hora local, pelo
+//   fuso do Config); fora, ou com o relógio em 1970, fica desligado.
 // A configuração é copiada em begin(): uma gravação que falha não muda a
 // saída que já está no ar.
 class IoTService {
@@ -35,7 +38,8 @@ public:
 
     enum Result : uint8_t { OK, INVALID, UNSUPPORTED, NO_ACTUATOR };
 
-    IoTService(Config& cfg, Logger& log) : _cfg(cfg), _log(log) { _clear(); }
+    IoTService(Config& cfg, Logger& log, const Clock* clock = nullptr)
+        : _cfg(cfg), _log(log), _clock(clock) { _clear(); }
 
     static bool allowedPin(int pin) { return iot::allowedPin(pin); }
 
@@ -125,12 +129,19 @@ public:
     void tick(unsigned long now) {
         if (_sensor >= 0) _tickSensor(now);
         if (_act < 0) return;
+        bool open = inHours();
+        if (open != _open) {
+            _open = open;
+            if (hasRule() && !_manual && _takeRule())
+                _changed(open ? PSTR("[atuador] %s (inicio do horario)")
+                              : PSTR("[atuador] %s (fim do horario)"));
+        }
         if (_pulsing && (long)(now - _pulseUntil) >= 0) {
             _pulsing = false;
             _setOn(false, now);
             if (hasRule()) {
                 _manual = false;
-                if (_haveRule) _takeRule();
+                if (_ruleKnown()) _takeRule();
             }
             _changed(PSTR("[atuador] %s"));
             _persist();
@@ -150,6 +161,24 @@ public:
     bool hasActuator() const { return _act >= 0; }
     bool hasRule()     const { return _r.rule && hasSensor() && hasActuator(); }
     bool manual()      const { return _manual; }
+
+    // Minuto do dia na hora local; false sem relógio ou com ele em 1970
+    bool localMinute(uint16_t& m) const {
+        if (!_clock || !_clock->synced()) return false;
+        // 32 bits (vale até 2106): a divisão de 64 bits custaria flash
+        long t = (long)((uint32_t)_clock->now() % 86400UL) + (long)_cfg.tz * 60;
+        m = (uint16_t)(((t % 86400) + 86400) % 86400 / 60);
+        return true;
+    }
+
+    // Dentro da janela de horário (sempre, com ela desligada)
+    bool inHours() const {
+        if (!_r.window) return true;
+        uint16_t m;
+        if (!localMinute(m)) return false;
+        if (_r.winStart < _r.winEnd) return m >= _r.winStart && m < _r.winEnd;
+        return m >= _r.winStart || m < _r.winEnd;
+    }
     bool actuatorOn()  const { return _on; }
     uint8_t level()    const { return _level; }
     uint8_t angle()    const { return _on ? _angle : _r.angleOff; }
@@ -174,7 +203,7 @@ public:
         _pulsing = false;
         if (c.op == iot::OP_AUTO) {
             _manual = false;
-            if (hasRule() && _haveRule) _takeRule();
+            if (hasRule() && _ruleKnown()) _takeRule();
             _changed(PSTR("[atuador] %s"));
             _persist();
             return OK;
@@ -250,6 +279,7 @@ public:
 private:
     Config& _cfg;
     Logger& _log;
+    const Clock* _clock;
     IoTConfig _r;
     int8_t  _sensor;
     int8_t  _act;
@@ -285,6 +315,7 @@ private:
     bool    _servoOk;
     bool    _pulsing;
     bool    _haveRule;      // a regra já decidiu ao menos uma vez
+    bool    _open;          // dentro da janela de horário (último tick)
     bool    _ruleOn;
     uint8_t _ruleLevel;
     uint8_t _level;
@@ -332,6 +363,7 @@ private:
         _servoOk = false;
         _pulsing = false;
         _haveRule = false;
+        _open = true;           // o primeiro tick confere
         _ruleOn = false;
         _ruleLevel = 0;
         _level = 100;
@@ -477,21 +509,27 @@ private:
         }
     }
 
-    // Leva o atuador à última decisão da regra (modo automático). Não
-    // aciona a saída: quem chama decide (_drive ou _changed).
+    // Leva o atuador à última decisão da regra (modo automático); fora da
+    // janela de horário, desligado. Não aciona a saída: quem chama decide
+    // (_drive ou _changed).
     bool _takeRule() {
         uint8_t cap = capability();
-        bool changed = _ruleOn != _on;
+        bool want = _ruleOn && _open;
+        bool changed = want != _on;
         if (_proportional()) {
-            changed = changed || _ruleLevel != _level;
-            _level = _ruleLevel;
-        } else if (_ruleOn && !_on) {
+            uint8_t level = _open ? _ruleLevel : _r.dutyOff;
+            changed = changed || level != _level;
+            _level = level;
+        } else if (want && !_on) {
             if (cap == iot::C_POSITION) _angle = _r.angleOn;
             else if (cap == iot::C_LEVEL) _level = _r.dutyOn;
         }
-        _setOn(_ruleOn, millis());
+        _setOn(want, millis());
         return changed;
     }
+
+    // A regra tem o que dizer: já leu o sensor, ou está fora do horário
+    bool _ruleKnown() const { return _haveRule || !_open; }
 
     bool _proportional() const {
         return _r.linear && capability() == iot::C_LEVEL && sensorKind() != iot::K_DIGITAL;
@@ -901,6 +939,8 @@ private:
                                     iot::ACTUATORS[_act].slug, iot::CAP_NAMES[cap],
                                     _on ? "true" : "false",
                                     hasRule() && !_manual ? "auto" : "manual", actuatorText());
+        if (hasRule() && _r.window)
+            k += (size_t)snprintf(out + k, _left(n, k), ",\"hours\":%s", _open ? "true" : "false");
         if (cap == iot::C_LEVEL || cap == iot::C_COLOR)
             k += (size_t)snprintf(out + k, _left(n, k), ",\"level\":%u", _level);
         if (cap == iot::C_POSITION)

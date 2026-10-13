@@ -43,6 +43,10 @@ struct IoTConfig {
     bool     toggle        = false;  // digital: cada acionamento inverte o atuador
     bool     linear        = false;  // intensidade proporcional entre os limites
     int16_t  thresholdHi   = 0;
+    // Janela de horário (hora local): fora dela, o automático fica desligado
+    bool     window        = false;
+    uint16_t winStart      = 0;      // minuto do dia em que abre
+    uint16_t winEnd        = 0;      // minuto do dia em que fecha (antes do início: vira a meia-noite)
 };
 
 struct Config {
@@ -66,6 +70,7 @@ struct Config {
     char    mqtt_pass[64]             = {};
     char    dev_name[32]              = {};   // nome no painel e no Home Assistant; "" = padrão
     char    hostname[33]              = {};   // nome no DHCP do roteador; "" = o do core (ESP-xxxxxx)
+    int16_t tz                        = 0;    // fuso: minutos em relação ao UTC (hora local)
 
     IoTConfig iot;
 

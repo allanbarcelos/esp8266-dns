@@ -516,6 +516,9 @@ private:
             _input(PSTR("Hostname <span class='m'>(roteador; vale na proxima conexao)</span>"),
                    PSTR("hostname"), _cfg.hostname,
                    PSTR("maxlength='32' pattern='[A-Za-z0-9]([A-Za-z0-9\\-]*[A-Za-z0-9])?'"));
+            _input(PSTR("Fuso horario <span class='m'>(horas do UTC: -3, 0, 5:30)</span>"),
+                   PSTR("tz"), _tzText(_cfg.tz),
+                   PSTR("maxlength='6' pattern='[+\\-]?[0-9]{1,2}(:[0-5][0-9])?'"));
             _button(PSTR("Salvar"));
             _boxEnd();
         }
@@ -557,6 +560,11 @@ private:
         if (!_checkCSRF()) return;
         String name = _server.arg("name");
         String host = _server.arg("hostname");
+        int16_t tz = 0;
+        if (!parseTz(_server.arg("tz"), tz)) {
+            _errorPage(PSTR("Fuso invalido (de -12 a 14 horas, como -3 ou 5:30)"), PSTR("/"));
+            return;
+        }
         name.trim();
         host.trim();
         bool ok = name.length() < sizeof(_cfg.dev_name);
@@ -580,6 +588,7 @@ private:
         }
         strlcpy(_cfg.dev_name, name.c_str(), sizeof(_cfg.dev_name));
         strlcpy(_cfg.hostname, host.c_str(), sizeof(_cfg.hostname));
+        _cfg.tz = tz;
         if (!_store.save()) {
             _errorPage(PSTR("Falha ao salvar configuracao"), PSTR("/"));
             return;
@@ -613,6 +622,7 @@ private:
 
         _box(PSTR("Sistema"));
         _row(PSTR("Uptime"),  formatDuration(millis()));
+        _row(PSTR("Hora local"), _localTime());
         _row(PSTR("Reset"),   ESP.getResetReason());
         _row(PSTR("Causa"),   ESP.getResetInfo());
         _row(PSTR("Chip ID"), String(ESP.getChipId(), HEX));
@@ -910,6 +920,64 @@ private:
         _server.send_P(200, type, reinterpret_cast<PGM_P>(data), len);
     }
 
+    // Fuso em texto: "-3", "5:30", "0"
+    static String _tzText(int16_t tz) {
+        char b[8];
+        int a = tz < 0 ? -tz : tz;
+        if (a % 60) snprintf(b, sizeof(b), "%s%d:%02d", tz < 0 ? "-" : "", a / 60, a % 60);
+        else snprintf(b, sizeof(b), "%d", tz / 60);
+        return String(b);
+    }
+
+    // "HH:MM" de um minuto do dia
+    static String _hhmm(uint16_t m) {
+        char b[8];
+        snprintf(b, sizeof(b), "%02u:%02u", m / 60u, m % 60u);
+        return String(b);
+    }
+
+    String _localTime() const {
+        uint16_t m;
+        return _iot.localMinute(m) ? _hhmm(m) : String("relogio nao sincronizado");
+    }
+
+    // "HH:MM" (campo time) em minuto do dia
+    static bool parseHhmm(const String& s, uint16_t& out) {
+        const char* p = s.c_str();
+        if (s.length() != 5 || p[2] != ':') return false;
+        for (int i : {0, 1, 3, 4})
+            if (p[i] < '0' || p[i] > '9') return false;
+        int h = (p[0] - '0') * 10 + (p[1] - '0');
+        int m = (p[3] - '0') * 10 + (p[4] - '0');
+        if (h > 23 || m > 59) return false;
+        out = (uint16_t)(h * 60 + m);
+        return true;
+    }
+
+public:
+    // Fuso em horas, com sinal e minutos opcionais ("-3", "+5:30", "0");
+    // vazio é UTC. De -12 a +14 horas.
+    static bool parseTz(String s, int16_t& out) {
+        s.trim();
+        const char* p = s.c_str();
+        int sign = 1;
+        if (*p == '+' || *p == '-') sign = *p++ == '-' ? -1 : 1;
+        int h = 0, m = 0, digits = 0;
+        while (*p >= '0' && *p <= '9' && digits < 3) h = h * 10 + (*p++ - '0'), digits++;
+        if (*p == ':') {
+            p++;
+            if (p[0] < '0' || p[0] > '5' || p[1] < '0' || p[1] > '9') return false;
+            m = (p[0] - '0') * 10 + (p[1] - '0');
+            p += 2;
+        }
+        if (*p || (digits == 0 && s.length()) || digits > 2) return false;
+        int v = sign * (h * 60 + m);
+        if (v < -12 * 60 || v > 14 * 60) return false;
+        out = (int16_t)v;
+        return true;
+    }
+
+private:
     // "há quanto tempo" a partir de um millis(); "nunca" se não aconteceu
     static String _ago(bool happened, unsigned long at) {
         return happened ? formatDuration(millis() - at) + " atras" : String("nunca");
@@ -1067,6 +1135,15 @@ private:
         _s(buf);
     }
 
+    void _time(PGM_P label, PGM_P name, uint16_t minute) {
+        _labelOpen(label);
+        _p(PSTR("<input type='time' name='"));
+        _p(name);
+        _p(PSTR("' value='"));
+        _s(_hhmm(minute));
+        _p(PSTR("'></label>"));
+    }
+
     void _fieldsetOpen(PGM_P id, PGM_P legend) {
         _p(PSTR("<fieldset id='"));
         _p(id);
@@ -1166,7 +1243,9 @@ private:
             if (_iot.hasActuator()) {
                 _row(PSTR("Atuador"), _iot.actuatorText(), PSTR("na"));
                 if (_iot.hasRule())
-                    _row(PSTR("Modo"), _iot.manual() ? String("manual") : String("automatico"),
+                    _row(PSTR("Modo"), _iot.manual() ? String("manual")
+                                       : _iot.inHours() ? String("automatico")
+                                       : String("automatico, fora do horario"),
                          PSTR("nm"));
             }
             _boxEnd();
@@ -1244,6 +1323,14 @@ private:
         _divOpen(PSTR("rh"));
         _number(PSTR("Limite alto"), "threshold_hi", t.thresholdHi, -999, 9999);
         _p(PSTR("</div>"));
+        _p(PSTR("</div></div>"));
+        _divOpen(PSTR("rt"));
+        _switch(PSTR("window"), PSTR("So dentro de um horario (hora local)"), t.window);
+        _divOpen(PSTR("rw"));
+        _time(PSTR("Das"), PSTR("win_start"), t.winStart);
+        _time(PSTR("Ate"), PSTR("win_end"), t.winEnd);
+        _p(PSTR("<p class='m'>Fora do horario, o modo automatico deixa o atuador desligado; "
+                "um comando manual vale ate auto. Ajuste o fuso na pagina inicial.</p>"));
         _p(PSTR("</div></div><p class='m' id='rs'></p></fieldset>"));
 
         _switch(PSTR("notify"), PSTR("Enviar leituras e mudancas ao ntfy"), t.notify);
@@ -1397,6 +1484,19 @@ private:
                         _errorPage(PSTR("O limite alto precisa passar do limite"), PSTR("/iot"));
                         return;
                     }
+                }
+            }
+            t.window = t.rule && _flag("window");
+            if (t.window) {
+                String from = _server.arg("win_start");   // temporário no || conta um ramo a mais
+                String to = _server.arg("win_end");
+                if (!parseHhmm(from, t.winStart) || !parseHhmm(to, t.winEnd)) {
+                    _errorPage(PSTR("Horario invalido"), PSTR("/iot"));
+                    return;
+                }
+                if (t.winStart == t.winEnd) {
+                    _errorPage(PSTR("O horario precisa de inicio e fim diferentes"), PSTR("/iot"));
+                    return;
                 }
             }
         }

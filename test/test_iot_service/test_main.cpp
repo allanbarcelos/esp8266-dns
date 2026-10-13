@@ -955,6 +955,177 @@ void test_pulsos_na_janela_com_histerese() {
     TEST_ASSERT_EQUAL(255, mock::isrPin);
 }
 
+// ── Janela de horário ────────────────────────────────────────────────────────
+
+static time_t clockNow = 0;
+static time_t fakeClock() { return clockNow; }
+static const time_t DAY0 = 1704067200;   // 01/01/2024 00:00 UTC
+static void at(int h, int m) { clockNow = DAY0 + h * 3600 + m * 60; }
+
+void test_hora_local_e_janela() {
+    uint16_t m = 0;
+    IoTService none{cfg, logger};
+    TEST_ASSERT_FALSE(none.localMinute(m));
+
+    Clock clock{fakeClock};
+    IoTService iot{cfg, logger, &clock};
+    clockNow = 1000;                                   // 1970
+    TEST_ASSERT_FALSE(iot.localMinute(m));
+    TEST_ASSERT_TRUE(iot.inHours());                   // janela desligada
+
+    at(2, 30);
+    cfg.tz = -180;                                     // volta para o dia anterior
+    TEST_ASSERT_TRUE(iot.localMinute(m));
+    TEST_ASSERT_EQUAL(23 * 60 + 30, m);
+    cfg.tz = 330;
+    TEST_ASSERT_TRUE(iot.localMinute(m));
+    TEST_ASSERT_EQUAL(8 * 60, m);
+    at(22, 0);
+    cfg.tz = 14 * 60;                                  // passa para o dia seguinte
+    TEST_ASSERT_TRUE(iot.localMinute(m));
+    TEST_ASSERT_EQUAL(12 * 60, m);
+
+    cfg.tz = 0;
+    cfg.iot.window = true;
+    cfg.iot.winStart = 8 * 60;
+    cfg.iot.winEnd = 18 * 60;
+    iot.begin();
+    struct { int h, m; bool in; } day[] = {{7, 59, false}, {8, 0, true}, {17, 59, true}, {18, 0, false}};
+    for (auto& c : day) {
+        at(c.h, c.m);
+        TEST_ASSERT_EQUAL(c.in, iot.inHours());
+    }
+    cfg.iot.winStart = 22 * 60;                        // vira a meia-noite
+    cfg.iot.winEnd = 6 * 60;
+    iot.begin();
+    struct { int h, m; bool in; } night[] = {{21, 59, false}, {22, 0, true}, {23, 0, true},
+                                             {5, 59, true}, {6, 0, false}};
+    for (auto& c : night) {
+        at(c.h, c.m);
+        TEST_ASSERT_EQUAL(c.in, iot.inHours());
+    }
+    clockNow = 1000;
+    TEST_ASSERT_FALSE(iot.inHours());                  // relógio em 1970: fora
+}
+
+void test_regra_so_dentro_do_horario() {
+    sensor("pir", 2);
+    actuator("rele", 0);
+    cfg.iot.notify = true;
+    cfg.iot.window = true;
+    cfg.iot.winStart = 8 * 60;
+    cfg.iot.winEnd = 18 * 60;
+    Clock clock{fakeClock};
+    at(12, 0);
+    IoTService iot{cfg, logger, &clock};
+    iot.begin();
+    level(iot, 2, HIGH, 0);
+    TEST_ASSERT_TRUE(iot.actuatorOn());
+    TEST_ASSERT_TRUE(contains(json(iot), "\"hours\":true"));
+
+    at(18, 0);
+    iot.tick(1000);
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+    TEST_ASSERT_FALSE(iot.manual());
+    TEST_ASSERT_EQUAL_STRING("[atuador] desligado (fim do horario)", iot.message());
+    TEST_ASSERT_TRUE(contains(json(iot), "\"mode\":\"auto\",\"text\":\"desligado\",\"hours\":false"));
+    level(iot, 2, LOW, 2000);
+    level(iot, 2, HIGH, 3000);                         // a regra pede, o horário não deixa
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+
+    // Comando manual vale fora do horário; "auto" volta a desligar
+    iot.command("ligar", 4000);
+    iot.tick(5000);
+    TEST_ASSERT_TRUE(iot.actuatorOn());
+    iot.command("auto", 6000);
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+
+    at(8, 0);
+    iot.tick(7000);
+    TEST_ASSERT_TRUE(iot.actuatorOn());
+    TEST_ASSERT_EQUAL_STRING("[atuador] ligado (inicio do horario)", iot.message());
+
+    // Em manual, o horário não mexe
+    iot.command("desligar", 8000);
+    at(19, 0);
+    iot.tick(9000);
+    at(9, 0);
+    iot.tick(10000);
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+    TEST_ASSERT_TRUE(iot.manual());
+
+    // Sem a janela, o JSON não traz "hours"
+    cfg.iot.window = false;
+    iot.begin();
+    TEST_ASSERT_FALSE(contains(json(iot), "hours"));
+
+    // Só atuador: a janela não tem regra para cercar
+    cfg.iot.window = true;
+    cfg.iot.sensorPin = -1;
+    iot.begin();
+    iot.command("ligar", 0);
+    at(20, 0);
+    iot.tick(100);
+    TEST_ASSERT_TRUE(iot.actuatorOn());
+    TEST_ASSERT_FALSE(contains(json(iot), "hours"));
+}
+
+// Fora do horário, "auto" e o fim do pulso desligam mesmo sem leitura
+void test_fora_do_horario_sem_leitura() {
+    sensor("botao", 2);
+    actuator("rele", 0);
+    cfg.iot.window = true;
+    cfg.iot.winStart = 8 * 60;
+    cfg.iot.winEnd = 9 * 60;
+    Clock clock{fakeClock};
+    at(20, 0);
+    IoTService iot{cfg, logger, &clock};
+    iot.begin();
+    iot.tick(0);
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+    iot.command("ligar", 0);
+    TEST_ASSERT_TRUE(iot.actuatorOn());
+    iot.command("auto", 10);
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+    iot.command("pulso 1", 20);
+    iot.tick(1020);
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+    TEST_ASSERT_FALSE(iot.manual());
+}
+
+// Intensidade proporcional: fora do horário, a intensidade de desligado
+void test_proporcional_fora_do_horario() {
+    sensor("pulsos", 2);
+    actuator("ventilador", 0);
+    cfg.iot.linear = true;
+    cfg.iot.threshold = 0;
+    cfg.iot.thresholdHi = 10;
+    cfg.iot.dutyOn = 100;
+    cfg.iot.dutyOff = 20;
+    cfg.iot.window = true;
+    cfg.iot.winStart = 8 * 60;
+    cfg.iot.winEnd = 18 * 60;
+    Clock clock{fakeClock};
+    at(10, 0);
+    IoTService iot{cfg, logger, &clock};
+    iot.begin();
+    iot.tick(0);
+    for (int i = 0; i < 5; i++) IoTService::onPulse();
+    iot.tick(IoTService::PULSE_WINDOW_MS);
+    TEST_ASSERT_TRUE(iot.actuatorOn());
+    TEST_ASSERT_EQUAL(60, iot.level());
+
+    at(18, 30);
+    iot.tick(IoTService::PULSE_WINDOW_MS + 1);
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+    TEST_ASSERT_EQUAL(20, iot.level());
+    TEST_ASSERT_EQUAL(20 * 1023 / 100, mock::analogValue[0]);
+    at(9, 0);
+    iot.tick(IoTService::PULSE_WINDOW_MS + 2);
+    TEST_ASSERT_TRUE(iot.actuatorOn());
+    TEST_ASSERT_EQUAL(60, iot.level());
+}
+
 void test_ultrassom_distancia_e_falhas() {
     sensor("distancia", 2);
     actuator("rele", 0);
@@ -1194,6 +1365,10 @@ int main() {
     RUN_TEST(test_dht_pulso_de_inicio_sem_delay);
     RUN_TEST(test_ds18b20_conversao_e_erros);
     RUN_TEST(test_pulsos_na_janela_com_histerese);
+    RUN_TEST(test_hora_local_e_janela);
+    RUN_TEST(test_regra_so_dentro_do_horario);
+    RUN_TEST(test_fora_do_horario_sem_leitura);
+    RUN_TEST(test_proporcional_fora_do_horario);
     RUN_TEST(test_ultrassom_distancia_e_falhas);
     RUN_TEST(test_intensidade_proporcional);
     RUN_TEST(test_proporcional_sem_decimos_e_manual_numerico);

@@ -57,6 +57,8 @@ function f() {
     $('rn').hidden = d || !ru;
     $('rl').hidden = !(p == 2 && !d);
     $('rh').hidden = !ln;
+    $('rt').hidden = !ru;
+    $('rw').hidden = !V('window').checked;
     $('sh').textContent = SH[k] + P;
     $('ah').textContent = AH[p] + P;
     if (!ru) s = 'Sem regra: o atuador so obedece comandos.';
@@ -68,6 +70,8 @@ function f() {
     else if (ln) s = 'Intensidade proporcional de ' + t + ' a ' + V('threshold_hi').value + ' ' + u + '.';
     else s = 'Liga o ' + a + ' quando o valor ficar ' + (ab ? 'acima de ' : 'abaixo de ') + t + ' ' + u
         + ' e desliga ao voltar ' + (ab ? 'abaixo de ' : 'acima de ') + (ab ? t - m : t + m) + ' ' + u + '.';
+    if (ru && V('window').checked)
+        s += ' So entre ' + V('win_start').value + ' e ' + V('win_end').value + ' (hora local); fora disso, desligado.';
     $('rs').textContent = s;
 }
 document.querySelectorAll('form input,form select').forEach(function (e) {
@@ -84,7 +88,7 @@ function u(s) {
     if (a) {
         $('na').textContent = a.text;
         if (w = $('sw')) w.setAttribute('aria-checked', a.on);
-        if (w = $('nm')) w.textContent = a.mode == 'auto' ? 'automatico' : 'manual';
+        if (w = $('nm')) w.textContent = a.mode != 'auto' ? 'manual' : a.hours === false ? 'automatico, fora do horario' : 'automatico';
         if (w = $('au')) w.hidden = a.mode == 'auto';
         if (a.level != null && (w = $('lv'))) { w.value = a.level; $('lvo').value = a.level; }
         if (a.angle != null && (w = $('ag'))) { w.value = a.angle; $('ago').value = a.angle; }

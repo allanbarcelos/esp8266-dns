@@ -14,13 +14,15 @@ using Args = std::map<std::string, std::string>;
 
 static Logger logger;
 static Config cfg;
+static time_t webNow = 0;
+static time_t webTime() { return webNow; }
 
 struct Fixture {
     ConfigStore store{cfg, logger};
     WiFiService wifi{cfg, logger};
     OTAService  ota{logger, wifi};
-    IoTService  iot{cfg, logger};
-    Clock            clock;
+    Clock            clock{webTime};
+    IoTService  iot{cfg, logger, &clock};
     NtfyNotifier     ntfy{cfg, logger, clock, &iot};
     WiFiClient       mqttNet;
     MqttService      mqtt{cfg, logger, iot, mqttNet};
@@ -37,6 +39,7 @@ struct Fixture {
         return srv.request(HTTP_POST, path, a);
     }
     const std::string& out() { return srv.out; }
+    void f_iotTick() { iot.tick(millis()); }
 
     void enterConfigMode() {
         cfg.ssid = "";
@@ -57,6 +60,7 @@ void setUp() {
     cfg.webusr = "admin";
     cfg.webpss = "senha-forte";
     cfg.ssid   = "Rede";
+    webNow = 0;
 }
 void tearDown() {}
 
@@ -551,6 +555,91 @@ void test_aparelho_recusa_nome_ou_hostname_invalido() {
     f.srv.authOk = false;
     f.post("/device/save", {{"name", "x"}});
     TEST_ASSERT_EQUAL(401, f.srv.code);
+}
+
+void test_fuso_horario() {
+    struct { const char* in; bool ok; int tz; } cases[] = {
+        {"", true, 0}, {" 0 ", true, 0}, {"-3", true, -180}, {"+5:30", true, 330},
+        {"14", true, 840}, {"-12", true, -720}, {"-0:30", true, -30},
+        {"15", false, 0}, {"-13", false, 0}, {"-12:30", false, 0}, {"123", false, 0},
+        {"abc", false, 0}, {"-", false, 0}, {":30", false, 0}, {"1:6", false, 0},
+        {"1:60", false, 0}, {"1:5x", false, 0}, {"1:30x", false, 0}, {"3 h", false, 0},
+        {"1234", false, 0}, {"1:/0", false, 0}, {"1:5", false, 0},
+    };
+    for (auto& c : cases) {
+        int16_t tz = 99;
+        TEST_ASSERT_EQUAL_MESSAGE(c.ok, WebService::parseTz(c.in, tz), c.in);
+        if (c.ok) TEST_ASSERT_EQUAL_MESSAGE(c.tz, tz, c.in);
+    }
+
+    Fixture f;
+    f.post("/device/save", {{"name", ""}, {"hostname", ""}, {"tz", "-3"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL(-180, cfg.tz);
+    struct { int tz; const char* text; } shown[] = {{-180, "-3"}, {330, "5:30"}, {-90, "-1:30"}, {0, "0"}};
+    for (auto& s : shown) {
+        cfg.tz = (int16_t)s.tz;
+        f.get("/");
+        TEST_ASSERT_TRUE(contains(f.out(), (std::string("name='tz' value='") + s.text + "'").c_str()));
+    }
+    f.post("/device/save", {{"name", "x"}, {"hostname", ""}, {"tz", "25"}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Fuso invalido"));
+    TEST_ASSERT_EQUAL_STRING("", cfg.dev_name);
+}
+
+void test_hora_local_no_status() {
+    Fixture f;
+    webNow = 1000;
+    f.get("/status");
+    TEST_ASSERT_TRUE(contains(f.out(), "Hora local</span><b>relogio nao sincronizado"));
+    webNow = 1704067200 + 15 * 3600 + 7 * 60;          // 15:07 UTC
+    cfg.tz = -180;
+    f.get("/status");
+    TEST_ASSERT_TRUE(contains(f.out(), "Hora local</span><b>12:07"));
+}
+
+void test_iot_janela_de_horario() {
+    Fixture f;
+    Args a = {{"role", "sa"}, {"sensor", "pir"}, {"sensor_pin", "2"}, {"sensor_on", ""},
+              {"sensor_off", ""}, {"actuator", "rele"}, {"actuator_pin", "0"}, {"max_on", "0"},
+              {"rule", "1"}, {"window", "1"}, {"win_start", "22:00"}, {"win_end", "06:30"}};
+    f.post("/iot/save", a);
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(cfg.iot.window);
+    TEST_ASSERT_EQUAL(22 * 60, cfg.iot.winStart);
+    TEST_ASSERT_EQUAL(6 * 60 + 30, cfg.iot.winEnd);
+
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(), "id='window' name='window' value='1' checked>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='win_start' value='22:00'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='win_end' value='06:30'"));
+    // Relógio em 1970: fora do horário
+    TEST_ASSERT_TRUE(contains(f.out(), "<b id='nm'>automatico, fora do horario</b>"));
+    webNow = 1704067200 + 23 * 3600;
+    f.f_iotTick();
+    f.get("/iot");
+    TEST_ASSERT_TRUE(contains(f.out(), "<b id='nm'>automatico</b>"));
+
+    const char* bad[][2] = {{"24:00", "06:00"}, {"2200", "06:00"}, {"22:0a", "06:00"},
+                            {"22:60", "06:00"}, {"22:00", ""}, {"22-00", "06:00"}, {"2/:00", "06:00"},
+                            {"22:00", "6:000"}, {"07:00", "07:00"}};
+    for (auto& b : bad) {
+        Args x = a;
+        x["win_start"] = b[0];
+        x["win_end"] = b[1];
+        f.post("/iot/save", x);
+        TEST_ASSERT_EQUAL(400, f.srv.code);
+    }
+    TEST_ASSERT_TRUE(contains(f.out(), "inicio e fim diferentes"));
+
+    // Sem a regra, a janela não vale; os horários antigos ficam
+    a.erase("rule");
+    a["win_start"] = "lixo";
+    f.post("/iot/save", a);
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_FALSE(cfg.iot.window);
+    TEST_ASSERT_EQUAL(22 * 60, cfg.iot.winStart);
 }
 
 void test_cloudflare_save_ok() {
@@ -1656,6 +1745,9 @@ int main() {
     RUN_TEST(test_nome_no_titulo_e_no_topo);
     RUN_TEST(test_aparelho_salva_nome_e_hostname);
     RUN_TEST(test_aparelho_recusa_nome_ou_hostname_invalido);
+    RUN_TEST(test_fuso_horario);
+    RUN_TEST(test_hora_local_no_status);
+    RUN_TEST(test_iot_janela_de_horario);
     RUN_TEST(test_cloudflare_save_ok);
     RUN_TEST(test_cloudflare_save_token_vazio_mantem_atual);
     RUN_TEST(test_cloudflare_save_valor_longo_rejeitado_sem_alterar);

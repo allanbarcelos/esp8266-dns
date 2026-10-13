@@ -318,12 +318,20 @@ void test_roundtrip_completo() {
     strlcpy(config.cf_record,  "rec_aaa",          sizeof(config.cf_record));
     strlcpy(config.dev_name,   "Portão da garagem", sizeof(config.dev_name));
     strlcpy(config.hostname,   "portao",           sizeof(config.hostname));
+    config.tz = -180;
+    config.iot.window = true;
+    config.iot.winStart = 22 * 60;
+    config.iot.winEnd = 6 * 60;
 
     TEST_ASSERT_TRUE(store.save());
     config = Config{};
     TEST_ASSERT_TRUE(store.load());
     TEST_ASSERT_EQUAL_STRING("Portão da garagem", config.dev_name);
     TEST_ASSERT_EQUAL_STRING("portao",           config.hostname);
+    TEST_ASSERT_EQUAL(-180, config.tz);
+    TEST_ASSERT_TRUE(config.iot.window);
+    TEST_ASSERT_EQUAL(22 * 60, config.iot.winStart);
+    TEST_ASSERT_EQUAL(6 * 60, config.iot.winEnd);
 
     TEST_ASSERT_EQUAL_STRING("user",             config.webusr.c_str());
     TEST_ASSERT_EQUAL_STRING("secret123",        config.webpss.c_str());

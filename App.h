@@ -34,7 +34,7 @@ public:
     PublicIPResolver resolver{config, logger, clock};
     CloudflareDNS    dns{config, logger, wifi, clock};
     OTAService       ota{logger, wifi};
-    IoTService       iot{config, logger};
+    IoTService       iot{config, logger, &clock};
     NtfyNotifier     ntfy{config, logger, clock, &iot};
     WiFiClient       mqttNet;
     MqttService      mqtt{config, logger, iot, mqttNet};
