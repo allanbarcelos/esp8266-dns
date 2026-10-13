@@ -50,7 +50,8 @@ Cada serviço é um header com dependências injetadas por referência, composta
 3. Abra `http://192.168.4.1`, informe o Wi-Fi e **defina usuário e senha do painel** (mínimo de 8 caracteres).
 4. Depois do reinício, abra o IP local do ESP. Configure **Cloudflare**, **ntfy** e **IoT** conforme precisar; cada parte é opcional.
 
-> O painel exige senha. Até ela ser definida, toda página redireciona para `/password`.
+> O painel exige senha. Até ela ser definida, toda página redireciona para `/password`. Depois de 5 senhas (ou tokens da API) erradas seguidas, cada novo erro dobra uma espera de 2 s até 5 min.
+> Para usar de fora de casa, veja [Acesso remoto](docs/ACESSO-REMOTO.md): nunca abra uma porta do roteador para o aparelho.
 > Se o Wi-Fi configurado falhar no boot, o ESP sobe o AP **e** continua tentando a rede em segundo plano. Quando conecta, o AP é desligado.
 
 Reserve o IP do aparelho no roteador (reserva de DHCP): o painel e a API local são acessados pelo IP. A descoberta por nome via mDNS (`.local`) foi medida e não cabe (veja [Orçamento de flash](#-orçamento-de-flash)).
@@ -168,7 +169,7 @@ Defina um **tópico de comandos** na página ntfy (o botão gera um nome aleató
 - **Uma sessão TLS por vez.** O ESP-01 tem memória para uma única sessão TLS. Antes de publicar, ou quando o Cloudflare ou o OTA vão usar a rede, o fluxo fecha. Ao reabrir, ele pede `since=<último id>`, e o ntfy (que guarda as mensagens por 12 horas) entrega o que chegou no intervalo. Nada se perde; no pior caso, um comando espera alguns segundos.
 - **O certificado do ntfy.sh é validado** (ISRG Root X1, já embutida), no fluxo de comandos e no envio: um comando forjado no caminho acionaria equipamento de verdade, e o envio leva o token e, nos botões de ação, o tópico de comandos. Até o relógio sincronizar nada é enviado; a mensagem espera a próxima tentativa.
 - Comandos com mais de 10 minutos são ignorados. Conexões que falham tentam de novo de 5 s até 5 min. Um fluxo sem nada por 2 minutos é reaberto (o ntfy manda keepalive a cada 45 s).
-- Tópicos do ntfy.sh são públicos pelo nome: quem souber o tópico de comandos pode mandar comandos. Use um nome longo e aleatório, diferente do tópico de dados, ou um **token de acesso do ntfy** (usado no envio e na assinatura). Os botões de ação levam o tópico de comandos (e o token, se houver): mantenha o tópico de dados privado também.
+- Tópicos do ntfy.sh são públicos pelo nome: quem souber o tópico de comandos pode mandar comandos. Use um nome longo e aleatório (sem token, o painel recusa nomes com menos de 20 caracteres), diferente do tópico de dados, ou um **token de acesso do ntfy** (usado no envio e na assinatura). Os botões de ação levam o tópico de comandos (e o token, se houver): mantenha o tópico de dados privado também.
 
 ---
 
@@ -310,6 +311,8 @@ tools/static_check.sh     # cppcheck, como no CI
 test/fuzz/run.sh 30       # fuzzing, 30 s por alvo (requer clang)
 ./test/coverage.sh        # requer gcc (Linux) — o mesmo comando do CI
 ```
+
+Os testes rodam no computador, com o core simulado. Antes de marcar uma versão como estável, rode o roteiro de [teste no aparelho](docs/TESTE-HARDWARE.md) num ESP-01.
 
 ---
 

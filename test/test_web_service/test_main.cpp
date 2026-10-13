@@ -167,6 +167,7 @@ void test_autenticacao_basic() {
     for (const char* auth : bad) {
         f.srv.request(HTTP_GET, "/status", {}, {{"Authorization", auth}});
         TEST_ASSERT_EQUAL(401, f.srv.code);
+        f.srv.request(HTTP_GET, "/status", {}, {{"Authorization", ok}});   // zera a conta de erros
     }
 }
 
@@ -1177,6 +1178,7 @@ void test_api_exige_o_token() {
         TEST_ASSERT_EQUAL(401, f.srv.code);
         TEST_ASSERT_EQUAL_STRING("Bearer", f.srv.headers["WWW-Authenticate"].c_str());
         TEST_ASSERT_EQUAL_STRING("{\"error\":\"token invalido\"}", f.out().c_str());
+        api(f, HTTP_GET, "/api/state", (std::string("Bearer ") + TOKEN).c_str());              // zera a conta de erros
     }
     // O login do painel não vale na API
     TEST_ASSERT_TRUE(f.srv.authOk);
@@ -1279,7 +1281,8 @@ void test_ntfy_comandos_pagina_e_validacoes() {
 
     struct { const char* topic; const char* cmd; const char* token; const char* msg; } bad[] = {
         {"dados", "a b", "", "Topico de comandos invalido"},
-        {"mesmo", "mesmo", "", "precisa ser diferente"},
+        {"mesmo-topico-bem-longo", "mesmo-topico-bem-longo", "", "precisa ser diferente"},
+        {"dados", "cmd-curto-de-19-ch", "", "Topico de comandos curto"},
         {"dados", "cmd-x", "tk-1", "Token do ntfy invalido"},
         {"dados", "cmd-x", "tk_0123456789012345678901234567890123456789012345", "Token do ntfy invalido"},
     };
@@ -1384,6 +1387,136 @@ void test_status_mostra_a_senha_do_ap() {
     TEST_ASSERT_EQUAL(401, f.srv.code);
 }
 
+// ── Endurecimento para acesso remoto ─────────────────────────────────────────
+
+static const char* OK_BASIC  = "Basic YWRtaW46c2VuaGEtZm9ydGU=";   // admin:senha-forte
+static const char* BAD_BASIC = "Basic YWRtaW46ZXJyYWRh";           // admin:errada
+
+static int statusWith(Fixture& f, const char* auth) {
+    f.srv.request(HTTP_GET, "/status", {}, {{"Authorization", auth}});
+    return f.srv.code;
+}
+
+void test_login_erros_seguidos_esperam_cada_vez_mais() {
+    Fixture f;
+    f.srv.authOk = false;
+    for (int i = 0; i < WebService::FREE_LOGIN_FAILS; i++) TEST_ASSERT_EQUAL(401, statusWith(f, BAD_BASIC));
+    TEST_ASSERT_TRUE(logHas(logger, "Login: erros seguidos"));
+
+    // Na espera, nem a senha certa é testada
+    TEST_ASSERT_EQUAL(429, statusWith(f, OK_BASIC));
+    TEST_ASSERT_TRUE(contains(f.out(), "Muitas tentativas"));
+    setMillis(WebService::LOGIN_WAIT_MS - 1);
+    TEST_ASSERT_EQUAL(429, statusWith(f, BAD_BASIC));
+    setMillis(WebService::LOGIN_WAIT_MS);
+    TEST_ASSERT_EQUAL(401, statusWith(f, BAD_BASIC));          // 6º erro: espera dobra
+    unsigned long t = WebService::LOGIN_WAIT_MS;
+    setMillis(t + 2 * WebService::LOGIN_WAIT_MS - 1);
+    TEST_ASSERT_EQUAL(429, statusWith(f, OK_BASIC));
+    setMillis(t + 2 * WebService::LOGIN_WAIT_MS);
+    TEST_ASSERT_EQUAL(200, statusWith(f, OK_BASIC));           // acertar zera a conta
+
+    for (int i = 0; i < WebService::FREE_LOGIN_FAILS - 1; i++) TEST_ASSERT_EQUAL(401, statusWith(f, BAD_BASIC));
+    TEST_ASSERT_EQUAL(200, statusWith(f, OK_BASIC));
+}
+
+void test_login_espera_tem_teto_e_pedido_sem_credencial_nao_conta() {
+    Fixture f;
+    f.srv.authOk = false;
+    // O primeiro pedido do navegador vem sem credencial: não conta
+    for (int i = 0; i < 20; i++) TEST_ASSERT_EQUAL(401, statusWith(f, ""));
+    TEST_ASSERT_FALSE(logHas(logger, "Login: erros seguidos"));
+
+    unsigned long t = 0;
+    for (int i = 0; i < 260; i++) {                           // até o contador parar em 255
+        statusWith(f, BAD_BASIC);
+        t += WebService::LOGIN_WAIT_MAX_MS;                       // sempre depois da espera
+        setMillis(t);
+    }
+    statusWith(f, BAD_BASIC);
+    setMillis(t + WebService::LOGIN_WAIT_MAX_MS - 1);
+    TEST_ASSERT_EQUAL(429, statusWith(f, OK_BASIC));
+    setMillis(t + WebService::LOGIN_WAIT_MAX_MS);
+    TEST_ASSERT_EQUAL(200, statusWith(f, OK_BASIC));           // nunca mais que 5 min
+}
+
+void test_token_errado_da_api_conta_como_erro() {
+    strlcpy(cfg.api_token, TOKEN, sizeof(cfg.api_token));
+    actuatorCfg("rele", 0);
+    Fixture f;
+    f.iot.begin();
+    for (int i = 0; i < WebService::FREE_LOGIN_FAILS; i++) {
+        api(f, HTTP_GET, "/api/state", "Bearer ffffffffffffffffffffffffffffffff");
+        TEST_ASSERT_EQUAL(401, f.srv.code);
+    }
+    api(f, HTTP_GET, "/api/state", (std::string("Bearer ") + TOKEN).c_str());
+    TEST_ASSERT_EQUAL(429, f.srv.code);
+    setMillis(WebService::LOGIN_WAIT_MS);
+    api(f, HTTP_GET, "/api/state", (std::string("Bearer ") + TOKEN).c_str());
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+}
+
+void test_ntfy_topico_de_comandos_curto_sem_token() {
+    Fixture f;
+    std::string shortTopic(WebService::MIN_CMD_TOPIC - 1, 'c');
+    std::string longTopic(WebService::MIN_CMD_TOPIC, 'c');
+    f.post("/ntfy/save", {{"topic", "dados"}, {"cmd", shortTopic}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Topico de comandos curto"));
+
+    f.post("/ntfy/save", {{"topic", "dados"}, {"cmd", longTopic}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+
+    // Com token (novo ou já salvo), o curto vale
+    f.post("/ntfy/save", {{"topic", "dados"}, {"cmd", shortTopic}, {"token", "tk_abc"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    f.post("/ntfy/save", {{"topic", "dados"}, {"cmd", shortTopic}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    // Apagar o token e manter o curto, não
+    f.post("/ntfy/save", {{"topic", "dados"}, {"cmd", shortTopic}, {"token_clear", "1"}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("tk_abc", cfg.ntfy_token);
+}
+
+void test_ntfy_avisa_topico_curto_ja_salvo() {
+    Fixture f;
+    strlcpy(cfg.ntfy_cmd, "cmd-x", sizeof(cfg.ntfy_cmd));       // de antes da regra
+    f.get("/ntfy");
+    TEST_ASSERT_TRUE(contains(f.out(), "Topico de comandos curto e sem token"));
+    strlcpy(cfg.ntfy_token, "tk_abc", sizeof(cfg.ntfy_token));
+    f.get("/ntfy");
+    TEST_ASSERT_FALSE(contains(f.out(), "curto e sem token"));
+    cfg.ntfy_token[0] = '\0';
+    strlcpy(cfg.ntfy_cmd, std::string(WebService::MIN_CMD_TOPIC, 'c').c_str(), sizeof(cfg.ntfy_cmd));
+    f.get("/ntfy");
+    TEST_ASSERT_FALSE(contains(f.out(), "curto e sem token"));
+}
+
+void test_cabecalhos_de_seguranca() {
+    strlcpy(cfg.api_token, TOKEN, sizeof(cfg.api_token));
+    actuatorCfg("rele", 0);
+    Fixture f;
+    f.iot.begin();
+    f.get("/status");
+    TEST_ASSERT_EQUAL_STRING("no-store", f.srv.headers["Cache-Control"].c_str());
+    TEST_ASSERT_EQUAL_STRING("DENY", f.srv.headers["X-Frame-Options"].c_str());
+    TEST_ASSERT_EQUAL_STRING("nosniff", f.srv.headers["X-Content-Type-Options"].c_str());
+    api(f, HTTP_GET, "/api/state", (std::string("Bearer ") + TOKEN).c_str());
+    TEST_ASSERT_EQUAL_STRING("DENY", f.srv.headers["X-Frame-Options"].c_str());
+    TEST_ASSERT_EQUAL_STRING("no-store", f.srv.headers["Cache-Control"].c_str());
+}
+
+void test_log_diz_de_onde_veio_o_comando() {
+    strlcpy(cfg.api_token, TOKEN, sizeof(cfg.api_token));
+    actuatorCfg("rele", 0);
+    Fixture f;
+    f.iot.begin();
+    f.post("/iot/cmd", {{"cmd", "ligar"}});
+    TEST_ASSERT_TRUE(logHas(logger, "Painel: comando \"ligar\""));
+    api(f, HTTP_POST, "/api/cmd", (std::string("Bearer ") + TOKEN).c_str(), {{"cmd", "desligar"}});
+    TEST_ASSERT_TRUE(logHas(logger, "API: comando \"desligar\""));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_escape);
@@ -1460,5 +1593,12 @@ int main() {
     RUN_TEST(test_mqtt_save);
     RUN_TEST(test_mqtt_save_validacoes);
     RUN_TEST(test_status_mostra_a_senha_do_ap);
+    RUN_TEST(test_login_erros_seguidos_esperam_cada_vez_mais);
+    RUN_TEST(test_login_espera_tem_teto_e_pedido_sem_credencial_nao_conta);
+    RUN_TEST(test_token_errado_da_api_conta_como_erro);
+    RUN_TEST(test_ntfy_topico_de_comandos_curto_sem_token);
+    RUN_TEST(test_ntfy_avisa_topico_curto_ja_salvo);
+    RUN_TEST(test_cabecalhos_de_seguranca);
+    RUN_TEST(test_log_diz_de_onde_veio_o_comando);
     return UNITY_END();
 }

@@ -50,7 +50,8 @@ Each service is a header with dependencies injected by reference, composed in la
 3. Open `http://192.168.4.1`, enter the Wi-Fi credentials and **set the panel user and password** (at least 8 characters).
 4. After the reboot, open the ESP's local IP. Configure **Cloudflare**, **ntfy** and **IoT** as needed; each part is optional.
 
-> The panel requires a password. Until one is set, every page redirects to `/password`.
+> The panel requires a password. Until one is set, every page redirects to `/password`. After 5 wrong passwords (or API tokens) in a row, each new mistake doubles a wait from 2 s up to 5 min.
+> To use it away from home, see [Remote access](docs/ACESSO-REMOTO.md) (in Portuguese): never forward a router port to the device.
 > If the configured Wi-Fi fails at boot, the ESP brings up the AP **and** keeps trying the network in the background. Once it connects, the AP is turned off.
 
 Reserve the device's IP in your router (DHCP reservation): the panel and the local API are reached by IP. Name discovery over mDNS (`.local`) was measured and does not fit (see [Flash budget](#-flash-budget)).
@@ -168,7 +169,7 @@ Set a **command topic** on the ntfy page (the button generates a random name). T
 - **One TLS session at a time.** The ESP-01 has memory for a single TLS session. Before publishing, or when Cloudflare or the OTA is about to use the network, the stream closes. On reopening it asks for `since=<last id>`, and ntfy (which keeps messages for 12 hours) delivers whatever arrived in between. Nothing is lost; at worst a command waits a few seconds.
 - **The ntfy.sh certificate is validated** (ISRG Root X1, already embedded), on the command stream and when publishing: a command forged on the path would switch real equipment, and a publish carries the token and, in the action buttons, the command topic. Until the clock syncs nothing is published; the message waits for the next attempt.
 - Commands older than 10 minutes are ignored. Failed connections retry from 5 s up to 5 min. A stream silent for 2 minutes is reopened (ntfy sends a keepalive every 45 s).
-- ntfy.sh topics are public by name: whoever knows the command topic can send commands. Use a long random name, different from the data topic, or an **ntfy access token** (used for both publishing and subscribing). The action buttons carry the command topic (and the token, if any), so keep the data topic private too.
+- ntfy.sh topics are public by name: whoever knows the command topic can send commands. Use a long random name (without a token, the panel refuses names shorter than 20 characters), different from the data topic, or an **ntfy access token** (used for both publishing and subscribing). The action buttons carry the command topic (and the token, if any), so keep the data topic private too.
 
 ---
 
@@ -310,6 +311,8 @@ tools/static_check.sh     # cppcheck, as in CI
 test/fuzz/run.sh 30       # fuzzing, 30 s per target (requires clang)
 ./test/coverage.sh        # requires gcc (Linux) — same command as CI
 ```
+
+Tests run on the computer, with the core simulated. Before calling a version stable, run the [on-device checklist](docs/TESTE-HARDWARE.md) (in Portuguese) on an ESP-01.
 
 ---
 

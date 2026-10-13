@@ -48,7 +48,11 @@ static const char _HTML_FOOT_B[] PROGMEM = "</footer></body></html>";
 
 class WebService {
 public:
-    static constexpr size_t STATE_JSON_LEN = 384;
+    static constexpr size_t        STATE_JSON_LEN    = 384;
+    static constexpr size_t        MIN_CMD_TOPIC     = 20;   // "Gerar" cria 28
+    static constexpr uint8_t       FREE_LOGIN_FAILS  = 5;
+    static constexpr unsigned long LOGIN_WAIT_MS     = 2000UL;
+    static constexpr unsigned long LOGIN_WAIT_MAX_MS = 300000UL;
 
     WebService(Config& cfg, Logger& log, ConfigStore& store,
                WiFiService& wifi, OTAService& ota, IoTService& iot,
@@ -178,6 +182,8 @@ private:
     IoTService&      _iot;
     NtfyNotifier*    _ntfy;
     MqttService*     _mqtt;
+    uint8_t          _loginFails = 0;
+    unsigned long    _loginWaitUntil = 0;
 
     char _csrfToken[17]; // 16 hex + null
 
@@ -199,14 +205,40 @@ private:
             _server.send(302, "text/plain", "");
             return false;
         }
+        // cppcheck-suppress knownConditionTrueFalse ; o contador muda entre requisições
+        if (_loginBlocked()) return false;
         // Só Basic: o authenticate() do core traz junto o Digest (~2,5 KB de
         // flash), que o navegador só usaria se o aparelho pedisse
         if (!_authIs("Basic ", base64::encode(_cfg.webusr + ':' + _cfg.webpss).c_str())) {
+            _loginFailed();
             _server.sendHeader("WWW-Authenticate", "Basic realm=\"ESP8266\"");
             _server.send(401, "text/plain", "");
             return false;
         }
+        _loginFails = 0;
         return true;
+    }
+
+    // Senha ou token errados: os primeiros erros passam; depois, cada um
+    // dobra a espera (2 s até 5 min), e nesse tempo nada é testado (429).
+    // Acertar zera a conta. A conta é do aparelho, não por endereço: não há
+    // memória para uma tabela, e de fora de casa o painel fica atrás de um
+    // túnel com login próprio (docs/ACESSO-REMOTO.md).
+    bool _loginBlocked() {
+        if (_loginFails < FREE_LOGIN_FAILS || (long)(millis() - _loginWaitUntil) >= 0) return false;
+        _server.send(429, "text/plain", "Muitas tentativas; aguarde");
+        return true;
+    }
+
+    void _loginFailed() {
+        // O primeiro pedido do navegador vem sem credencial: não é erro
+        if (_server.header("Authorization").length() == 0) return;
+        if (_loginFails < 255) _loginFails++;
+        if (_loginFails < FREE_LOGIN_FAILS) return;
+        uint8_t doubling = _loginFails - FREE_LOGIN_FAILS;
+        unsigned long wait = LOGIN_WAIT_MS << (doubling < 8 ? doubling : 8);
+        _loginWaitUntil = millis() + (wait < LOGIN_WAIT_MAX_MS ? wait : LOGIN_WAIT_MAX_MS);
+        if (_loginFails == FREE_LOGIN_FAILS) _log.log(PSTR("Login: erros seguidos, espera crescente"));
     }
 
     bool _checkCSRF() {
@@ -219,7 +251,16 @@ private:
 
     // ── Helpers HTML ──────────────────────────────────────────────────────────
 
+    // Páginas e API: nada em cache (Status mostra a senha do AP) e nada em
+    // moldura de outro site (clickjacking)
+    void _noStore() {
+        _server.sendHeader("Cache-Control", "no-store");
+        _server.sendHeader("X-Frame-Options", "DENY");
+        _server.sendHeader("X-Content-Type-Options", "nosniff");
+    }
+
     void _pageBegin(int refreshSec = 0, int code = 200) {
+        _noStore();
         _server.setContentLength(CONTENT_LENGTH_UNKNOWN);
         _server.send(code, "text/html", "");
         _p(_HTML_HEAD_A);
@@ -632,6 +673,9 @@ private:
             _alert(PSTR("success"), String("Topico: ") + _cfg.ntfy_topic);
         else
             _alertP(PSTR("warning"), PSTR("Topico nao configurado - notificacoes desativadas"));
+        if (_cfg.ntfy_cmd[0] && strlen(_cfg.ntfy_cmd) < MIN_CMD_TOPIC && !_cfg.ntfy_token[0])
+            _alertP(PSTR("warning"), PSTR("Topico de comandos curto e sem token: quem adivinhar "
+                                          "o nome comanda o aparelho"));
         if (_ntfy) {
             _box(PSTR("Comandos pelo ntfy"));
             _row(PSTR("Situacao"), _ntfy->commandStatus());
@@ -677,6 +721,14 @@ private:
         }
         if (cmd.length() > 0 && !NtfyNotifier::isValidTopic(cmd)) {
             _errorPage(PSTR("Topico de comandos invalido (use letras, numeros, _ ou -)"),
+                       PSTR("/ntfy"));
+            return;
+        }
+        // Tópicos do ntfy.sh são públicos pelo nome: sem token, o de comandos
+        // precisa ser longo o bastante para não ser adivinhado
+        bool hasToken = token.length() > 0 || (_cfg.ntfy_token[0] && !_flag("token_clear"));
+        if (cmd.length() > 0 && cmd.length() < MIN_CMD_TOPIC && !hasToken) {
+            _errorPage(PSTR("Topico de comandos curto: use Gerar nome aleatorio ou um token"),
                        PSTR("/ntfy"));
             return;
         }
@@ -1302,7 +1354,7 @@ private:
 
     // Estado em JSON, ou o erro do comando
     void _sendState(uint8_t result) {
-        _server.sendHeader("Cache-Control", "no-store");
+        _noStore();
         if (result != IoTService::OK) {
             const char* msg = result == IoTService::INVALID ? "comando invalido"
                             : result == IoTService::UNSUPPORTED ? "comando nao vale para este atuador"
@@ -1325,6 +1377,7 @@ private:
         if (!_guard()) return;
         if (!_checkCSRF()) return;
         String cmd = _server.arg("cmd");
+        _log.log(PSTR("Painel: comando \"%.32s\""), cmd.c_str());
         _sendState(_iot.command(cmd.c_str(), millis()));
     }
 
@@ -1354,16 +1407,20 @@ private:
 
     // A API só existe com sensor ou atuador configurado
     bool _apiGuard() {
-        _server.sendHeader("Cache-Control", "no-store");
+        _noStore();
         if (!_iot.hasSensor() && !_iot.hasActuator()) {
             _jsonError(404, "nenhum sensor ou atuador configurado");
             return false;
         }
+        // cppcheck-suppress knownConditionTrueFalse ; o contador muda entre requisições
+        if (_loginBlocked()) return false;
         if (!_bearerOk()) {
+            _loginFailed();
             _server.sendHeader("WWW-Authenticate", "Bearer");
             _jsonError(401, "token invalido");
             return false;
         }
+        _loginFails = 0;
         return true;
     }
 
@@ -1377,6 +1434,7 @@ private:
         if (!_apiGuard()) return;
         String cmd = _server.arg("cmd");
         if (cmd.length() == 0) cmd = _server.arg("plain");
+        _log.log(PSTR("API: comando \"%.32s\""), cmd.c_str());
         _sendState(_iot.command(cmd.c_str(), millis()));
     }
 
