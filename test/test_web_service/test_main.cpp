@@ -124,8 +124,8 @@ void test_autenticacao_obrigatoria() {
     const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/password", "/update", "/iot"};
     for (const char* p : paths) {
         f.get(p);
-        TEST_ASSERT_TRUE(f.srv.authRequested);
         TEST_ASSERT_EQUAL(401, f.srv.code);
+        TEST_ASSERT_EQUAL_STRING("Basic realm=\"ESP8266\"", f.srv.headers["WWW-Authenticate"].c_str());
     }
     const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/password/save",
                            "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token", "/iot/clear"};
@@ -133,8 +133,38 @@ void test_autenticacao_obrigatoria() {
         f.post(p);
         TEST_ASSERT_EQUAL(401, f.srv.code);
     }
-    TEST_ASSERT_EQUAL_STRING("admin",       f.srv.lastAuthUser.c_str());
-    TEST_ASSERT_EQUAL_STRING("senha-forte", f.srv.lastAuthPass.c_str());
+}
+
+// Só Basic, com usuário e senha do painel, comparados por inteiro
+void test_autenticacao_basic() {
+    Fixture f;
+    f.get("/status");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+
+    f.srv.basicPass = "senha-errada";
+    f.get("/status");
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    f.srv.basicPass = "senha-forte";
+    f.srv.basicUser = "outro";
+    f.get("/status");
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+
+    // admin:senha-forte
+    const char* ok = "Basic YWRtaW46c2VuaGEtZm9ydGU=";
+    const char* bad[] = {
+        "Basic YWRtaW46c2VuaGEtZm9ydGU",              // cortado
+        "Basic YWRtaW46c2VuaGEtZm9ydGU==",            // sobrando
+        "basic YWRtaW46c2VuaGEtZm9ydGU=",             // outro esquema
+        "Digest username=\"admin\", realm=\"ESP8266\"",
+        "Bearer YWRtaW46c2VuaGEtZm9ydGU=",
+        "",
+    };
+    f.srv.request(HTTP_GET, "/status", {}, {{"Authorization", ok}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    for (const char* auth : bad) {
+        f.srv.request(HTTP_GET, "/status", {}, {{"Authorization", auth}});
+        TEST_ASSERT_EQUAL(401, f.srv.code);
+    }
 }
 
 void test_csrf_invalido_rejeitado_em_todos_os_posts() {
@@ -1266,6 +1296,7 @@ int main() {
     RUN_TEST(test_tick_atende_clientes);
     RUN_TEST(test_sem_senha_redireciona_para_definir_senha);
     RUN_TEST(test_autenticacao_obrigatoria);
+    RUN_TEST(test_autenticacao_basic);
     RUN_TEST(test_csrf_invalido_rejeitado_em_todos_os_posts);
     RUN_TEST(test_root_modo_estacao);
     RUN_TEST(test_root_com_ip_e_ultima_atualizacao);

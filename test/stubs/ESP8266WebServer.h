@@ -3,6 +3,7 @@
 
 #pragma once
 #include "Arduino.h"
+#include "base64.h"
 #include <functional>
 #include <map>
 #include <string>
@@ -41,22 +42,21 @@ public:
     void sendContent_P(const char* s)   { _chunk(s); }
     void sendHeader(const char* k, const String& v) { headers[k] = v._s; }
 
-    bool authenticate(const char* u, const char* p) {
-        lastAuthUser = u; lastAuthPass = p;
-        return authOk;
-    }
-    void requestAuthentication() { authRequested = true; code = 401; }
-
     bool   hasArg(const String& k) { return args.count(k._s) > 0; }
     String arg(const String& k)    { auto it = args.find(k._s); return it == args.end() ? String() : String(it->second); }
 
     // Como no core: só os cabeçalhos pedidos em collectHeaders ficam disponíveis
     template <typename... Keys>
     void collectHeaders(const Keys&... keys) { collected = {keys...}; }
+    // Sem Authorization explícito, o navegador manda o login do painel
+    // (basicUser/basicPass) se authOk
     String header(const String& k) {
         if (std::find(collected.begin(), collected.end(), k._s) == collected.end()) return String();
         auto it = reqHeaders.find(k._s);
-        return it == reqHeaders.end() ? String() : String(it->second);
+        if (it != reqHeaders.end()) return String(it->second.c_str());
+        if (k._s == "Authorization" && authOk)
+            return String("Basic ") + base64::encode(String((basicUser + ":" + basicPass).c_str()));
+        return String();
     }
 
     // ── Controle dos testes ──────────────────────────────────────────────────
@@ -64,7 +64,7 @@ public:
                  std::map<std::string, std::string> a = {},
                  std::map<std::string, std::string> h = {}) {
         out.clear(); headers.clear(); code = 0; contentType.clear();
-        authRequested = false; contentLength = 0; ended = false;
+        contentLength = 0; ended = false;
         args = std::move(a);
         reqHeaders = std::move(h);
         auto it = routes.find({path, method});
@@ -77,16 +77,16 @@ public:
     bool started     = false;
     int  handleCalls = 0;
     bool authOk      = true;
+    std::string basicUser = "admin", basicPass = "senha-forte";
 
     std::map<std::pair<std::string, int>, Handler> routes;
     std::map<std::string, std::string>             args;
     std::map<std::string, std::string>             headers;
     std::map<std::string, std::string>             reqHeaders;
     std::vector<std::string>                       collected;
-    std::string out, contentType, lastAuthUser, lastAuthPass;
+    std::string out, contentType;
     int    code          = 0;
     size_t contentLength = 0;
-    bool   authRequested = false;
     bool   ended         = false;
 
 private:

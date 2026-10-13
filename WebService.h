@@ -4,6 +4,7 @@
 #pragma once
 #include <ESP8266WebServer.h>
 #include <LittleFS.h>
+#include <base64.h>
 #include "Config.h"
 #include "Logger.h"
 #include "Version.h"
@@ -194,8 +195,11 @@ private:
             _server.send(302, "text/plain", "");
             return false;
         }
-        if (!_server.authenticate(_cfg.webusr.c_str(), _cfg.webpss.c_str())) {
-            _server.requestAuthentication();
+        // Só Basic: o authenticate() do core traz junto o Digest (~2,5 KB de
+        // flash), que o navegador só usaria se o aparelho pedisse
+        if (!_authIs("Basic ", base64::encode(_cfg.webusr + ':' + _cfg.webpss).c_str())) {
+            _server.sendHeader("WWW-Authenticate", "Basic realm=\"ESP8266\"");
+            _server.send(401, "text/plain", "");
             return false;
         }
         return true;
@@ -1268,16 +1272,19 @@ private:
             snprintf(_cfg.api_token + i * 8, 9, "%08lx", (unsigned long)ESP.random());
     }
 
-    // Comparação em tempo constante: o tempo da resposta não revela o prefixo
-    bool _bearerOk() {
+    // Authorization = esquema + segredo. Comparação em tempo constante: o
+    // tempo da resposta não revela o prefixo.
+    bool _authIs(const char* scheme, const char* secret) {
         String auth = _server.header("Authorization");
-        size_t n = strlen(_cfg.api_token);
-        if (n == 0 || auth.length() != n + 7 || strncmp(auth.c_str(), "Bearer ", 7) != 0)
+        size_t s = strlen(scheme), n = strlen(secret);
+        if (n == 0 || auth.length() != s + n || strncmp(auth.c_str(), scheme, s) != 0)
             return false;
         uint8_t diff = 0;
-        for (size_t i = 0; i < n; i++) diff |= (uint8_t)(auth.c_str()[7 + i] ^ _cfg.api_token[i]);
+        for (size_t i = 0; i < n; i++) diff |= (uint8_t)(auth.c_str()[s + i] ^ secret[i]);
         return diff == 0;
     }
+
+    bool _bearerOk() { return _authIs("Bearer ", _cfg.api_token); }
 
     // A API só existe com sensor ou atuador configurado
     bool _apiGuard() {
