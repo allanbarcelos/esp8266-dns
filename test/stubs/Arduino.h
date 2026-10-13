@@ -180,6 +180,7 @@ public:
     std::string _s;
 
     String() {}
+    String(const String&) = default;
     String(const char* s)          : _s(s ? s : "") {}
     String(const std::string& s)   : _s(s) {}
     String(char c)                 { _s += c; }

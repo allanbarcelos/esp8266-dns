@@ -155,8 +155,8 @@ public:
     uint8_t angle()    const { return _on ? _angle : _r.angleOff; }
     uint32_t color()   const { return _rgb; }
 
-    uint8_t sensorKind() const { return _sensor >= 0 ? iot::SENSORS[_sensor].kind : iot::K_NONE; }
-    uint8_t capability() const { return _act >= 0 ? iot::ACTUATORS[_act].cap : iot::C_NONE; }
+    uint8_t sensorKind() const { return _sensor >= 0 ? iot::SENSORS[_sensor].kind : (uint8_t)iot::K_NONE; }
+    uint8_t capability() const { return _act >= 0 ? iot::ACTUATORS[_act].cap : (uint8_t)iot::C_NONE; }
     const iot::SensorDef*   sensorDef()   const { return _sensor >= 0 ? &iot::SENSORS[_sensor] : nullptr; }
     const iot::ActuatorDef* actuatorDef() const { return _act >= 0 ? &iot::ACTUATORS[_act] : nullptr; }
 
