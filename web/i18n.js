@@ -60,6 +60,54 @@ function IX(s) {
     });
 }
 
+// QR code (SVG) of an ASCII text of up to 104 characters: version 5-L
+// (37x37, one block of 108 data and 26 correction bytes), byte mode, mask 0.
+// One fixed size keeps it short; any reader takes any mask.
+function QR(s) {
+    var N = 37, m = [], f = [], d = [], b = [], ex = [], lg = [], G = [1], i, j, x, r, c, p = '';
+    function set(r, c, v) { m[r * N + c] = v; f[r * N + c] = 1; }
+    function put(v, n) { while (n--) b.push(v >> n & 1); }
+    function mul(a, y) { return a && y ? ex[(lg[a] + lg[y]) % 255] : 0; }
+    function ring(r, c) { return Math.max(Math.abs(r), Math.abs(c)); }
+    for (i = 0, x = 1; i < 255; i++, x = x << 1 ^ (x & 128 ? 285 : 0)) { ex[i] = x; lg[x] = i; }
+    for (i = 0; i < 26; i++) for (G.push(0), j = i + 1; j > 0; j--) G[j] ^= mul(G[j - 1], ex[i]);
+    put(4, 4); put(s.length, 8);
+    for (i = 0; i < s.length; i++) put(s.charCodeAt(i), 8);
+    put(0, 4);
+    while (b.length & 7) b.push(0);
+    for (i = 0; i < b.length; i += 8) d.push(parseInt(b.slice(i, i + 8).join(''), 2));
+    for (i = 0; d.length < 108; i++) d.push(i & 1 ? 17 : 236);
+    x = d.concat(G.slice(1).fill(0));
+    for (i = 0; i < 108; i++) for (r = x[i], j = 0; j < 27; j++) x[i + j] ^= mul(G[j], r);
+    d = d.concat(x.slice(108));
+    // Finders with their white border (corners), timing, alignment, format (L, mask 0)
+    [[0, 0], [0, N - 7], [N - 7, 0]].forEach(function (o) {
+        for (r = -1; r < 8; r++) for (c = -1; c < 8; c++) {
+            x = ring(r - 3, c - 3);
+            if (o[0] + r >= 0 && o[0] + r < N && o[1] + c >= 0 && o[1] + c < N) set(o[0] + r, o[1] + c, x != 2 && x != 4 ? 1 : 0);
+        }
+    });
+    for (i = 8; i < N - 8; i++) { set(6, i, i & 1 ^ 1); set(i, 6, i & 1 ^ 1); }
+    for (r = -2; r < 3; r++) for (c = -2; c < 3; c++) set(30 + r, 30 + c, ring(r, c) != 1 ? 1 : 0);
+    for (i = 0; i < 15; i++) {
+        x = 30660 >> i & 1;
+        set(i < 6 ? i : i < 8 ? i + 1 : 8, i < 8 ? 8 : i < 9 ? 7 : 14 - i, x);
+        set(i < 8 ? 8 : N - 15 + i, i < 8 ? N - 1 - i : 8, x);
+    }
+    set(N - 8, 8, 1);
+    // Data in two-column zigzags from the bottom right, then mask 0
+    for (i = 0, c = N - 1; c > 0; c -= 2) {
+        if (c == 6) c = 5;
+        for (j = 0; j < N * 2; j++) {
+            x = c - (j & 1);
+            r = (c + 1) & 2 ? j >> 1 : N - 1 - (j >> 1);
+            if (!f[r * N + x]) m[r * N + x] = (i < 1072 && d[i >> 3] >> 7 - (i++ & 7) & 1) ^ ((r + x) & 1 ^ 1);
+        }
+    }
+    for (r = 0; r < N; r++) for (c = 0; c < N; c++) if (m[r * N + c]) p += 'M' + c + ' ' + r + 'h1v1h-1z';
+    return '<svg class=q viewBox="-4 -4 45 45"><path d="M-4-4h45v45h-45z" fill="#fff"/><path d="' + p + '"/></svg>';
+}
+
 (function () {
     var w = document.createTreeWalker(document.body, 4), n, a = ['placeholder', 'title', 'aria-label', 'alt', 'label'];
     while ((n = w.nextNode())) if (n.nodeValue.indexOf('`') >= 0) n.nodeValue = IX(n.nodeValue);
@@ -83,6 +131,13 @@ function IX(s) {
             }
             img.src = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(d)], { type: 'image/svg+xml' }));
         }).catch(function () {}).then(function () { img.style.visibility = ''; });
+    });
+    // The authenticator key (/mfa) also as a QR code for the app's camera,
+    // named after the device
+    document.querySelectorAll('.k').forEach(function (k) {
+        var l = encodeURIComponent(document.title);
+        k.insertAdjacentHTML('afterend', QR('otpauth://totp/' + (l.length > 40 ? 'ESP8266' : l) +
+            '?secret=' + k.textContent.split(' ').join('')));
     });
     // Values in the rows (states and statuses from the device)
     document.querySelectorAll('.r b').forEach(function (b) {

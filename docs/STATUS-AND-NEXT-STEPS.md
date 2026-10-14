@@ -8,7 +8,7 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 | | |
 | --- | --- |
-| Firmware | 499,056 of 500,000 bytes (944 to spare) |
+| Firmware | 499,952 of 500,000 bytes (48 to spare) |
 | Signed OTA package | ~363 KB of 400 KB |
 | Static RAM | 37,728 bytes |
 | Native tests | 450, with 100 % of lines, functions and branches |
@@ -47,7 +47,7 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 ## Decisions worth remembering
 
-- **500,000-byte limit.** A project rule, checked in CI. Every change fits inside it. **Only 944 bytes are left:** any new firmware feature first needs room taken from somewhere else.
+- **500,000-byte limit.** A project rule, checked in CI. Every change fits inside it. **Only 48 bytes are left:** any new firmware feature first needs room taken from somewhere else.
 - **The fast P-256 stays.** Dropping it frees about 10 KB, but ECDHE and ECDSA on P-256 (every handshake) would use the slower generic code. Not a trade worth making while other room exists.
 - **The ESP-01 photo stays.** If space runs out, it is not the first thing to go. Its size is set by `PHOTO_BYTES` in `tools/embed_assets.py` (3,250 today): a smaller photo is the quickest room.
 - **Images in formats the browser decodes.** A decoder of our own costs flash; AVIF and SVG cost none.

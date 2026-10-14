@@ -38,7 +38,7 @@ Flash again **without** erasing: the AP password must stay the same. Then flash 
 
 1. Find the device's IP on the router and reserve it (DHCP reservation).
 2. Open the panel. The first time, sign in with the user and password only.
-3. The panel shows an authenticator key. Add it to an authenticator app and enter the 6-digit code.
+3. The panel shows an authenticator key, as text and as a QR code. Scan the QR code with an authenticator app (it shows the device name), or type the key, and enter the 6-digit code.
 4. Under **Status**, check that the time is shown and the **AP password ESP_Config** row is there. Sign out, and sign in again with the user, the password and a current code.
 5. Open a private window and get the password or the code wrong 6 times in a row.
 

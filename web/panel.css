@@ -71,6 +71,7 @@ nav form.out button {
     letter-spacing: .06em;
     overflow-wrap: anywhere;
 }
+.q { display: block; width: 200px; max-width: 100%; margin: 8px 0; }
 main, footer { max-width: 640px; margin: auto; padding: 16px; }
 footer, .m { color: var(--mu); font-size: 13px; }
 h1 { font-size: 20px; margin: 0 0 16px; }

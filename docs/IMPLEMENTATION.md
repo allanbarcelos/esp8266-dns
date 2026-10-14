@@ -2,7 +2,7 @@
 
 Status on 2026-10-13. The list came from the documents of the same day: [Status and next steps](STATUS-AND-NEXT-STEPS.md), [What to port from Tasmota](PORTING-FROM-TASMOTA.md) and [Battery and solar panel](BATTERY-AND-SOLAR.md), plus the README's remote log. The round implemented items 5, 6, 7, 8, 10 and 11, one commit per item. Item 7 came first because it freed the room for the others.
 
-After the round and the adjustments at the end of this page (English, four languages, the authenticator, the photo), the firmware is **499,056 bytes**, under the 500,000 cap (944 to spare). Before the lean server it was 499,312. There are 450 native tests, with 100 % of lines, functions and branches. What is left, in order: [STATUS-AND-NEXT-STEPS.md](STATUS-AND-NEXT-STEPS.md).
+After the round and the adjustments at the end of this page (English, four languages, the authenticator, the photo), the firmware is **499,952 bytes**, under the 500,000 cap (48 to spare). Before the lean server it was 499,312. There are 450 native tests, with 100 % of lines, functions and branches. What is left, in order: [STATUS-AND-NEXT-STEPS.md](STATUS-AND-NEXT-STEPS.md).
 
 ## Do not change the firmware
 
@@ -65,3 +65,4 @@ After the round and the adjustments at the end of this page (English, four langu
 | `389e60e` | Photo as AVIF instead (3.2 KB, transparent background, no decoder in the firmware): SSIM 0.963 against the codec's 0.886 in the same room; the codec removed | 499,936 |
 | Pin drawing translated | The pin drawing in the panel language too: i18n.js translates its labels from the same table; its URL now carries a content hash, so the browser fetches a new drawing after an update instead of keeping the old one for 7 days. To fit after the merge with the authenticator and the photo, `TlsTrim.h` also leaves MD5 and the TLS 1.0 PRF out (−1.8 KB; neither is reachable with AES-GCM suites); the fast P-256 stays | 499,024 |
 | Branch coverage | Two tests (the first password, a blank key inside a session) and one more invalid browser time; the CSRF check runs both sides, so its guard against an empty token is no longer a branch no test can reach. Back to 100 % of branches on CI | 499,056 |
+| Authenticator QR code | /mfa also shows the key as a QR code (otpauth://, named after the device), drawn by i18n.js: a QR encoder of its own for the one size needed (version 5-L, byte mode, mask 0), since the smallest libraries take several KB. Nothing changes in the C++ | 499,952 |
