@@ -274,33 +274,34 @@
 #define L_V_RELEASED         "`4G"   // released
 #define L_A_RELAY            "`4H"   // Relay
 #define L_PUBLIC_IP          "`4I"   // Public IP
-#define L_CAUSE              "`4J"   // Cause
-#define L_MEMORY             "`4K"   // Memory
-#define L_FREE_HEAP          "`4L"   // Free heap
-#define L_FREE               "`4M"   // Free
-#define L_V_CLEAR            "`4N"   // clear
-#define L_LARGEST_BLOCK      "`4O"   // Largest block
-#define L_J_HINT_BOOT        "`4P"   // GPIO0 and GPIO2 must be high at boot; TX and RX stop being serial.
-#define L_HIGH               "`4Q"   // High
-#define L_TO                 "`4R"   // To
-#define L_FILES              "`4S"   // Files
-#define L_HOSTNAME_DISPLAY   "`4T"   // Hostname (display)
-#define L_S_DS18             "`4U"   // Temperature (DS18B20)
-#define L_TEMPERATURE        "`4V"   // Temperature
-#define L_G_TEMP_HUM         "`4W"   // Temperature and humidity
-#define L_S_DHT22            "`4X"   // Temperature and humidity (DHT22)
-#define L_S_DHT11            "`4Y"   // Temperature and humidity (DHT11)
-#define L_S_SHT3X            "`4Z"   // Temperature and humidity (SHT30/SHT31, I2C)
-#define L_HUMIDITY           "`4a"   // Humidity
-#define L_RATE               "`4b"   // Rate
-#define L_REVERSE            "`4c"   // Reverse
-#define L_CHANGED            "`4d"   // Changed
-#define L_TOPIC              "`4e"   // Topic:
-#define L_TOPICS             "`4f"   // Topics
-#define L_MANUAL             "`4g"   // manual
-#define L_ROLE_NONE          "`4h"   // Nothing (IoT off)
-#define L_WINDOW_SAME        "`4i"   // The window needs different start and end times
-#define L_V_PRESSED          "`4j"   // pressed
-#define L_A_PUMP             "`4k"   // Pump
-#define L_A_BUZZER           "`4l"   // Buzzer
-#define L_V_ERROR            "`4m"   // error
+#define L_PHOTO              "`4J"   // Photo
+#define L_CAUSE              "`4K"   // Cause
+#define L_MEMORY             "`4L"   // Memory
+#define L_FREE_HEAP          "`4M"   // Free heap
+#define L_FREE               "`4N"   // Free
+#define L_V_CLEAR            "`4O"   // clear
+#define L_LARGEST_BLOCK      "`4P"   // Largest block
+#define L_J_HINT_BOOT        "`4Q"   // GPIO0 and GPIO2 must be high at boot; TX and RX stop being serial.
+#define L_HIGH               "`4R"   // High
+#define L_TO                 "`4S"   // To
+#define L_FILES              "`4T"   // Files
+#define L_HOSTNAME_DISPLAY   "`4U"   // Hostname (display)
+#define L_S_DS18             "`4V"   // Temperature (DS18B20)
+#define L_TEMPERATURE        "`4W"   // Temperature
+#define L_G_TEMP_HUM         "`4X"   // Temperature and humidity
+#define L_S_DHT22            "`4Y"   // Temperature and humidity (DHT22)
+#define L_S_DHT11            "`4Z"   // Temperature and humidity (DHT11)
+#define L_S_SHT3X            "`4a"   // Temperature and humidity (SHT30/SHT31, I2C)
+#define L_HUMIDITY           "`4b"   // Humidity
+#define L_RATE               "`4c"   // Rate
+#define L_REVERSE            "`4d"   // Reverse
+#define L_CHANGED            "`4e"   // Changed
+#define L_TOPIC              "`4f"   // Topic:
+#define L_TOPICS             "`4g"   // Topics
+#define L_MANUAL             "`4h"   // manual
+#define L_ROLE_NONE          "`4i"   // Nothing (IoT off)
+#define L_WINDOW_SAME        "`4j"   // The window needs different start and end times
+#define L_V_PRESSED          "`4k"   // pressed
+#define L_A_PUMP             "`4l"   // Pump
+#define L_A_BUZZER           "`4m"   // Buzzer
+#define L_V_ERROR            "`4n"   // error

@@ -159,7 +159,7 @@ pre {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
-img { max-width: 100%; height: auto; border-radius: 6px; }
+img, canvas { max-width: 100%; height: auto; border-radius: 6px; }
 figure { margin: 0 0 16px; text-align: center; }
 fieldset { border: 1px solid var(--ln); border-radius: 8px; margin: 0 0 16px; padding: 4px 16px 16px; }
 legend { padding: 0 6px; font-weight: 600; }

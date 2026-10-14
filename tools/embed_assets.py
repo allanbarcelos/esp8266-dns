@@ -1,16 +1,20 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-"""Generates Assets.h with the panel pinout embedded in the firmware.
+"""Generates the panel's embedded pictures.
 
 In AP mode there is no internet, so the panel cannot fetch images elsewhere.
-docs/esp01-pinout.svg: spaces between tags removed, then gzipped (served
-with Content-Encoding: gzip). The ESP-01 photo stays in docs/ and is not
-embedded: the sketch cap (500,000 bytes) has no room for it next to the
-authenticator.
 
-Usage: python tools/embed_assets.py
-The generated Assets.h goes into the repository: the build does not need this tool.
+- docs/esp01-pinout.svg: spaces between tags removed, then gzipped (served
+  with Content-Encoding: gzip) into Assets.h.
+- docs/esp-01.jpg: cropped at the white edges, PHOTO_WIDTH px wide (the size
+  it is shown at), then encoded by tools/photo_codec.py at the finest
+  quality that fits in PHOTO_BYTES, into web/esp01.img. tools/embed_web.py
+  puts those bytes in web/photo.js, which rebuilds the photo in the browser.
+
+Usage: python tools/embed_assets.py, then python tools/embed_web.py
+(needs numpy, scipy and Pillow). The generated files go into the
+repository: the build does not need this tool.
 """
 import gzip
 import os
@@ -22,6 +26,8 @@ except ImportError:  # optional: only makes the gzip smaller
     _zopfli = None
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+PHOTO_WIDTH = 220
+PHOTO_BYTES = 1350
 
 
 def pinout():
@@ -31,6 +37,21 @@ def pinout():
     if _zopfli:
         return _zopfli.compress(svg, numiterations=1000)
     return gzip.compress(svg, 9, mtime=0)
+
+
+def photo():
+    import numpy as np
+    from PIL import Image
+    import photo_codec
+
+    im = Image.open(os.path.join(ROOT, "docs", "esp-01.jpg")).convert("RGB")
+    # Crops the white background: anything above 245 in gray counts as border
+    box = Image.eval(im.convert("L"), lambda v: 255 if v < 245 else 0).getbbox()
+    im = im.crop(box)
+    height = round(im.height * PHOTO_WIDTH / im.width)
+    rgb = np.array(im.resize((PHOTO_WIDTH, height), Image.LANCZOS))
+    data = photo_codec.encode_to(rgb, PHOTO_BYTES)
+    return data, rgb, photo_codec.ssim(rgb, photo_codec.decode(data))
 
 
 def array(name, data):
@@ -55,6 +76,11 @@ def main():
     with open(os.path.join(ROOT, "Assets.h"), "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
     print(f"Assets.h: pinout {len(svg)} B")
+
+    data, rgb, quality = photo()
+    with open(os.path.join(ROOT, "web", "esp01.img"), "wb") as f:
+        f.write(data)
+    print(f"web/esp01.img: photo {rgb.shape[1]}x{rgb.shape[0]}, {len(data)} B, SSIM {quality:.4f}")
 
 
 if __name__ == "__main__":

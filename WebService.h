@@ -254,6 +254,8 @@ private:
                 return _asset("text/css", WEB_CSS_GZ, sizeof(WEB_CSS_GZ), true);
             if (!strcmp_P(p, PSTR("/iot.js")))
                 return _asset("text/javascript", WEB_IOT_GZ, sizeof(WEB_IOT_GZ), true);
+            if (!strcmp_P(p, PSTR("/photo.js")))
+                return _asset("text/javascript", WEB_PHOTO_GZ, sizeof(WEB_PHOTO_GZ), true);
             if (!strcmp_P(p, PSTR("/i18n.js")))
                 return _asset("text/javascript", WEB_I18N_GZ, sizeof(WEB_I18N_GZ), true);
             if (!strcmp_P(p, PSTR("/pinout.svg")))
@@ -1577,10 +1579,13 @@ private:
         _go("/update");
     }
 
-    // The module photo is not in the sketch: it does not fit next to the
-    // authenticator under the 500,000-byte cap. The pin drawing stays.
+    // The module photo is not an image file: /photo.js rebuilds it in the
+    // canvas from a few KB of shape, smooth surface and corrections
+    // (tools/photo_codec.py), the background transparent.
     void _deviceMark() {
-        _p(PSTR("<p class='m'>" L_FW_MODULE "</p>"));
+        _p(PSTR("<figure><canvas id='ph' width='220' height='209' role='img' aria-label='ESP-01'></canvas>"
+                "<figcaption class='m'>" L_FW_MODULE "<br>" L_PHOTO ": SparkFun, CC BY 2.0</figcaption>"
+                "</figure><script src='/photo.js?v=" WEB_PHOTO_TAG "'></script>"));
     }
 
     // ── IoT ──────────────────────────────────────────────────────────────────

@@ -198,10 +198,9 @@ private:
 
         void final(uint8_t out[20]) {
             uint32_t bits = bytes << 3;
-            uint8_t pad = 0x80;
-            raw(&pad, 1);
-            uint8_t z = 0;
-            while (idx != 56) raw(&z, 1);
+            static const uint8_t pad[2] = {0x80, 0};
+            raw(pad, 1);
+            while (idx != 56) raw(pad + 1, 1);
             const uint8_t lenb[8] = {
                 0, 0, 0, 0,
                 (uint8_t)(bits >> 24), (uint8_t)(bits >> 16),

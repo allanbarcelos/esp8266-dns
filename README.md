@@ -301,13 +301,13 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 499,184 of 500,000 bytes (816 to spare) |
-| Panel text, 4 languages | 297 texts, 33 KB as text, 12 KB in flash |
+| Firmware | 499,968 of 500,000 bytes (32 to spare) |
+| Panel text, 4 languages | 298 texts, 33 KB as text, 12 KB in flash |
 | Signed OTA package | ~358 KB of 400 KB (about 42 KB free) |
-| Embedded images | 1.1 KB pinout (gzipped SVG). The ESP-01 photo is not in the sketch |
+| Embedded images | 1.1 KB pinout (gzipped SVG); ESP-01 photo 1.3 KB plus a 1.8 KB decoder, [own codec](docs/PHOTO-CODEC.md) rebuilt by the browser |
 | Configuration filesystem | 64 KB, unchanged |
 
-Kept small on purpose: page text in flash (`PSTR`) as 3-byte markers, with the text of the four languages in one gzipped table that the browser decodes (one column per language, rows ordered so similar texts sit together, an empty cell for text equal to English and one byte for text equal to the language before it, compressed with zopfli), no `scanf` (one `sscanf` pulled about 3 KB of the C library), TLS roots in DER, a single JSON reader (everything parsed in place, as `char*`), no float `printf`, one TLS session at a time, TLS limited to ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519 and client certificates are left out of the link by `TlsTrim.h`, about 27 KB; every server the device uses negotiates ECDHE + AES-128-GCM), lwIP without extras (`ip=lm2n`, about 10 KB: no NAT, IP fragmentation or AutoIP; SNTP keeps one server, so `Clock` alternates between `pool.ntp.org` and `time.google.com` until it syncs), an own HTTP server instead of `ESP8266WebServer` (about 12 KB: one client at a time, routes by `if` instead of a `std::function` table, no upload, Digest, keep-alive or chunked encoding; the page ends when the connection closes), a WS2812 driver without a library, the command word table in flash. **mDNS** was measured at about 21 KB and does not fit; use a DHCP reservation instead.
+Kept small on purpose: page text in flash (`PSTR`) as 3-byte markers, with the text of the four languages in one gzipped table that the browser decodes (one column per language, rows ordered so similar texts sit together, an empty cell for text equal to English and one byte for text equal to the language before it, compressed with zopfli), no `scanf` (one `sscanf` pulled about 3 KB of the C library), TLS roots in DER, a single JSON reader (everything parsed in place, as `char*`), no float `printf`, LittleFS without its debug asserts (`LFS_NO_ASSERT`, 3.4 KB; errors are still return codes), one TLS session at a time, TLS limited to ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519 and client certificates are left out of the link by `TlsTrim.h`, about 27 KB; every server the device uses negotiates ECDHE + AES-128-GCM), lwIP without extras (`ip=lm2n`, about 10 KB: no NAT, IP fragmentation or AutoIP; SNTP keeps one server, so `Clock` alternates between `pool.ntp.org` and `time.google.com` until it syncs), an own HTTP server instead of `ESP8266WebServer` (about 12 KB: one client at a time, routes by `if` instead of a `std::function` table, no upload, Digest, keep-alive or chunked encoding; the page ends when the connection closes), a WS2812 driver without a library, the command word table in flash. **mDNS** was measured at about 21 KB and does not fit; use a DHCP reservation instead.
 
 ---
 
@@ -394,7 +394,7 @@ arduino-cli upload  --fqbn esp8266:esp8266:generic:eesz=1M64 -p /dev/ttyUSB0 --i
 arduino-cli monitor -p /dev/ttyUSB0 --config 115200
 ```
 
-Local builds report version `dev` and update to the latest release on the first OTA check (unless automatic update is off). After changing `docs/esp01-pinout.svg`, run `python3 tools/embed_assets.py` and commit `Assets.h`. `docs/esp-01.jpg` stays in the repository and is not embedded: the sketch cap has no room for it next to the authenticator.
+Local builds report version `dev` and update to the latest release on the first OTA check (unless automatic update is off). After changing `docs/esp01-pinout.svg`, run `python3 tools/embed_assets.py` and commit `Assets.h`. The panel photo is not an image file: `python3 tools/embed_assets.py` encodes `docs/esp-01.jpg` with the project's own codec into `web/esp01.img` (about 1.3 KB), and `web/photo.js` rebuilds it in the browser (see [docs/PHOTO-CODEC.md](docs/PHOTO-CODEC.md)). That step needs numpy, scipy and Pillow; then run `tools/embed_web.py`. CI checks that the browser decoder gives the same pixels as the reference (`python3 tools/photo_codec.py --check`).
 
 The panel style and the IoT page script live in `web/panel.css` and `web/iot.js`. The device serves them gzipped (`/s.css`, `/iot.js`): the browser decompresses them and keeps them in its cache, and the URL carries a hash of the content, so a new version never uses a stale copy. After editing, run `python3 tools/embed_web.py` and commit `WebAssets.h`; CI runs `python3 tools/embed_web.py --check`.
 

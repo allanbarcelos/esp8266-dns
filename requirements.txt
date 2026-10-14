@@ -3,3 +3,4 @@
 
 platformio==6.1.19
 gcovr==8.5
+numpy==2.4.6   # tools/photo_codec.py --check; encoding (embed_assets.py) also needs scipy and Pillow

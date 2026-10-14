@@ -319,6 +319,10 @@ void test_root_station_mode() {
     TEST_ASSERT_FALSE(contains(f.out(), "OTA in progress"));
     TEST_ASSERT_FALSE(contains(f.out(), "/esp01.webp"));
     TEST_ASSERT_TRUE(contains(f.out(), "Firmware for the ESP-01 module"));
+    // The photo: a canvas that /photo.js fills, with the credit
+    TEST_ASSERT_TRUE(contains(f.out(), "<canvas id='ph' width='220' height='209' role='img' aria-label='ESP-01'>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Photo: SparkFun, CC BY 2.0"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<script src='/photo.js?v=" WEB_PHOTO_TAG "'></script>"));
 }
 
 void test_root_with_ip_and_last_update() {
@@ -457,13 +461,6 @@ void test_save_wifi_write_fails() {
 
 // ── Embedded images ──────────────────────────────────────────────────────────
 
-void test_device_photo_is_not_in_the_sketch() {
-    cfg.webpss = "";
-    Fixture f;
-    TEST_ASSERT_FALSE(f.get("/esp01.webp"));
-    TEST_ASSERT_EQUAL(404, f.srv.code);
-}
-
 // Panel CSS and JS: gzipped, public (the first setup page uses them) and,
 // with the content hash in the URL, cached for a year
 static void assetGz(const char* path, const char* type, size_t len) {
@@ -486,6 +483,16 @@ void test_gzipped_css_and_js() {
     TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_CSS_TAG));
     TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_IOT_TAG));
     TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_I18N_TAG));
+}
+
+// The photo is no image file: /photo.js rebuilds it (tools/photo_codec.py)
+void test_device_photo_is_a_script() {
+    cfg.webpss = "";
+    Fixture f;
+    TEST_ASSERT_FALSE(f.get("/esp01.webp"));
+    TEST_ASSERT_EQUAL(404, f.srv.code);
+    assetGz("/photo.js", "text/javascript", sizeof(WEB_PHOTO_GZ));
+    TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_PHOTO_TAG));
 }
 
 void test_embedded_gzipped_svg_pinout() {
@@ -2701,7 +2708,7 @@ int main() {
     RUN_TEST(test_save_wifi_validation);
     RUN_TEST(test_save_wifi_first_access_needs_panel_password);
     RUN_TEST(test_save_wifi_write_fails);
-    RUN_TEST(test_device_photo_is_not_in_the_sketch);
+    RUN_TEST(test_device_photo_is_a_script);
     RUN_TEST(test_gzipped_css_and_js);
     RUN_TEST(test_embedded_gzipped_svg_pinout);
     RUN_TEST(test_log_escapes_content);

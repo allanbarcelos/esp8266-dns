@@ -38,6 +38,7 @@ LOCAL_IP	Local IP	IP local	IP local	IP locale
 PUBLIC_IP	Public IP	IP público	IP pública	IP publique
 LAST_UPDATE	Last update	Última atualização	Última actualización	Dernière mise à jour
 FW_MODULE	Firmware for the ESP-01 module	Firmware para o módulo ESP-01	Firmware para el módulo ESP-01	Firmware pour le module ESP-01
+PHOTO	Photo	Foto	Foto
 NAME	Name	Nome	Nombre	Nom
 NAME_HINT	(panel and Home Assistant)	(painel e Home Assistant)	(panel y Home Assistant)	(panneau et Home Assistant)
 HOSTNAME_HINT	(router; applies on the next connection)	(roteador; vale na próxima conexão)	(router; se aplica en la próxima conexión)	(routeur ; appliqué à la prochaine connexion)

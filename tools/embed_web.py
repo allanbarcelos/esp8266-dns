@@ -17,6 +17,9 @@ words they have in common. Generated from the table:
   test/i18n_en.h   the English text, for the native tests to read the pages
   web/iot.js       L('English text') becomes L(row)
 
+web/photo.js gets the panel photo (web/esp01.img, made by
+tools/embed_assets.py) in base64.
+
     python tools/embed_web.py           regenerates the files above from web/
     python tools/embed_web.py --check   only checks (CI uses it); exits with an
                                         error if a generated file does not match
@@ -25,6 +28,7 @@ The check compares the decompressed content, not the gzip bytes: another
 compressor (zopfli when installed, otherwise zlib) gives other bytes without
 being wrong.
 """
+import base64
 import gzip
 import hashlib
 import os
@@ -43,7 +47,8 @@ TEST_EN = os.path.join(ROOT, "test", "i18n_en.h")
 TABLE = os.path.join(ROOT, "web", "i18n.tsv")
 
 # (file in web/, name in C++)
-FILES = (("panel.css", "WEB_CSS"), ("iot.js", "WEB_IOT"), ("i18n.js", "WEB_I18N"))
+FILES = (("panel.css", "WEB_CSS"), ("iot.js", "WEB_IOT"), ("i18n.js", "WEB_I18N"), ("photo.js", "WEB_PHOTO"))
+PHOTO = os.path.join(ROOT, "web", "esp01.img")   # made by tools/embed_assets.py
 
 LANGS = ("en", "pt", "es", "fr")
 B62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -194,6 +199,9 @@ def build():
             src = js_rows(src, rows)
         if name == "i18n.js":
             src = src.replace("@MATRIX@", matrix(rows).replace("\\", "\\\\"))
+        if name == "photo.js":
+            with open(PHOTO, "rb") as f:
+                src = src.replace("@PHOTO@", base64.b64encode(f.read()).decode("ascii"))
         text = (minify_css if name.endswith(".css") else minify_js)(src).encode("utf-8")
         out[sym] = (name, text)
     return rows, out

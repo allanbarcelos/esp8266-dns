@@ -273,6 +273,7 @@ static const char* const I18N_EN[] = {
     "released",
     "Relay",
     "Public IP",
+    "Photo",
     "Cause",
     "Memory",
     "Free heap",
