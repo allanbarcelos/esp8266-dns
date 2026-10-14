@@ -14,7 +14,7 @@ Devices with automatic updates enabled install a new release within about an hou
 | Version | Supported |
 | --- | --- |
 | Latest `vN` release (GitHub Releases, installed by OTA) | ✅ |
-| Older releases | ❌ — update from the panel (**Atualizar → Verificar agora**) |
+| Older releases | ❌ — update from the panel (**Update → Check now**) |
 | Local builds (`dev`) | ❌ — rebuild from `main` |
 
 ## Reporting a vulnerability
@@ -114,13 +114,13 @@ you own.
 
 ## Keeping a device safe
 
-- Keep automatic updates on (**Atualizar → Atualização automática**).
+- Keep automatic updates on (**Update → Automatic update**).
 - Use a strong panel password, different from the Wi-Fi password.
 - Keep the device on a trusted network, and reserve its IP on the router instead of exposing the
   panel to the internet. Do not forward port 80 to it.
 - Use long, random ntfy topic names, or an ntfy access token. Without a token, the panel refuses
   a command topic shorter than 20 characters.
 - To reach the device from outside, use a tunnel with its own login (see
-  [docs/ACESSO-REMOTO.md](docs/ACESSO-REMOTO.md)); never forward a router port to it.
+  [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)); never forward a router port to it.
 - Erasing the flash draws a new setup-network password; a build with `-DAP_PASSWORD=\"...\"`
   uses a fixed one instead (keep it long and private).

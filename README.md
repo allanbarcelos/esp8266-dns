@@ -1,7 +1,5 @@
 # 📘 ESP8266 IoT — Cloudflare DDNS, OTA and local IoT
 
-English | [Português](README.pt.md)
-
 Firmware for the **ESP-01 (ESP8266, 1 MB)**. One device does three jobs:
 
 1. **Dynamic DNS**: keeps a Cloudflare A record pointing at the residential public IP and sends that IP through [ntfy.sh](https://ntfy.sh).
@@ -50,12 +48,12 @@ Each service is a header with dependencies injected by reference, composed in la
 ## 🚀 First use
 
 1. Flash from the browser with the **[web installer](https://allanbarcelos.github.io/esp8266-dns/)** (Chrome or Edge on a computer, nothing to install) or over serial (see [Local build](#-local-build)). Either way, the ESP-01 needs **GPIO0 tied to GND** when the adapter is plugged in; release it after flashing and plug it in again.
-2. With no Wi-Fi configured, the ESP creates the **`ESP_Config`** network. The password is **drawn per device** on first boot (12 characters) and printed on the serial port every 30 s (`AP ESP_Config, senha: ...`); the web installer reads it with the **Read the device password** button. Afterwards it shows on the panel, under **Status**. For a fixed password, build with `-DAP_PASSWORD=\"...\"`.
+2. With no Wi-Fi configured, the ESP creates the **`ESP_Config`** network. The password is **drawn per device** on first boot (12 characters) and printed on the serial port every 30 s (`AP ESP_Config, password: ...`); the web installer reads it with the **Read the device password** button. Afterwards it shows on the panel, under **Status**. For a fixed password, build with `-DAP_PASSWORD=\"...\"`.
 3. Open `http://192.168.4.1`, enter the Wi-Fi credentials and **set the panel user and password** (at least 8 characters).
-4. After the reboot, open the ESP's local IP. Configure **Cloudflare**, **ntfy** and **IoT** as needed; each part is optional. The **Configuracoes** (settings) page sets a **name** (shown at the top of the panel and in Home Assistant) a **hostname** (what the router shows in its DHCP list; it applies on the next Wi-Fi connection) and the **time zone** (for the rule's time window).
+4. After the reboot, open the ESP's local IP. Configure **Cloudflare**, **ntfy** and **IoT** as needed; each part is optional. The **Settings** page sets a **name** (shown at the top of the panel and in Home Assistant), a **hostname** (what the router shows in its DHCP list; it applies on the next Wi-Fi connection) and the **time zone** (for the rule's time window).
 
 > The panel requires a password. Until one is set, every page redirects to `/password`. After 5 wrong passwords (or API tokens) in a row, each new mistake doubles a wait from 2 s up to 5 min.
-> To use it away from home, see [Remote access](docs/ACESSO-REMOTO.md) (in Portuguese): never forward a router port to the device.
+> To use it away from home, see [Remote access](docs/REMOTE-ACCESS.md): never forward a router port to the device.
 > If the configured Wi-Fi fails at boot, the ESP brings up the AP **and** keeps trying the network in the background. Once it connects, the AP is turned off.
 
 Reserve the device's IP in your router (DHCP reservation): the panel and the local API are reached by IP. Name discovery over mDNS (`.local`) was measured and does not fit (see [Flash budget](#-flash-budget)).
@@ -91,11 +89,11 @@ Each choice shows only the fields it needs. Every sensor and actuator type shows
 | `ds18b20` | Temperature (1-Wire) | °C |
 | `sht3x` | Temperature and humidity (SHT30/SHT31, I2C at address 0x44): SDA on the chosen pin and SCL on its pair (GPIO0 with GPIO2, RX with TX), with 4.7 kΩ pull-ups on both | °C and % (like the DHT) |
 | `pir` | Presence | presence / free |
-| `contato` | Door or window (reed) | open / closed |
-| `botao` | Button or switch | pressed / released |
+| `contact` | Door or window (reed) | open / closed |
+| `button` | Button or switch | pressed / released |
 | `digital` | Generic digital output (rain, gas, flame, soil, float, sound) | state names you choose |
-| `distancia` | HC-SR04 / JSN-SR04T (trig and echo on one pin) | cm |
-| `pulsos` | Flow or pulses (YF-S201) | pulses per 10 s |
+| `distance` | HC-SR04 / JSN-SR04T (trig and echo on one pin) | cm |
+| `pulses` | Flow or pulses (YF-S201) | pulses per 10 s |
 
 ### Actuators, by capability
 
@@ -103,12 +101,12 @@ The capability decides the control shown in the panel and the commands accepted.
 
 | Capability | Identifiers | Control in the panel | Commands |
 | --- | --- | --- | --- |
-| **On/off** | `rele`, `bomba`, `valvula`, `fechadura`, `buzzer` | switch + pulse | `ligar`, `desligar`, `alternar`, `pulso 5` |
-| **Level (PWM)** | `led`, `ventilador`, `motor` | switch + 0–100 % slider + pulse | the above + `50%`, `nivel 50` |
-| **Position** | `servo` | open/close + 0–180° slider + pulse | `abrir`, `fechar`, `angulo 90`, `pulso 3` |
-| **Colour** | `fita` (WS2812, up to 60 LEDs) | switch + colour picker + brightness | the above + `cor #ff8800`, `brilho 40` |
+| **On/off** | `relay`, `pump`, `valve`, `lock`, `buzzer` | switch + pulse | `on`, `off`, `toggle`, `pulse 5` |
+| **Level (PWM)** | `led`, `fan`, `motor` | switch + 0–100 % slider + pulse | the above + `50%`, `level 50` |
+| **Position** | `servo` | open/close + 0–180° slider + pulse | `open`, `close`, `angle 90`, `pulse 3` |
+| **Colour** | `strip` (WS2812, up to 60 LEDs) | switch + colour picker + brightness | the above + `color #ff8800`, `brightness 40` |
 
-Every actuator also accepts `auto` (back to the rule) and `status` (no change; returns the state). Commands are case-insensitive and have English synonyms (`on`, `off`, `toggle`, `pulse`, `level`, `angle`, `color`, `open`, `close`). `abrir`/`fechar` are on/off: the servo goes to its open or closed angle.
+Every actuator also accepts `auto` (back to the rule) and `status` (no change; returns the state). Commands are case-insensitive. `open`/`close` are on/off: the servo goes to its open or closed angle.
 
 Per actuator:
 
@@ -121,7 +119,7 @@ Per actuator:
 - **Digital sensor**: follow (on while active) or toggle (each activation flips the actuator).
 - **Numeric sensor**: on above or below a limit, with a margin to turn off (hysteresis), so a relay does not chatter.
 - **Proportional level**: a PWM actuator follows the reading linearly between the limit and a high limit.
-- **Time window** (optional): the rule only turns the actuator on between a start and an end, in local time (22:00 to 06:00 wraps past midnight). Outside it, and while the clock is still in 1970, automatic mode keeps the actuator off. A manual command still holds until `auto`. The time zone is set on the **Configuracoes** page, from a list of the official zones (UTC−12 to UTC+14, each with an example place; no automatic daylight saving); the local time shows under **Status**.
+- **Time window** (optional): the rule only turns the actuator on between a start and an end, in local time (22:00 to 06:00 wraps past midnight). Outside it, and while the clock is still in 1970, automatic mode keeps the actuator off. A manual command still holds until `auto`. The time zone is set on the **Settings** page, from a list of the official zones (UTC−12 to UTC+14, each with an example place; no automatic daylight saving); the local time shows under **Status**.
 
 The form writes the rule back as a sentence ("Turns the fan on when the value goes above 28 °C and off when it drops below 26 °C") before you save.
 
@@ -131,7 +129,7 @@ Shows the reading and the actuator state, with the real control for its capabili
 
 ### Removing the modules
 
-**Descadastrar sensor e atuador**, at the end of the IoT page, opens a confirmation page (works without JavaScript) before acting. Once confirmed it deletes the sensor, the actuator, the rule, the saved state (`/iot.state`) and the API token: the actuator turns off and the local API stops answering until a new setup, which creates a new token.
+**Remove sensor and actuator**, at the end of the IoT page, opens a confirmation page (works without JavaScript) before acting. Once confirmed it deletes the sensor, the actuator, the rule, the saved state (`/iot.state`) and the API token: the actuator turns off and the local API stops answering until a new setup, which creates a new token.
 
 ---
 
@@ -141,14 +139,14 @@ The same reading and the same commands, for scripts and home automation on the l
 
 ```bash
 curl -H 'Authorization: Bearer <token>' http://192.168.1.50/api/state
-curl -H 'Authorization: Bearer <token>' -d ligar http://192.168.1.50/api/cmd
-curl -H 'Authorization: Bearer <token>' -d 'cmd=pulso 5' http://192.168.1.50/api/cmd
+curl -H 'Authorization: Bearer <token>' -d on http://192.168.1.50/api/cmd
+curl -H 'Authorization: Bearer <token>' -d 'cmd=pulse 5' http://192.168.1.50/api/cmd
 ```
 
 ```json
 {"api":1,
  "sensor":{"type":"dht22","status":"ok","text":"24.5 C, 61.0%","temperature":24.5,"humidity":61.0},
- "actuator":{"type":"ventilador","capability":"level","on":true,"mode":"auto","text":"ligado 60%","level":60}}
+ "actuator":{"type":"fan","capability":"level","on":true,"mode":"auto","text":"on 60%","level":60}}
 ```
 
 - The token (32 hex characters from the hardware RNG) is separate from the panel password. It is created when IoT is first configured and shown on the IoT page with these examples; **Generate new token** invalidates the old one. It is compared in constant time.
@@ -165,12 +163,12 @@ curl -H 'Authorization: Bearer <token>' -d 'cmd=pulso 5' http://192.168.1.50/api
 ### Data topic (outgoing)
 
 - `[ip] 1.2.3.4` at boot and whenever the public IP changes. It does not depend on Cloudflare.
-- `[sensor] …` and `[atuador] …` when **Send readings and changes to ntfy** is on. Changes and command replies go out within seconds; periodic numeric readings at most once a minute (the ntfy.sh rate limit).
+- `[sensor] …` and `[actuator] …` when **Send readings and changes to ntfy** is on. Changes and command replies go out within seconds; periodic numeric readings at most once a minute (the ntfy.sh rate limit).
 - When a command topic is set, each IoT notification carries up to **three action buttons** that publish a command back: On/Off/Pulse, Off/50 %/100 %, or Open/Close/Pulse, depending on the actuator. With the rule on, the third button is **Auto**. You operate the device from the phone notification without typing.
 
 ### Command topic (incoming)
 
-Set a **command topic** on the ntfy page (the button generates a random name). The device subscribes to it with a long-lived connection (`GET /<topic>/json`) and every message becomes a command, delivered in about a second. Replies to invalid commands go to the data topic as `[erro] …`.
+Set a **command topic** on the ntfy page (the button generates a random name). The device subscribes to it with a long-lived connection (`GET /<topic>/json`) and every message becomes a command, delivered in about a second. Replies to invalid commands go to the data topic as `[error] …`.
 
 - **One TLS session at a time.** The ESP-01 has memory for a single TLS session. Before publishing, or when Cloudflare or the OTA is about to use the network, the stream closes. On reopening it asks for `since=<last id>`, and ntfy (which keeps messages for 12 hours) delivers whatever arrived in between. Nothing is lost; at worst a command waits a few seconds.
 - **The ntfy.sh certificate is validated** (ISRG Root X1, already embedded), on the command stream and when publishing: a command forged on the path would switch real equipment, and a publish carries the token and, in the action buttons, the command topic. Until the clock syncs nothing is published; the message waits for the next attempt.
@@ -181,16 +179,16 @@ Set a **command topic** on the ntfy page (the button generates a random name). T
 
 ## 🔋 Power and battery
 
-With a battery and a solar panel (see [Battery and solar panel](docs/BATERIA-E-PAINEL.md), in Portuguese), a **MAX17048** gauge (I2C, address 0x36) reports the charge. Pick its SDA pin on the **Configuracoes** page; SCL goes on the pair (GPIO0 with GPIO2, RX with TX). The gauge shares the bus with the SHT3x when both sit on the same pair; with any other sensor or actuator the pins must differ, and the panel refuses a configuration that mixes them.
+With a battery and a solar panel (see [Battery and solar panel](docs/BATTERY-AND-SOLAR.md)), a **MAX17048** gauge (I2C, address 0x36) reports the charge. Pick its SDA pin on the **Settings** page; SCL goes on the pair (GPIO0 with GPIO2, RX with TX). The gauge shares the bus with the SHT3x when both sit on the same pair; with any other sensor or actuator the pins must differ, and the panel refuses a configuration that mixes them.
 
 The top-right corner of the panel shows:
 
 | Indicator | When |
 | --- | --- |
-| ⚡ Energia | no gauge configured, or the battery full and idle (the supply holds it) |
-| 🔋 Bateria 76% | the charge is falling, or below 98% and not charging; turns yellow below 20% |
-| ☀ Carregando 76% | the charge is rising (solar panel or supply) |
-| 🔋 Bateria ? | the gauge did not answer |
+| ⚡ Power | no gauge configured, or the battery full and idle (the supply holds it) |
+| 🔋 Battery 76% | the charge is falling, or below 98% and not charging; turns yellow below 20% |
+| ☀ Charging 76% | the charge is rising (solar panel or supply) |
+| 🔋 Battery ? | the gauge did not answer |
 
 The gauge is read every 10 s. The state, charge, voltage and rate (%/h) show under **Status**, and each change of state goes to the log.
 
@@ -201,7 +199,7 @@ For Home Assistant, Node-RED or scripts on the local network. Set it on the **MQ
 | Topic (`<id>` = chip ID in hex) | Direction | Content |
 | --- | --- | --- |
 | `esp8266iot/<id>/state` | device → broker, retained | The same JSON as `/api/state`. Sent on connect, when it changes (at most once per second) and every 5 minutes even without a change, so a lost message does not leave Home Assistant without a state. |
-| `esp8266iot/<id>/cmd` | broker → device | The same command text as the panel and the API (`ligar`, `pulso 5`, `50%`…). |
+| `esp8266iot/<id>/cmd` | broker → device | The same command text as the panel and the API (`on`, `pulse 5`, `50%`…). |
 | `esp8266iot/<id>/avail` | device → broker, retained | `online`; `offline` comes from the last will when the connection drops. |
 
 - **No TLS.** The device's only TLS session is already shared by DNS, ntfy and OTA. Use a broker on the local network, with a user and password: whoever can publish to the broker controls the actuator.
@@ -225,7 +223,7 @@ With the broker set, the device shows up in Home Assistant on its own (MQTT inte
 | Servo | `number` (0 to 180°) |
 
 - A single retained message per device, at `homeassistant/device/esp8266iot_<id>/config`. Changing the module on the panel republishes it and removes from HA the entities that no longer exist.
-- Commands from HA become the same text as the panel (`ligar`, `nivel 50`, `cor #ff0000`, `angulo 120`). A sensor with no reading yet is *unknown*.
+- Commands from HA become the same text as the panel (`on`, `level 50`, `color #ff0000`, `angle 120`). A sensor with no reading yet is *unknown*.
 - To remove the device from HA, delete it in the MQTT integration and clear the broker on the MQTT page.
 
 ---
@@ -234,7 +232,7 @@ With the broker set, the device shows up in Home Assistant on its own (MQTT inte
 
 Installed devices update themselves, so the firmware never breaks an existing configuration:
 
-- **Stable identifiers.** The configuration stores a sensor or actuator by its identifier (`"actuator":"rele"`), never its position in a table. Identifiers are never renamed or reused; display names and order can change freely.
+- **Stable identifiers.** The configuration stores a sensor or actuator by its identifier (`"actuator":"relay"`), never its position in a table. Identifiers are not renamed or reused; display names and order can change freely. The one exception was the move to English: a configuration saved with the earlier Portuguese identifiers (`rele`, `ventilador`, `contato`…) falls under *unknown type* below, and the module has to be chosen again on the IoT page.
 - **Versioned configuration.** `/config.json` carries `"v"`. On load, an older version goes through the migrations in order. Version 1 (types stored by table position) becomes version 2 on the first boot, and the original is kept as `/config.v1.json`. A missing field gets its default; an unknown field is ignored. In v1 a module only ran with a sensor; after the migration a module without a sensor stays off too, so no pin starts switching after the update. The v1 "command" (forced on/off) becomes the saved manual state.
 - **Unknown type, safe stop.** If an OTA rollback leaves an older firmware reading a newer configuration, an unknown type keeps that part off (actuator released), shows a warning on the IoT page, and **the file is not rewritten**. Updating again brings everything back.
 - **API contract.** Fields and commands are only ever added; existing ones keep their name and meaning. `"api":1` marks the version.
@@ -242,7 +240,7 @@ Installed devices update themselves, so the firmware never breaks an existing co
 A new module that uses an existing capability is **one line** in `IoTCatalog.h`; panel, commands, API, ntfy and the action buttons follow without other code:
 
 ```cpp
-{"aquecedor", _A_HEATER, C_ONOFF, 60},   // identifier, label, capability, suggested pulse (s)
+{"heater", _A_HEATER, C_ONOFF, 60},   // identifier, label, capability, suggested pulse (s)
 ```
 
 Only a new capability (for example a stepper motor) needs code: an output in `IoTService` and a control in `WebService`. CI tests the migrations with real configuration files from each version.
@@ -254,7 +252,7 @@ Only a new capability (for example a stepper motor) needs code: an output in `Io
 The device checks its public IP **every 5 minutes** (while Wi-Fi is up and the clock is synchronized), whether or not Cloudflare or ntfy are configured:
 
 1. Fetch the public IP over HTTPS. The body must be a single IPv4 and the certificate must chain to the roots in `CloudflareCA.h`. The lookup tries `api4.ipify.org`, then `icanhazip.com`, then `ifconfig.co`; all three present the WE1 → GTS Root R4 chain, the same one `api.cloudflare.com` already validates on devices in the field.
-2. The log only records changes: the first IP, a new IP (`IP publico mudou: old -> new`), or the lookup starting to fail. A failed lookup retries every minute and keeps the last known IP.
+2. The log only records changes: the first IP, a new IP (`Public IP changed: old -> new`), or the lookup starting to fail. A failed lookup retries every minute and keeps the last known IP.
 3. When the IP changes, the device asks the network's DNS server for the reverse name (PTR) over UDP.
 
 The **Status** page shows the public IP, its reverse name, when it last changed and when it was last checked; the home page shows it next to the local IP.
@@ -333,7 +331,7 @@ test/fuzz/run.sh 30       # fuzzing, 30 s per target (requires clang)
 ./test/coverage.sh        # requires gcc (Linux) — same command as CI
 ```
 
-Tests run on the computer, with the core simulated. Before calling a version stable, run the [on-device checklist](docs/TESTE-HARDWARE.md) (in Portuguese) on an ESP-01.
+Tests run on the computer, with the core simulated. Before calling a version stable, run the [on-device checklist](docs/HARDWARE-TEST.md) on an ESP-01.
 
 ---
 
@@ -399,7 +397,7 @@ The TLS roots are kept readable in `ca/roots.pem` (name, expiry and SHA-256 of e
 
 ## 🗺️ Status and next steps
 
-What changed in the last round, how it was verified and what comes next (in Portuguese): [docs/ESTADO-E-PROXIMOS-PASSOS.md](docs/ESTADO-E-PROXIMOS-PASSOS.md). What is worth porting from Tasmota: [docs/PORTAR-DO-TASMOTA.md](docs/PORTAR-DO-TASMOTA.md). Battery and solar panel: [docs/BATERIA-E-PAINEL.md](docs/BATERIA-E-PAINEL.md). Which of those items are implemented, and in which commit: [docs/IMPLEMENTACAO.md](docs/IMPLEMENTACAO.md).
+What changed in the last round, how it was verified and what comes next: [docs/STATUS-AND-NEXT-STEPS.md](docs/STATUS-AND-NEXT-STEPS.md). What is worth porting from Tasmota: [docs/PORTING-FROM-TASMOTA.md](docs/PORTING-FROM-TASMOTA.md). Battery and solar panel: [docs/BATTERY-AND-SOLAR.md](docs/BATTERY-AND-SOLAR.md). Which of those items are implemented, and in which commit: [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md).
 
 ---
 

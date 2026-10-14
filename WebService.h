@@ -283,7 +283,7 @@ private:
     // doubles the wait (2 s up to 5 min), and nothing is tried meanwhile
     // (429). Getting it right resets the count. The count is per device, not
     // per address: there is no memory for a table, and from outside the home
-    // the panel sits behind a tunnel with its own login (docs/ACESSO-REMOTO.md).
+    // the panel sits behind a tunnel with its own login (docs/REMOTE-ACCESS.md).
     bool _loginBlocked() {
         if (_loginFails < FREE_LOGIN_FAILS || (long)(millis() - _loginWaitUntil) >= 0) return false;
         _server.send(429, "text/plain", "Too many attempts; please wait");
