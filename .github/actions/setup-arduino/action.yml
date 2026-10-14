@@ -2,25 +2,25 @@
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 name: Setup Arduino CLI (ESP8266)
-description: Instala arduino-cli, o core ESP8266 3.1.2 e as bibliotecas do firmware
+description: Installs arduino-cli, ESP8266 core 3.1.2 and the firmware libraries
 runs:
   using: composite
   steps:
-    # Versão fixa: um arduino-cli novo não pode quebrar o build sem commit
+    # Pinned version: a new arduino-cli must not break the build without a commit
     - uses: arduino/setup-arduino-cli@v2
       with:
         version: "1.5.1"
 
-    - name: Cache do core e bibliotecas
+    - name: Cache the core and libraries
       uses: actions/cache@v6
       with:
         path: |
           ~/.arduino15
           ~/Arduino/libraries
-        # Muda sozinha quando core, biblioteca ou arduino-cli mudam neste arquivo
+        # Changes by itself when the core, a library or arduino-cli changes in this file
         key: arduino-${{ hashFiles('.github/actions/setup-arduino/action.yml') }}
 
-    - name: Instala core e bibliotecas
+    - name: Install the core and libraries
       shell: bash
       run: |
         arduino-cli config init --overwrite

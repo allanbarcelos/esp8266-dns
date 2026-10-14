@@ -1,19 +1,19 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-name: Compila o firmware
+name: Compile the firmware
 description: >
-  Compila o sketch para o ESP-01 (1 MB, FS 64 KB, reserva OTA 400 KB, lwIP
-  sem extras) e deixa o binário em build/firmware.raw.bin. Requer o
-  setup-arduino antes.
+  Compiles the sketch for the ESP-01 (1 MB, 64 KB FS, 400 KB OTA reserve,
+  lwIP without extras) and leaves the binary at build/firmware.raw.bin. Needs
+  setup-arduino first.
 inputs:
   version:
-    description: Versão embutida no firmware (firmware_version)
+    description: Version embedded in the firmware (firmware_version)
     required: true
 runs:
   using: composite
   steps:
-    - name: Compila (ESP-01 1MB, FS 64KB, reserva OTA 400KB, lwIP sem extras)
+    - name: Compile (ESP-01 1MB, 64KB FS, 400KB OTA reserve, lwIP without extras)
       shell: bash
       env:
         VERSION: ${{ inputs.version }}

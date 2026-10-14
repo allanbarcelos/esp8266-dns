@@ -2,15 +2,15 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-# Análise estática dos headers do firmware (cppcheck). O CI roda no job
-# check; qualquer achado quebra. Requer cppcheck 2.13 ou mais novo.
+# Static analysis of the firmware headers (cppcheck). CI runs it in the check
+# job; any finding fails. Needs cppcheck 2.13 or newer.
 #
-# Fora da conta, por serem falso positivo ou estilo que o projeto não segue:
-#   badBitmaskCheck     doc["x"] | 0 é o valor padrão do ArduinoJson, não máscara
-#   unusedStructMember  header analisado sozinho não vê quem usa o campo
-#   cstyleCast          o projeto usa cast de C em tipos simples
-#   useStlAlgorithm     laço explícito é mais claro que std::find_if aqui
-#   test/stubs          os stubs só imitam o core do Arduino
+# Left out, as false positives or a style the project does not follow:
+#   badBitmaskCheck     doc["x"] | 0 is ArduinoJson's default value, not a mask
+#   unusedStructMember  a header analyzed alone does not see who uses the field
+#   cstyleCast          the project uses C casts on simple types
+#   useStlAlgorithm     an explicit loop is clearer than std::find_if here
+#   test/stubs          the stubs only imitate the Arduino core
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -24,4 +24,4 @@ cppcheck --language=c++ --std=c++17 \
     --suppress='*:test/stubs/*' \
     --template='{file}:{line}: {severity} [{id}] {message}' \
     ./*.h
-echo "cppcheck: nenhum achado"
+echo "cppcheck: no findings"

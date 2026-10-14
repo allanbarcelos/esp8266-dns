@@ -2,19 +2,19 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-"""Monta o site do instalador web (ESP Web Tools) para o GitHub Pages.
+"""Builds the web installer site (ESP Web Tools) for GitHub Pages.
 
-    python3 tools/web_installer.py <firmware> <versão> <site_dir>
+    python3 tools/web_installer.py <firmware> <version> <site_dir>
 
-<firmware> é o .bin cru do arduino-cli ou o firmware.bin do release (gzip do
-cru, sem assinatura): o gzip é descomprimido aqui, porque a gravação pela
-serial escreve a imagem como está a partir do endereço 0. O
-firmware.signed.bin não serve (assinatura depois do gzip).
+<firmware> is the raw .bin from arduino-cli or the release's firmware.bin
+(gzip of the raw image, unsigned): the gzip is decompressed here, because
+flashing over serial writes the image as is starting at address 0. The
+firmware.signed.bin does not work (signature after the gzip).
 
-O site recebe a página (install/), o firmware.bin cru e o manifest.json.
-Antes, confere que a imagem é do ESP8266, cabe no sketch máximo do layout
-(FlashLayout.h) e traz a versão informada, para o manifesto não anunciar
-uma versão e gravar outra.
+The site gets the page (install/), the raw firmware.bin and manifest.json.
+Before that, it checks that the image is an ESP8266 one, fits the layout's
+maximum sketch (FlashLayout.h) and carries the given version, so the manifest
+never announces one version and flashes another.
 """
 import gzip
 import json
@@ -26,13 +26,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 PAGE = REPO / "install"
 
-IMAGE_MAGIC = 0xE9  # primeiro byte de uma imagem de app do ESP8266
-MIN_IMAGE = 0x1000  # eboot + cabeçalho: menos que isso não é firmware
+IMAGE_MAGIC = 0xE9  # first byte of an ESP8266 app image
+MIN_IMAGE = 0x1000  # eboot + header: anything smaller is not firmware
 VERSION_RE = re.compile(r"^(v[0-9]+|ci-[0-9a-f]{7}|dev)$")
 
 
 def fail(msg: str) -> None:
-    print(f"ERRO: {msg}", file=sys.stderr)
+    print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(1)
 
 
@@ -40,7 +40,7 @@ def max_sketch() -> int:
     text = (REPO / "FlashLayout.h").read_text(encoding="utf-8")
     m = re.search(r"MAX_SKETCH\s*=\s*(0x[0-9A-Fa-f]+)", text)
     if not m:
-        fail("MAX_SKETCH não encontrado em FlashLayout.h")
+        fail("MAX_SKETCH not found in FlashLayout.h")
     return int(m.group(1), 16)
 
 
@@ -49,23 +49,23 @@ def load_image(path: Path) -> bytes:
     if data[:2] == b"\x1f\x8b":
         try:
             data = gzip.decompress(data)
-        except (OSError, EOFError) as e:  # assinatura depois do gzip, arquivo cortado
-            fail(f"{path.name}: gzip inválido ({e}); use firmware.bin, não o assinado")
+        except (OSError, EOFError) as e:  # signature after the gzip, truncated file
+            fail(f"{path.name}: invalid gzip ({e}); use firmware.bin, not the signed one")
     if len(data) < MIN_IMAGE or data[0] != IMAGE_MAGIC:
-        fail(f"{path.name}: não é uma imagem de firmware do ESP8266")
+        fail(f"{path.name}: not an ESP8266 firmware image")
     limit = max_sketch()
     if len(data) > limit:
-        fail(f"{path.name}: {len(data)} bytes, acima do sketch máximo ({limit})")
+        fail(f"{path.name}: {len(data)} bytes, above the maximum sketch ({limit})")
     return data
 
 
 def build(firmware: Path, version: str, site: Path) -> None:
     if not VERSION_RE.match(version):
-        fail(f"versão inválida: {version!r}")
+        fail(f"invalid version: {version!r}")
     image = load_image(firmware)
-    # firmware_version fica na imagem como string C
+    # firmware_version is in the image as a C string
     if version.encode() + b"\0" not in image:
-        fail(f"a imagem não traz a versão {version}")
+        fail(f"the image does not carry version {version}")
 
     if site.exists():
         shutil.rmtree(site)
@@ -74,9 +74,9 @@ def build(firmware: Path, version: str, site: Path) -> None:
     manifest = {
         "name": "ESP8266 IoT",
         "version": version,
-        # Instalação nova pergunta se apaga a flash (inclusive a configuração)
+        # A new install asks whether to erase the flash (configuration included)
         "new_install_prompt_erase": True,
-        # O firmware não fala Improv: o Wi-Fi é configurado pelo AP ESP_Config
+        # The firmware does not speak Improv: Wi-Fi is set up through the ESP_Config AP
         "new_install_improv_wait_time": 0,
         "builds": [{
             "chipFamily": "ESP8266",
@@ -84,7 +84,7 @@ def build(firmware: Path, version: str, site: Path) -> None:
         }],
     }
     (site / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    print(f"Instalador web: {version}, {len(image)} bytes em {site}")
+    print(f"Web installer: {version}, {len(image)} bytes in {site}")
 
 
 def main() -> None:

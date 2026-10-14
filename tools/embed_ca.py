@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-"""Gera CloudflareCA.h com as raízes de ca/roots.pem em DER.
+"""Generates CloudflareCA.h with the roots from ca/roots.pem as DER.
 
-DER em vez de PEM: 1,4 KB a menos na flash (sem o base64 e os cabeçalhos)
-e nada para decodificar a cada conexão. O X509List lê um bloco DER como um
-certificado só, então cada raiz entra com o próprio tamanho.
+DER instead of PEM: 1.4 KB less flash (no base64 and no headers) and nothing
+to decode on every connection. X509List reads a DER block as a single
+certificate, so each root goes in with its own length.
 
-    python3 tools/embed_ca.py           gera o CloudflareCA.h
-    python3 tools/embed_ca.py --check   só confere (o CI usa); erro se diferente
+    python3 tools/embed_ca.py           generates CloudflareCA.h
+    python3 tools/embed_ca.py --check   only checks (CI uses it); error if different
 """
 import base64
 import os
@@ -26,15 +26,15 @@ def roots():
     found = re.findall(r"^# ([^\n]+)\n(?:#[^\n]*\n)*-----BEGIN CERTIFICATE-----\n(.*?)-----END CERTIFICATE-----",
                        text, re.M | re.S)
     if len(found) != text.count("-----BEGIN CERTIFICATE-----"):
-        sys.exit("ERRO: todo certificado precisa de uma linha \"# Nome\" logo antes")
+        sys.exit("ERROR: every certificate needs a \"# Name\" line right before it")
     out = []
     for name, body in found:
         der = base64.b64decode("".join(body.split()), validate=True)
         if der[:1] != b"\x30":
-            sys.exit(f"ERRO: {name} não é um certificado DER")
+            sys.exit(f"ERROR: {name} is not a DER certificate")
         out.append((name.strip(), der))
     if not out:
-        sys.exit("ERRO: nenhum certificado em ca/roots.pem")
+        sys.exit("ERROR: no certificate in ca/roots.pem")
     return out
 
 
@@ -75,13 +75,13 @@ def main():
     if "--check" in sys.argv[1:]:
         current = open(OUT, encoding="utf-8").read().replace("\r\n", "\n") if os.path.exists(OUT) else ""
         if current != text:
-            print("CloudflareCA.h difere de ca/roots.pem. Rode: python3 tools/embed_ca.py")
+            print("CloudflareCA.h differs from ca/roots.pem. Run: python3 tools/embed_ca.py")
             return 1
-        print("CloudflareCA.h confere com ca/roots.pem")
+        print("CloudflareCA.h matches ca/roots.pem")
         return 0
     with open(OUT, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
-    print(f"CloudflareCA.h: {len(roots())} raízes")
+    print(f"CloudflareCA.h: {len(roots())} roots")
     return 0
 
 

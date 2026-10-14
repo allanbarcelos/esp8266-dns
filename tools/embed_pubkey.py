@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-# Embute public.key no firmware ESP8266 antes de o core compilar.
+# Embeds public.key in the ESP8266 firmware before the core compiles.
 #
-# O PlatformIO não executa o recipe.hooks do arduino-cli. Sem este
-# header, Updater_Signing.h do core define ARDUINO_SIGNING 0, Update.end()
-# não remove a assinatura e o eboot lê o tamanho da assinatura como se
-# fosse o tamanho descomprimido.
+# PlatformIO does not run arduino-cli's recipe.hooks. Without this header,
+# the core's Updater_Signing.h defines ARDUINO_SIGNING 0, Update.end() does
+# not strip the signature and eboot reads the signature length as if it were
+# the uncompressed size.
 #
-# Tem de ser extra_scripts pre: e post:. O pre: coloca o -I antes de o
-# construtor clonar o ambiente da biblioteca Wi-Fi. O post: liga a
-# checagem ao firmware.elf já criado. Os dois são obrigatórios.
+# It must be both a pre: and a post: extra_script. pre: puts the -I in place
+# before the builder clones the Wi-Fi library environment. post: hooks the
+# check to the firmware.elf already built. Both are required.
 Import("env")
 
 import os
@@ -29,10 +29,10 @@ signing_py = os.path.join(framework, "tools", "signing.py")
 
 os.makedirs(out_dir, exist_ok=True)
 if not os.path.isfile(pubkey):
-    sys.stderr.write("public.key ausente; o OTA não pode verificar assinatura\n")
+    sys.stderr.write("public.key is missing; OTA cannot verify the signature\n")
     env.Exit(1)
 if not os.path.isfile(signing_py):
-    sys.stderr.write("signing.py do core ESP8266 não encontrado\n")
+    sys.stderr.write("signing.py from the ESP8266 core not found\n")
     env.Exit(1)
 
 subprocess.check_call(
@@ -43,20 +43,20 @@ subprocess.check_call(
 with open(header, "r", encoding="utf-8") as handle:
     generated = handle.read()
 if "#define ARDUINO_SIGNING 1" not in generated or "signing_pubkey" not in generated:
-    sys.stderr.write("Updater_Signing.h não habilita a assinatura\n")
+    sys.stderr.write("Updater_Signing.h does not enable signing\n")
     env.Exit(1)
 
-# pre: ainda vê PROGNAME "program". O builder da plataforma troca para
-# "firmware" antes dos scripts post:.
+# pre: still sees PROGNAME "program". The platform builder switches it to
+# "firmware" before the post: scripts.
 late = env.get("PROGNAME", "program") not in ("", "program")
 
 if not env.get("OTA_PUBKEY_PATH"):
     if late:
         sys.stderr.write(
-            "OTA: tools/embed_pubkey.py tem de ser pre: antes do core\n")
+            "OTA: tools/embed_pubkey.py must be pre: before the core\n")
         env.Exit(1)
-    # Primeiro da lista de -I. cores/esp8266 também tem Updater_Signing.h
-    # e o dele desliga a assinatura; ele não pode ganhar a busca.
+    # First in the -I list. cores/esp8266 also has an Updater_Signing.h that
+    # turns signing off; it must not win the search.
     env.Prepend(CPPPATH=[out_dir])
     env.Replace(OTA_PUBKEY_PATH=out_dir)
 
@@ -65,7 +65,7 @@ def _require_verifier(source, target, env):
     del source
     elf = str(target[0])
     if not os.path.isfile(elf):
-        sys.stderr.write("OTA: ELF ausente, assinatura não confirmada\n")
+        sys.stderr.write("OTA: ELF missing, signing not confirmed\n")
         env.Exit(1)
     nm = os.path.join(
         env.PioPlatform().get_package_dir("toolchain-xtensa"),
@@ -73,7 +73,7 @@ def _require_verifier(source, target, env):
     if os.name == "nt":
         nm += ".exe"
     if not os.path.isfile(nm):
-        sys.stderr.write("OTA: xtensa-lx106-elf-nm não encontrado\n")
+        sys.stderr.write("OTA: xtensa-lx106-elf-nm not found\n")
         env.Exit(1)
     symbols = subprocess.check_output(
         [nm, "-C", elf], text=True, errors="replace")
@@ -83,8 +83,8 @@ def _require_verifier(source, target, env):
     ]
     if missing:
         sys.stderr.write(
-            "OTA: firmware sem " + ", ".join(missing)
-            + ". A chave não entrou no Updater.\n")
+            "OTA: firmware without " + ", ".join(missing)
+            + ". The key did not get into the Updater.\n")
         env.Exit(1)
     pem = open(pubkey, "rb").read()
     blob = open(elf, "rb").read()
@@ -92,16 +92,16 @@ def _require_verifier(source, target, env):
         line for line in pem.splitlines()
         if line and not line.startswith(b"-----"))
     if pem not in blob and body not in blob:
-        sys.stderr.write("OTA: public.key não está dentro do firmware\n")
+        sys.stderr.write("OTA: public.key is not inside the firmware\n")
         env.Exit(1)
-    # O sketch e o Updater têm de concordar. Sem este literal o aparelho
-    # baixaria o gzip puro e Update.end() recusaria a imagem.
+    # The sketch and the Updater must agree. Without this literal the device
+    # would download the plain gzip and Update.end() would reject the image.
     if b"firmware.signed.bin" not in blob:
         sys.stderr.write(
-            "OTA: o sketch não pede firmware.signed.bin; "
-            "ARDUINO_SIGNING não chegou no OTAService\n")
+            "OTA: the sketch does not ask for firmware.signed.bin; "
+            "ARDUINO_SIGNING did not reach OTAService\n")
         env.Exit(1)
-    print("OTA: updaterSigningVerifier, public.key e firmware.signed.bin estão no firmware")
+    print("OTA: updaterSigningVerifier, public.key and firmware.signed.bin are in the firmware")
 
 
 if late and not env.get("OTA_SIGNING_CHECK"):

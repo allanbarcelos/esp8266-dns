@@ -3,114 +3,114 @@
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 """
-Cabeçalho de licença e autoria em todo arquivo de código do projeto.
+License and authorship header on every source file of the project.
 
-    python3 tools/license_headers.py           acrescenta onde falta
-    python3 tools/license_headers.py --check   só confere (o CI usa); sai com erro se faltar
+    python3 tools/license_headers.py           adds it where missing
+    python3 tools/license_headers.py --check   only checks (CI uses it); exits with an error if missing
 
-Vale para os arquivos do git, versionados ou novos (o que o .gitignore exclui
-fica de fora). Ficam de fora os formatos sem comentário (Markdown, a chave
-PEM, imagens) e os exemplos locais de credenciais (*.example).
+Applies to the files git knows, tracked or new (whatever .gitignore excludes
+is left out). Formats without comments (Markdown, the PEM key, images) and the
+local credential examples (*.example) are left out too.
 """
 
 import subprocess
 import sys
 from pathlib import Path
 
-LINHAS = [
+LINES = [
     "SPDX-License-Identifier: MIT",
     "Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot",
 ]
 
-MARCA = "SPDX-License-Identifier:"
+MARK = "SPDX-License-Identifier:"
 
-# Extensão (ou nome de arquivo) → como comentar.
-LINHA = {
+# Extension (or file name) → how to comment.
+LINE = {
     ".h": "// {}", ".cpp": "// {}", ".ino": "// {}", ".js": "// {}",
     ".py": "# {}", ".sh": "# {}", ".yml": "# {}", ".yaml": "# {}",
     ".ini": "; {}",
 }
-BLOCO = {
+BLOCK = {
     ".ld": ("/*", " * {}", " */"),
     ".css": ("/*", " * {}", " */"),
     ".svg": ("<!--", "  {}", "-->"),
     ".html": ("<!--", "  {}", "-->"),
 }
-NOMES = {".gitignore": "# {}", "requirements.txt": "# {}"}
+NAMES = {".gitignore": "# {}", "requirements.txt": "# {}"}
 
 
-def estilo(caminho: Path):
-    if caminho.name in NOMES:
-        return ("linha", NOMES[caminho.name])
-    if caminho.suffix in LINHA:
-        return ("linha", LINHA[caminho.suffix])
-    if caminho.suffix in BLOCO:
-        return ("bloco", BLOCO[caminho.suffix])
+def style(path: Path):
+    if path.name in NAMES:
+        return ("line", NAMES[path.name])
+    if path.suffix in LINE:
+        return ("line", LINE[path.suffix])
+    if path.suffix in BLOCK:
+        return ("block", BLOCK[path.suffix])
     return None
 
 
-def cabecalho(tipo, formato) -> str:
-    if tipo == "linha":
-        return "\n".join(formato.format(l) for l in LINHAS) + "\n"
-    abre, meio, fecha = formato
-    return "\n".join([abre, *(meio.format(l) for l in LINHAS), fecha]) + "\n"
+def header(kind, fmt) -> str:
+    if kind == "line":
+        return "\n".join(fmt.format(l) for l in LINES) + "\n"
+    open_, middle, close = fmt
+    return "\n".join([open_, *(middle.format(l) for l in LINES), close]) + "\n"
 
 
-def arquivos():
-    # Versionados e também os novos ainda não adicionados (respeitando o
-    # .gitignore): um arquivo recém-criado recebe o cabeçalho antes do commit.
-    saida = subprocess.run(
+def files():
+    # Tracked and also new files not added yet (honoring .gitignore): a
+    # freshly created file gets the header before the commit.
+    out = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
         capture_output=True, text=True, check=True).stdout
-    for nome in saida.splitlines():
-        caminho = Path(nome)
-        if caminho.suffix == ".example":
+    for name in out.splitlines():
+        path = Path(name)
+        if path.suffix == ".example":
             continue
-        if caminho.exists() and estilo(caminho):
-            yield caminho
+        if path.exists() and style(path):
+            yield path
 
 
-def tem_cabecalho(texto: str) -> bool:
-    return any(MARCA in linha for linha in texto.splitlines()[:8])
+def has_header(text: str) -> bool:
+    return any(MARK in line for line in text.splitlines()[:8])
 
 
-def acrescentar(caminho: Path, texto: str) -> str:
-    tipo, formato = estilo(caminho)
-    linhas = texto.splitlines(keepends=True)
+def add_header(path: Path, text: str) -> str:
+    kind, fmt = style(path)
+    lines = text.splitlines(keepends=True)
 
-    # O shebang precisa continuar na primeira linha
-    preservar = 1 if linhas and linhas[0].startswith("#!") else 0
+    # The shebang must stay on the first line
+    keep = 1 if lines and lines[0].startswith("#!") else 0
 
-    antes = "".join(linhas[:preservar])
-    depois = "".join(linhas[preservar:])
-    separador = "" if depois.startswith("\n") else "\n"
-    return antes + cabecalho(tipo, formato) + separador + depois
+    before = "".join(lines[:keep])
+    after = "".join(lines[keep:])
+    separator = "" if after.startswith("\n") else "\n"
+    return before + header(kind, fmt) + separator + after
 
 
 def main() -> int:
-    conferir = "--check" in sys.argv[1:]
-    faltando = []
+    check = "--check" in sys.argv[1:]
+    missing = []
 
-    for caminho in arquivos():
-        texto = caminho.read_text(encoding="utf-8")
-        if tem_cabecalho(texto):
+    for path in files():
+        text = path.read_text(encoding="utf-8")
+        if has_header(text):
             continue
-        faltando.append(caminho)
-        if not conferir:
-            with open(caminho, "w", encoding="utf-8", newline="") as f:
-                f.write(acrescentar(caminho, texto))
+        missing.append(path)
+        if not check:
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write(add_header(path, text))
 
-    if conferir:
-        if faltando:
-            print("Arquivos sem o cabeçalho de licença e autoria:")
-            for caminho in faltando:
-                print(f"  {caminho}")
-            print("\nRode: python3 tools/license_headers.py")
+    if check:
+        if missing:
+            print("Files without the license and authorship header:")
+            for path in missing:
+                print(f"  {path}")
+            print("\nRun: python3 tools/license_headers.py")
             return 1
-        print("Todos os arquivos têm o cabeçalho de licença e autoria.")
+        print("All files have the license and authorship header.")
         return 0
 
-    print(f"Cabeçalho acrescentado em {len(faltando)} arquivo(s).")
+    print(f"Header added to {len(missing)} file(s).")
     return 0
 
 

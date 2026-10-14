@@ -1,18 +1,18 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-"""Gera WebAssets.h com o CSS e o JavaScript do painel, minificados e em gzip.
+"""Generates WebAssets.h with the panel CSS and JavaScript, minified and gzipped.
 
-O aparelho entrega cada arquivo como está, com Content-Encoding: gzip: o
-navegador descomprime sozinho e guarda no cache. A URL leva um pedaço do
-SHA-256 do conteúdo (?v=), então uma versão nova nunca usa o cache antiga.
+The device serves each file as is, with Content-Encoding: gzip: the browser
+decompresses it and caches it. The URL carries part of the content's SHA-256
+(?v=), so a new version never uses the old cache.
 
-    python tools/embed_web.py           regenera WebAssets.h a partir de web/
-    python tools/embed_web.py --check   só confere (o CI usa); sai com erro se
-                                        o WebAssets.h não corresponder a web/
+    python tools/embed_web.py           regenerates WebAssets.h from web/
+    python tools/embed_web.py --check   only checks (CI uses it); exits with an
+                                        error if WebAssets.h does not match web/
 
-A conferência compara o conteúdo descomprimido, não os bytes do gzip: outra
-versão da zlib comprime diferente sem estar errada.
+The check compares the decompressed content, not the gzip bytes: another zlib
+version compresses differently without being wrong.
 """
 import gzip
 import hashlib
@@ -23,7 +23,7 @@ import sys
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 OUT = os.path.join(ROOT, "WebAssets.h")
 
-# (arquivo em web/, nome no C++)
+# (file in web/, name in C++)
 FILES = (("panel.css", "WEB_CSS"), ("iot.js", "WEB_IOT"))
 
 
@@ -35,10 +35,10 @@ def minify_css(src):
 
 
 def minify_js(src):
-    """Tira comentários e espaços fora das aspas.
+    """Strips comments and spaces outside quotes.
 
-    Espaço só fica entre duas letras/dígitos (else if, return x). Não entende
-    regex literal nem template string: o código de web/ não usa.
+    A space only stays between two letters/digits (else if, return x). It does
+    not understand regex literals or template strings: the code in web/ uses none.
     """
     word = re.compile(r"[\w$]")
     out = []
@@ -50,7 +50,7 @@ def minify_js(src):
             j = i + 1
             while src[j] != ch:
                 if src[j] == "\n":
-                    raise SystemExit("aspas sem fechar na mesma linha")
+                    raise SystemExit("unclosed quote on the same line")
                 j += 2 if src[j] == "\\" else 1
             tok, i = src[i:j + 1], j + 1
         elif src.startswith("//", i):
@@ -59,7 +59,7 @@ def minify_js(src):
             gap = True
             continue
         elif ch == "/" or ch == "`":
-            raise SystemExit(f"'{ch}' fora de aspas: o minificador não trata")
+            raise SystemExit(f"'{ch}' outside quotes: the minifier does not handle it")
         elif ch.isspace():
             gap = True
             i += 1
@@ -71,7 +71,7 @@ def minify_js(src):
         out.append(tok)
         gap = False
     js = "".join(out)
-    # ;} → } fora das aspas: separa nas aspas e troca só nos pedaços de código
+    # ;} → } outside quotes: splits at the quotes and replaces only in the code pieces
     parts = re.split(r"('(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")", js)
     return "".join(p if k % 2 else p.replace(";}", "}") for k, p in enumerate(parts))
 
@@ -121,19 +121,19 @@ def check(assets):
         with open(OUT, encoding="utf-8") as f:
             have = f.read()
     except FileNotFoundError:
-        return ["WebAssets.h não existe"]
+        return ["WebAssets.h does not exist"]
     errors = []
     for sym, (name, data) in assets.items():
         m = re.search(r'#define %s_TAG "(\w+)"' % sym, have)
         a = re.search(r"%s_GZ\[\] PROGMEM = \{(.*?)\};" % sym, have, re.S)
         if not m or not a:
-            errors.append(f"{sym} não está no WebAssets.h")
+            errors.append(f"{sym} is not in WebAssets.h")
             continue
         gz = bytes(int(x, 16) for x in re.findall(r"0x([0-9a-f]{2})", a.group(1)))
         if gzip.decompress(gz) != data:
-            errors.append(f"web/{name} mudou: o WebAssets.h está desatualizado")
+            errors.append(f"web/{name} changed: WebAssets.h is out of date")
         elif m.group(1) != tag(data):
-            errors.append(f"{sym}_TAG não corresponde a web/{name}")
+            errors.append(f"{sym}_TAG does not match web/{name}")
     return errors
 
 
@@ -144,9 +144,9 @@ def main():
         for e in errors:
             print(e)
         if errors:
-            print("Rode: python tools/embed_web.py")
+            print("Run: python tools/embed_web.py")
             sys.exit(1)
-        print("WebAssets.h confere com web/")
+        print("WebAssets.h matches web/")
         return
     with open(OUT, "w", encoding="utf-8", newline="\n") as f:
         f.write(header(assets))

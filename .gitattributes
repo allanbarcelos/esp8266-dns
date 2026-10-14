@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-# Sementes do fuzzing: bytes exatos, sem conversão de fim de linha
+# Fuzz seeds: exact bytes, no line-ending conversion
 test/fuzz/corpus/** -text

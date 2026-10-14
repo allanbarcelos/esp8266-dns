@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-# ── Artefatos de build ─────────────────────────────────────────────────────────
+# ── Build artifacts ────────────────────────────────────────────────────────────
 build/
 firmware/
 firmware.bin
@@ -25,11 +25,11 @@ __pycache__/
 .vscode/
 .idea/
 
-# ── Chave privada de assinatura OTA (NUNCA versionar) ──────────────────────────
+# ── OTA signing private key (NEVER commit it) ──────────────────────────────────
 private.key
 *.key
 !public.key
 
-# ── Arquivos locais antigos com credenciais (o firmware não os usa) ────────────
+# ── Old local files with credentials (the firmware does not use them) ──────────
 secrets.h
 crypto.h

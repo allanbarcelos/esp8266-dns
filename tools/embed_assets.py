@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-"""Gera Assets.h com as imagens do painel embutidas no firmware.
+"""Generates Assets.h with the panel images embedded in the firmware.
 
-No modo AP não há internet, então o painel não pode buscar imagens fora.
-- docs/esp-01.jpg: recortada nas bordas brancas, 264 px, WebP qualidade 40
-  (exibida a 220 px; a sobra mantém a nitidez em telas de alta densidade).
-- docs/esp01-pinout.svg: espaços entre tags removidos e gzip (servido com
-  Content-Encoding: gzip).
+In AP mode there is no internet, so the panel cannot fetch images elsewhere.
+- docs/esp-01.jpg: cropped at the white edges, 264 px, WebP quality 40
+  (shown at 220 px; the extra keeps it sharp on high-density screens).
+- docs/esp01-pinout.svg: spaces between tags removed, then gzipped (served
+  with Content-Encoding: gzip).
 
-Uso: python tools/embed_assets.py   (requer Pillow com suporte a WebP)
-O Assets.h gerado vai para o repositório: o build não depende do Pillow.
+Usage: python tools/embed_assets.py   (needs Pillow with WebP support)
+The generated Assets.h goes into the repository: the build does not need Pillow.
 """
 import gzip
 import io
@@ -26,7 +26,7 @@ PHOTO_QUALITY = 40
 
 def photo():
     im = Image.open(os.path.join(ROOT, "docs", "esp-01.jpg")).convert("RGB")
-    # Recorta o fundo branco: tudo acima de 245 em cinza conta como borda
+    # Crops the white background: anything above 245 in gray counts as border
     box = Image.eval(im.convert("L"), lambda v: 255 if v < 245 else 0).getbbox()
     im = im.crop(box)
     height = round(im.height * PHOTO_WIDTH / im.width)
@@ -38,7 +38,7 @@ def photo():
 
 def pinout():
     with open(os.path.join(ROOT, "docs", "esp01-pinout.svg"), "rb") as f:
-        svg = re.sub(rb"<!--.*?-->", b"", f.read(), flags=re.S)  # cabeçalho de licença
+        svg = re.sub(rb"<!--.*?-->", b"", f.read(), flags=re.S)  # license header
         svg = re.sub(rb">\s+<", b"><", svg).strip()
     return gzip.compress(svg, 9, mtime=0)
 
@@ -67,7 +67,7 @@ def main():
     )
     with open(os.path.join(ROOT, "Assets.h"), "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
-    print(f"Assets.h: foto {len(jpg)} B, pinos {len(svg)} B")
+    print(f"Assets.h: photo {len(jpg)} B, pinout {len(svg)} B")
 
 
 if __name__ == "__main__":

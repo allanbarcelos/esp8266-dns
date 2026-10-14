@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: "Publicar release mesmo sem mudanças no firmware"
+        description: "Publish a release even without firmware changes"
         type: boolean
         default: false
 
@@ -18,16 +18,16 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Nunca cancelar na main: um release interrompido deixaria tag sem binário
+  # Never cancel on main: an interrupted release would leave a tag without a binary
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # Esteira: plan → check → build → test → release → pages. Cada job faz uma
-  # coisa; sem firmware novo, build, test e release são ignorados.
+  # Pipeline: plan → check → build → test → release → pages. Each job does one
+  # thing; without new firmware, build, test and release are skipped.
 
-  # ── Decide: há firmware novo? qual versão? publica? ───────────────────────
+  # ── Decide: is there new firmware? which version? publish? ───────────────
   plan:
-    # PR de branch deste repositório já roda no push; só PR de fork roda aqui
+    # A PR from a branch of this repository already runs on push; only fork PRs run here
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     outputs:
@@ -40,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # histórico + tags para o diff e o versionamento
+          fetch-depth: 0 # history + tags for the diff and the versioning
 
       - id: plan
         env:
@@ -48,28 +48,28 @@ jobs:
           REF: ${{ github.ref }}
           FORCE: ${{ inputs.release }}
           BEFORE: ${{ github.event.before }}
-          # Tudo o que muda o binário ou o pacote publicado: sketch, CSS/JS do
-          # painel, chave, linker, versão do core/bibliotecas, opções de
-          # compilação e empacotamento OTA
+          # Everything that changes the binary or the published package: sketch,
+          # panel CSS/JS, key, linker, core/library versions, compile options
+          # and OTA packaging
           FIRMWARE_PATHS: '^([^/]+\.(ino|h)|web/|public\.key|ld/|tools/(ota_flash_ld|embed_web)\.py|\.github/(actions/(setup-arduino|compile)/|scripts/package_ota\.py))'
-          # Só os testes: roda o test, sem build nem release
+          # Tests only: runs test, without build or release
           TEST_PATHS: '^(test/|platformio\.ini|requirements\.txt)'
-          # Instalador web: a página e o gerador do site
+          # Web installer: the page and the site generator
           PAGES_PATHS: '^(install/|tools/web_installer\.py)'
         run: |
-          # Maior tag vN existente (ordenação numérica, sem limite de paginação)
+          # Highest existing vN tag (numeric sort, no pagination limit)
           last=$(git tag -l 'v*' | sed -n 's/^v\([0-9][0-9]*\)$/\1/p' | sort -n | tail -1)
           last_tag="v${last:-0}"
 
-          # Compara com a última tag publicada, não com o push anterior: um
-          # run cancelado na fila ou um release que falhou não perde as
-          # mudanças, o próximo push na main as publica.
+          # Compares with the last published tag, not the previous push: a run
+          # cancelled in the queue or a failed release does not lose the
+          # changes, the next push to main publishes them.
           firmware=false
           tests=false
           if ! git rev-parse -q --verify "refs/tags/$last_tag" >/dev/null; then
             firmware=true
           elif [ "$(git rev-parse "$last_tag^{commit}")" = "$GITHUB_SHA" ]; then
-            echo "::notice::$GITHUB_SHA já publicado como $last_tag"
+            echo "::notice::$GITHUB_SHA already published as $last_tag"
           else
             changed=$(git diff --name-only "$last_tag" "$GITHUB_SHA")
             if echo "$changed" | grep -qE "$FIRMWARE_PATHS"; then firmware=true; fi
@@ -91,16 +91,16 @@ jobs:
             version="ci-${GITHUB_SHA::7}"
           fi
 
-          # Instalador web na main: com release novo, quando a página muda
-          # (diff com o push anterior) ou em Run workflow. Grava sempre uma
-          # versão publicada: a nova ou a última tag.
+          # Web installer on main: with a new release, when the page changes
+          # (diff against the previous push) or on Run workflow. It always
+          # flashes a published version: the new one or the last tag.
           pages=false
           if [ "$REF" = "refs/heads/main" ] && [ "$EVENT" != "pull_request" ]; then
             if [ "$release" = "true" ] || [ "$EVENT" = "workflow_dispatch" ]; then
               pages=true
             elif [ "$EVENT" = "push" ]; then
               if ! git rev-parse -q --verify "$BEFORE^{commit}" >/dev/null; then
-                pages=true   # push sem base conhecida (branch nova, force push)
+                pages=true   # push without a known base (new branch, force push)
               elif git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -qE "$PAGES_PATHS"; then
                 pages=true
               fi
@@ -110,7 +110,7 @@ jobs:
             site_version="$version"
           else
             site_version="$last_tag"
-            if [ -z "$last" ]; then pages=false; fi   # nada publicado ainda
+            if [ -z "$last" ]; then pages=false; fi   # nothing published yet
           fi
 
           {
@@ -121,28 +121,28 @@ jobs:
             echo "pages=$pages"
             echo "site_version=$site_version"
           } >> "$GITHUB_OUTPUT"
-          echo "Firmware novo: $firmware — testes: $tests — release: $release — versão: $version (última tag: $last_tag) — instalador web: $pages ($site_version)" \
+          echo "New firmware: $firmware, tests: $tests, release: $release, version: $version (last tag: $last_tag), web installer: $pages ($site_version)" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # ── Regras do repositório (segundos, sempre) ──────────────────────────────
+  # ── Repository rules (seconds, always) ────────────────────────────────────
   check:
     needs: plan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      - name: Cabeçalho de licença em todo arquivo de código
+      - name: License header on every source file
         run: python3 tools/license_headers.py --check
 
-      - name: Análise estática (cppcheck)
+      - name: Static analysis (cppcheck)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq cppcheck
           tools/static_check.sh
 
-  # ── Gera o firmware: compila, mede e empacota ─────────────────────────────
-  # Vem antes dos testes: testes verdes com um firmware acima do limite não
-  # valem nada, o aparelho ainda pode travar.
+  # ── Builds the firmware: compiles, measures and packages ─────────────────
+  # Runs before the tests: green tests with a firmware over the limit are
+  # worth nothing, the device can still hang.
   build:
     needs: [plan, check]
     if: needs.plan.outputs.firmware == 'true'
@@ -150,10 +150,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: CSS e JS embutidos (WebAssets.h igual a web/)
+      - name: Embedded CSS and JS (WebAssets.h matches web/)
         run: python3 tools/embed_web.py --check
 
-      - name: Raízes TLS embutidas (CloudflareCA.h igual a ca/roots.pem)
+      - name: Embedded TLS roots (CloudflareCA.h matches ca/roots.pem)
         run: python3 tools/embed_ca.py --check
 
       - uses: ./.github/actions/setup-arduino
@@ -162,34 +162,34 @@ jobs:
         with:
           version: ${{ needs.plan.outputs.version }}
 
-      # Regra do projeto: nenhuma funcionalidade ou correção passa o
-      # firmware de 500.000 bytes
-      - name: Firmware dentro do limite de 500.000 bytes
+      # Project rule: no feature or fix takes the firmware past
+      # 500,000 bytes
+      - name: Firmware within the 500,000-byte limit
         run: |
           set -o pipefail
           python3 tools/firmware_limit.py build/firmware.raw.bin | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Verifica que a checagem de assinatura foi embutida
+      - name: Check that signature verification was embedded
         run: grep -q "updaterSigningVerifier" build/esp8266-dns.ino.map
 
-      # Chave descartável: só para medir o tamanho real de firmware.signed.bin
-      # (gzip + assinatura de 256 B) em todo push/PR, sem o segredo de release.
-      # Sem isso, um binário que cresce até quase encher a reserva passaria
-      # aqui e só falharia no release, com a chave de produção.
-      - name: Gera chave de teste para medir o tamanho assinado
+      # Throwaway key: only to measure the real size of firmware.signed.bin
+      # (gzip + 256 B signature) on every push/PR, without the release secret.
+      # Without it, a binary that grows until it almost fills the reserve would
+      # pass here and only fail at release, with the production key.
+      - name: Generate a test key to measure the signed size
         run: |
           openssl genrsa -out "$RUNNER_TEMP/test.key" 2048
           openssl rsa -in "$RUNNER_TEMP/test.key" -pubout -out "$RUNNER_TEMP/test.pub"
 
-      - name: Empacota e valida OTA (tamanho real, com e sem assinatura)
+      - name: Package and validate OTA (real size, signed and unsigned)
         run: |
           python3 .github/scripts/package_ota.py build/firmware.raw.bin dist \
             --map build/esp8266-dns.ino.map \
             --key "$RUNNER_TEMP/test.key" --pubkey "$RUNNER_TEMP/test.pub"
 
-      # O mesmo gerador do job pages: imagem do ESP8266, dentro do sketch
-      # máximo e com a versão que o manifesto anuncia
-      - name: Monta o instalador web (conferência)
+      # The same generator as the pages job: ESP8266 image, within the
+      # maximum sketch and with the version the manifest announces
+      - name: Build the web installer (check)
         run: |
           python3 tools/web_installer.py build/firmware.raw.bin \
             "${{ needs.plan.outputs.version }}" "$RUNNER_TEMP/site"
@@ -200,9 +200,9 @@ jobs:
           path: build/firmware.raw.bin
           retention-days: 14
 
-  # ── Testes nativos com cobertura obrigatória de 100% ──────────────────────
-  # Com firmware novo, depois do build; com mudança só nos testes, sem ele
-  # (o build fica ignorado, e um job ignorado não bloqueia este).
+  # ── Native tests with mandatory 100% coverage ────────────────────────────
+  # With new firmware, after the build; with changes only in the tests,
+  # without it (build is skipped, and a skipped job does not block this one).
   test:
     needs: [plan, check, build]
     if: >-
@@ -222,31 +222,31 @@ jobs:
           path: ~/.platformio
           key: pio-${{ hashFiles('platformio.ini', 'requirements.txt') }}
 
-      - name: Instala PlatformIO e gcovr
+      - name: Install PlatformIO and gcovr
         run: pip install -r requirements.txt
 
-      - name: Testes + cobertura (100% linhas/funções/branches)
+      - name: Tests + coverage (100% lines/functions/branches)
         run: ./test/coverage.sh
 
-      # Estouro de buffer, uso depois de liberar, vazamento e comportamento
-      # indefinido param o teste (a cobertura não pega nada disso)
-      - name: Testes com AddressSanitizer e UndefinedBehaviorSanitizer
+      # Buffer overflow, use after free, leaks and undefined behavior stop
+      # the test (coverage catches none of these)
+      - name: Tests with AddressSanitizer and UndefinedBehaviorSanitizer
         run: pio test -e sanitize
 
-      # Entradas de fora do aparelho (pacotes MQTT, comandos, resposta do
-      # Cloudflare, fluxo do ntfy, config.json): libFuzzer + ASan + UBSan,
-      # 30 s por alvo, a partir das sementes de test/fuzz/corpus
+      # Inputs from outside the device (MQTT packets, commands, Cloudflare
+      # responses, the ntfy stream, config.json): libFuzzer + ASan + UBSan,
+      # 30 s per target, starting from the seeds in test/fuzz/corpus
       - name: Fuzzing
         run: test/fuzz/run.sh 30
 
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: fuzzing-achados
+          name: fuzzing-findings
           path: .pio/fuzz/*-*-*
           if-no-files-found: ignore
 
-  # ── Assina e publica (apenas push na main com firmware novo) ──────────────
+  # ── Signs and publishes (only a push to main with new firmware) ──────────
   release:
     needs: [plan, build, test]
     if: needs.plan.outputs.release == 'true'
@@ -261,12 +261,12 @@ jobs:
           name: firmware-${{ needs.plan.outputs.version }}
           path: build
 
-      - name: Assina e valida OTA
+      - name: Sign and validate OTA
         env:
           OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
         run: |
           if [ -z "$OTA_SIGNING_KEY" ]; then
-            echo "::error::Secret OTA_SIGNING_KEY não configurado — release abortado"
+            echo "::error::Secret OTA_SIGNING_KEY is not set; release aborted"
             exit 1
           fi
           key="$RUNNER_TEMP/ota.key"
@@ -275,7 +275,7 @@ jobs:
           python3 .github/scripts/package_ota.py build/firmware.raw.bin dist --key "$key"
           rm -f "$key"
 
-      - name: Publica GitHub Release
+      - name: Publish the GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.plan.outputs.version }}
@@ -286,10 +286,10 @@ jobs:
             dist/firmware.signed.bin
           fail_on_unmatched_files: true
 
-  # ── Instalador web (ESP Web Tools) no GitHub Pages ────────────────────────
-  # O firmware vem do firmware.bin do release (gzip do .bin cru): a página
-  # só grava versões publicadas. Requer Settings → Pages → Source: GitHub
-  # Actions.
+  # ── Web installer (ESP Web Tools) on GitHub Pages ────────────────────────
+  # The firmware comes from the release's firmware.bin (gzip of the raw .bin):
+  # the page only flashes published versions. Needs Settings → Pages →
+  # Source: GitHub Actions.
   pages:
     needs: [plan, release]
     if: >-
@@ -305,13 +305,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Baixa o firmware do release
+      - name: Download the release firmware
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.plan.outputs.site_version }}
         run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern firmware.bin --dir build
 
-      - name: Monta o site
+      - name: Build the site
         env:
           TAG: ${{ needs.plan.outputs.site_version }}
         run: python3 tools/web_installer.py build/firmware.bin "$TAG" site

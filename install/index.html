@@ -3,14 +3,14 @@
   SPDX-License-Identifier: MIT
   Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 -->
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ESP8266 IoT Installer</title>
-<meta name="description" content="Grava o firmware ESP8266 IoT num ESP-01 pelo navegador.">
+<meta name="description" content="Flashes the ESP8266 IoT firmware onto an ESP-01 from the browser.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='3' width='10' height='10' rx='1' fill='%231f6feb'/%3E%3Cpath d='M5 1v2M8 1v2M11 1v2M5 13v2M8 13v2M11 13v2M1 5h2M1 8h2M1 11h2M13 5h2M13 8h2M13 11h2' stroke='%231f6feb'/%3E%3C/svg%3E">
-<!-- Versão exata: este script grava o aparelho -->
+<!-- Exact version: this script flashes the device -->
 <script type="module" src="https://cdn.jsdelivr.net/npm/esp-web-tools@10.4.0/dist/web/install-button.js"></script>
 <style>
 :root {
@@ -44,53 +44,13 @@ button.install {
   font: inherit; font-weight: 600; border: 0; border-radius: 8px; cursor: pointer;
   background: var(--accent); color: var(--accent-text); padding: 12px 22px;
 }
-.lang { float: right; font-size: .9rem; }
 a { color: var(--accent); }
 [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
-  <nav class="lang"><a href="#" data-set-lang="pt">Português</a> · <a href="#" data-set-lang="en">English</a></nav>
-
-  <section data-lang="pt">
-    <h1>ESP8266 IoT</h1>
-    <p class="muted">DDNS Cloudflare, OTA assinado e IoT local num ESP-01. Versão <span class="version">…</span>.</p>
-
-    <div class="card">
-      <esp-web-install-button manifest="manifest.json">
-        <button slot="activate" class="install">Instalar no ESP-01</button>
-        <span slot="unsupported" class="warn" style="display:block">Este navegador não grava pela USB (Web Serial). Use o Chrome ou o Edge no computador.</span>
-        <span slot="not-allowed" class="warn" style="display:block">A gravação só funciona em HTTPS.</span>
-      </esp-web-install-button>
-    </div>
-
-    <h2>Antes de começar</h2>
-    <ul>
-      <li>ESP-01 ou ESP-01S de 1 MB e um adaptador USB-serial de 3,3 V.</li>
-      <li>Chrome ou Edge no computador.</li>
-    </ul>
-
-    <h2>Passo a passo</h2>
-    <ol>
-      <li>Ligue o <strong>GPIO0 ao GND</strong> e só então conecte o adaptador na USB. O ESP-01 não entra sozinho no modo de gravação.</li>
-      <li>Clique em <strong>Instalar</strong> e escolha a porta serial do adaptador.</li>
-      <li>Na primeira instalação, aceite <strong>apagar o aparelho</strong>. Para atualizar um aparelho já configurado, não apague: a configuração fica.</li>
-      <li>Quando terminar, tire o adaptador da USB, <strong>solte o GPIO0</strong> e conecte de novo. O botão de reiniciar do instalador não funciona no ESP-01.</li>
-      <li>Clique em <strong>Ler a senha do aparelho</strong> e escolha a porta de novo: cada aparelho tem a sua, sorteada no primeiro boot.</li>
-      <li>Conecte-se à rede <code>ESP_Config</code> com essa senha, abra <code>http://192.168.4.1</code>, informe o Wi-Fi e defina a senha do painel.</li>
-    </ol>
-
-    <div class="card">
-      <button type="button" class="install" data-read-pass>Ler a senha do aparelho</button>
-      <p class="muted" data-pass-out aria-live="polite">Com o aparelho já gravado, ligado sem o GPIO0 no GND. A senha também aparece no painel, em Status.</p>
-    </div>
-
-    <p class="warn">Apagar o aparelho apaga também a configuração (Wi-Fi, Cloudflare, ntfy, IoT).</p>
-    <p class="muted">Depois de instalado, o firmware se atualiza sozinho por OTA assinado. Documentação: <a href="https://github.com/allanbarcelos/esp8266-dns/blob/main/README.pt.md">README</a>.</p>
-  </section>
-
-  <section data-lang="en" hidden>
+  <section>
     <h1>ESP8266 IoT</h1>
     <p class="muted">Cloudflare DDNS, signed OTA and local IoT on an ESP-01. Version <span class="version">…</span>.</p>
 
@@ -128,29 +88,12 @@ a { color: var(--accent); }
   </section>
 </main>
 <script>
-// Idioma: o escolhido, senão o do navegador
-function setLang(lang) {
-  document.documentElement.lang = lang === "pt" ? "pt-BR" : "en";
-  document.querySelectorAll("[data-lang]").forEach(function (s) { s.hidden = s.dataset.lang !== lang; });
-  try { localStorage.setItem("lang", lang); } catch (e) {}
-}
-var saved = null;
-try { saved = localStorage.getItem("lang"); } catch (e) {}
-setLang(saved || (/^pt/i.test(navigator.language || "") ? "pt" : "en"));
-document.querySelectorAll("[data-set-lang]").forEach(function (a) {
-  a.addEventListener("click", function (ev) { ev.preventDefault(); setLang(a.dataset.setLang); });
-});
-// Senha do AP: o aparelho a imprime na serial ao subir o AP e a cada 30 s
-var MSG = {
-  pt: { reading: "Lendo a serial (até 40 s)...", none: "Senha não encontrada. Confira se o GPIO0 está solto e reconecte o adaptador.",
-        unsupported: "Este navegador não lê a serial. Use o Chrome ou o Edge no computador.", got: "Senha do AP: " },
-  en: { reading: "Reading the serial port (up to 40 s)...", none: "Password not found. Check that GPIO0 is released and plug the adapter in again.",
-        unsupported: "This browser cannot read the serial port. Use Chrome or Edge on a computer.", got: "AP password: " }
-};
+// AP password: the device prints it on the serial port when the AP comes up and every 30 s
+var MSG = { reading: "Reading the serial port (up to 40 s)...", none: "Password not found. Check that GPIO0 is released and plug the adapter in again.",
+            unsupported: "This browser cannot read the serial port. Use Chrome or Edge on a computer.", got: "AP password: " };
 function readPassword(btn) {
-  var lang = btn.closest("[data-lang]").dataset.lang;
   var out = btn.parentNode.querySelector("[data-pass-out]");
-  var m = MSG[lang];
+  var m = MSG;
   if (!("serial" in navigator)) { out.textContent = m.unsupported; return; }
   var port, reader, buf = "", dec = new TextDecoder(), end = Date.now() + 40000;
   navigator.serial.requestPort().then(function (p) {
@@ -166,7 +109,7 @@ function readPassword(btn) {
         .then(function (r) {
           if (r.done) return null;
           buf = (buf + dec.decode(r.value, { stream: true })).slice(-4096);
-          var hit = /senha: (\S+)/.exec(buf);
+          var hit = /(?:password|senha): (\S+)/.exec(buf);   // older firmware prints "senha:"
           return hit ? hit[1] : step();
         });
     }
@@ -181,9 +124,9 @@ function readPassword(btn) {
       out.textContent = m.none;
     }
   }).catch(function (e) {
-    if (e && e.name !== "NotFoundError") out.textContent = m.none;   // NotFoundError: nenhuma porta escolhida
+    if (e && e.name !== "NotFoundError") out.textContent = m.none;   // NotFoundError: no port picked
   }).then(function () {
-    // Solta a leitura pendente antes de fechar: porta presa não fecha
+    // Releases the pending read before closing: a locked port does not close
     var stop = reader ? reader.cancel().catch(function () {}) : Promise.resolve();
     return stop.then(function () {
       try { if (reader) reader.releaseLock(); } catch (e) {}

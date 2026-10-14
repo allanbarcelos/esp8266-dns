@@ -2,19 +2,19 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-"""Empacota o firmware para OTA e valida tudo o que um aparelho vai checar.
+"""Packages the firmware for OTA and validates everything a device will check.
 
-Gera, a partir do .bin cru do arduino-cli:
-  firmware.bin         gzip sem assinatura (aparelhos legados, sem verificação)
-  firmware.signed.bin  gzip + assinatura RSA/SHA-256 + u32 LE do tamanho da
-                       assinatura (formato do signing.py do core ESP8266)
+Produces, from arduino-cli's raw .bin:
+  firmware.bin         unsigned gzip (legacy devices, no verification)
+  firmware.signed.bin  gzip + RSA/SHA-256 signature + u32 LE signature length
+                       (the format of the ESP8266 core's signing.py)
 
-Por que dois arquivos: o eboot lê o tamanho descomprimido nos 4 últimos bytes
-da imagem. Firmware com verificação remove a assinatura antes de gravar o
-comando de boot; firmware legado não, e leria o tamanho errado.
+Why two files: eboot reads the uncompressed size from the image's last 4
+bytes. Firmware with verification strips the signature before writing the
+boot command; legacy firmware does not, and would read the wrong size.
 
-Uso: package_ota.py <raw.bin> <out_dir> [--key private.key] [--pubkey public.key]
-Sem --key, gera apenas firmware.bin (builds de PR).
+Usage: package_ota.py <raw.bin> <out_dir> [--key private.key] [--pubkey public.key]
+Without --key, only firmware.bin is produced (PR builds).
 """
 import argparse
 import gzip
@@ -26,16 +26,16 @@ import sys
 import tempfile
 
 SECTOR = 4096
-# Layout eesz=1M64 + ld/eagle.flash.1m64.ota.ld (iguais a FlashLayout.h).
-# O linker recusa IROM além de IROM_LEN; os 400 KB até o FS nunca entram
-# no sketch. Updater ainda grava até UPDATE_END.
+# Layout eesz=1M64 + ld/eagle.flash.1m64.ota.ld (same as FlashLayout.h).
+# The linker rejects IROM beyond IROM_LEN; the 400 KB up to the FS never go
+# into the sketch. Updater still writes up to UPDATE_END.
 UPDATE_END = 0xEB000
 IROM_LEN = 0x85FF0
 OTA_RESERVE = 0x64000
 MAX_SKETCH = 0x87000  # 0x1010 + IROM_LEN
 STOCK_IROM_LEN = 0xE9FF0
-# Maior sketch 1M64 sem a reserva (~530 KB atuais). O primeiro OTA a partir
-# desses aparelhos ainda precisa caber em UPDATE_END.
+# Largest 1M64 sketch without the reserve (~530 KB today). The first OTA from
+# those devices still has to fit in UPDATE_END.
 LEGACY_SKETCH = 540_000
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 LD_PATH = os.path.join(REPO, "ld", "eagle.flash.1m64.ota.ld")
@@ -51,30 +51,31 @@ def fail(msg: str) -> None:
 
 
 def align_gzip(gz: bytes) -> bytes:
-    """Deixa o gzip com tamanho múltiplo de 4 via campo FNAME do cabeçalho.
+    """Pads the gzip to a multiple of 4 bytes through the header's FNAME field.
 
-    Updater::end() do core 3.1.2 lê o payload em blocos de 128 B com
-    flashRead(uint32_t*), que recusa tamanho não múltiplo de 4 e o Updater
-    ignora o erro: o último bloco fica com bytes do anterior, o hash não
-    bate e toda imagem assinada é rejeitada. Os 4 bytes finais (ISIZE, lido
-    pelo eboot) e o deflate não mudam; o uzlib do eboot pula o FNAME.
+    Updater::end() in core 3.1.2 reads the payload in 128 B blocks with
+    flashRead(uint32_t*), which rejects sizes not multiple of 4, and the
+    Updater ignores the error: the last block keeps bytes from the previous
+    one, the hash does not match and every signed image is rejected. The last
+    4 bytes (ISIZE, read by eboot) and the deflate stream do not change;
+    eboot's uzlib skips FNAME.
     """
     pad = -len(gz) % 4
     if pad == 0:
         return gz
     if gz[3] != 0:
-        fail("gzip com flags inesperadas; não dá para alinhar com FNAME")
+        fail("gzip with unexpected flags; cannot align it with FNAME")
     name = b"f" * ((pad if pad >= 2 else pad + 4) - 1) + b"\0"
     return gz[:3] + b"\x08" + gz[4:10] + name + gz[10:]
 
 
 def device_view(payload: bytes) -> bytes:
-    """O que Updater::end() do core 3.1.2 realmente passa ao SHA-256."""
+    """What Updater::end() in core 3.1.2 actually feeds to SHA-256."""
     out = bytearray()
     buff = bytearray(128)
     for off in range(0, len(payload), 128):
         n = min(128, len(payload) - off)
-        if n % 4 == 0:  # flashRead(uint32_t*) só lê tamanhos alinhados
+        if n % 4 == 0:  # flashRead(uint32_t*) only reads aligned sizes
             buff[:n] = payload[off:off + n]
         out += buff[:n]
     return bytes(out)
@@ -97,74 +98,74 @@ def verify(signed: bytes, pubkey: str) -> bytes:
         r = subprocess.run(["openssl", "dgst", "-sha256", "-verify", pubkey,
                             "-signature", sig_path], input=payload, capture_output=True)
     if r.returncode != 0:
-        fail("assinatura não confere com public.key: " + r.stderr.decode())
+        fail("signature does not match public.key: " + r.stderr.decode())
     if device_view(payload) != payload:
-        fail("o Updater do aparelho calcularia outro hash: payload não alinhado a 4 B")
+        fail("the device's Updater would compute another hash: payload not 4 B aligned")
     return payload
 
 
 def check_gzip(gz: bytes, raw: bytes, label: str) -> None:
     if gz[:2] != b"\x1f\x8b":
-        fail(f"{label}: cabeçalho gzip ausente")
+        fail(f"{label}: missing gzip header")
     (isize,) = struct.unpack("<L", gz[-4:])
     if isize != len(raw):
-        fail(f"{label}: ISIZE {isize} != tamanho real {len(raw)} (eboot copiaria errado)")
+        fail(f"{label}: ISIZE {isize} != real size {len(raw)} (eboot would copy it wrong)")
     if gzip.decompress(gz) != raw:
-        fail(f"{label}: conteúdo descomprimido difere do original")
+        fail(f"{label}: decompressed content differs from the original")
 
 
 def eboot_isize(image: bytes, label: str) -> int:
-    """O eboot trata os 4 últimos bytes de um gzip como o tamanho descomprimido."""
+    """eboot takes the last 4 bytes of a gzip as the uncompressed size."""
     if len(image) < 6 or image[:2] != b"\x1f\x8b":
-        fail(f"{label}: o eboot exige gzip no início")
+        fail(f"{label}: eboot needs a gzip at the start")
     return struct.unpack("<L", image[-4:])[0]
 
 
 def check_fits(image: int, running: int, raw: int, label: str) -> None:
     start = UPDATE_END - rounded(image)
     if start < rounded(running):
-        fail(f"{label}: sem espaço — atual {running} B + imagem {image} B > {UPDATE_END} B")
+        fail(f"{label}: no room: running {running} B + image {image} B > {UPDATE_END} B")
     if raw > start:
-        fail(f"{label}: imagem descomprimida ({raw} B) sobrescreveria a origem em {start:#x}")
+        fail(f"{label}: decompressed image ({raw} B) would overwrite the source at {start:#x}")
 
 
 def check_ld() -> None:
     if not os.path.isfile(LD_PATH):
-        fail(f"linker script ausente: {LD_PATH}")
+        fail(f"missing linker script: {LD_PATH}")
     text = open(LD_PATH, encoding="utf-8").read()
     m = re.search(
         r"irom0_0_seg\s*:\s*org\s*=\s*(0x[0-9a-fA-F]+),\s*len\s*=\s*(0x[0-9a-fA-F]+)",
         text)
     if not m:
-        fail("ld: irom0_0_seg não encontrado")
+        fail("ld: irom0_0_seg not found")
     org, length = int(m.group(1), 16), int(m.group(2), 16)
     if org != 0x40201010:
         fail(f"ld: irom org {org:#x} != 0x40201010")
     if length != IROM_LEN:
         fail(f"ld: irom len {length:#x} != {IROM_LEN:#x} (FlashLayout.h)")
     if STOCK_IROM_LEN - length != OTA_RESERVE:
-        fail("ld: OTA_RESERVE não é stock IROM - irom len")
+        fail("ld: OTA_RESERVE is not stock IROM - irom len")
     if not re.search(r"_FS_start\s*=\s*0x402EB000", text):
-        fail("ld: _FS_start deve permanecer 0x402EB000")
+        fail("ld: _FS_start must stay 0x402EB000")
 
 
 def check_map(path: str) -> None:
     text = open(path, encoding="utf-8", errors="replace").read()
     m = re.search(r"irom0_0_seg\s+0x[0-9a-fA-F]+\s+0x([0-9a-fA-F]+)", text)
     if not m:
-        fail(f"{path}: irom0_0_seg ausente no map")
+        fail(f"{path}: irom0_0_seg missing from the map")
     length = int(m.group(1), 16)
     if length != IROM_LEN:
         fail(
-            f"{path}: irom len {length:#x} != {IROM_LEN:#x} — "
-            "compile com build.flash_ld=eagle.flash.1m64.ota.ld")
+            f"{path}: irom len {length:#x} != {IROM_LEN:#x}; "
+            "compile with build.flash_ld=eagle.flash.1m64.ota.ld")
 
 
 def check_reserve(image: int, raw: int, label: str) -> None:
     if raw > MAX_SKETCH:
-        fail(f"{label}: sketch {raw} B > máximo {MAX_SKETCH} B (reserva OTA)")
+        fail(f"{label}: sketch {raw} B > maximum {MAX_SKETCH} B (OTA reserve)")
     if image > OTA_RESERVE:
-        fail(f"{label}: imagem {image} B > reserva OTA {OTA_RESERVE} B")
+        fail(f"{label}: image {image} B > OTA reserve {OTA_RESERVE} B")
 
 
 def main() -> None:
@@ -173,7 +174,7 @@ def main() -> None:
     ap.add_argument("out_dir")
     ap.add_argument("--key")
     ap.add_argument("--pubkey", default="public.key")
-    ap.add_argument("--map", help="map do link; confirma IROM encolhido")
+    ap.add_argument("--map", help="link map; confirms the shrunk IROM")
     args = ap.parse_args()
 
     check_ld()
@@ -182,16 +183,16 @@ def main() -> None:
 
     raw = open(args.raw, "rb").read()
     if raw[0] != 0xE9:
-        fail("binário de entrada não é uma imagem ESP8266")
+        fail("input binary is not an ESP8266 image")
 
     gz = align_gzip(gzip.compress(raw, compresslevel=9, mtime=0))
     if len(gz) % 4:
-        fail("firmware.bin: gzip não ficou alinhado a 4 B")
+        fail("firmware.bin: gzip did not end up 4 B aligned")
     check_gzip(gz, raw, "firmware.bin")
     if eboot_isize(gz, "firmware.bin") != len(raw):
-        fail("firmware.bin: o eboot leria um tamanho diferente do firmware")
+        fail("firmware.bin: eboot would read a size different from the firmware")
     check_reserve(len(gz), len(raw), "firmware.bin")
-    check_fits(len(gz), LEGACY_SKETCH, len(raw), "legado → novo")
+    check_fits(len(gz), LEGACY_SKETCH, len(raw), "legacy → new")
 
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "firmware.bin"), "wb") as f:
@@ -204,23 +205,23 @@ def main() -> None:
         check_gzip(verify(signed, args.pubkey), raw, "firmware.signed.bin")
         sig_len = struct.unpack("<L", signed[-4:])[0]
         if sig_len != 256:
-            fail(f"assinatura RSA-2048 tem {sig_len} bytes; o esperado é 256")
+            fail(f"RSA-2048 signature has {sig_len} bytes; expected 256")
         if eboot_isize(signed, "firmware.signed.bin") != sig_len:
-            fail("os 4 últimos bytes do arquivo assinado não são o tamanho da assinatura")
+            fail("the last 4 bytes of the signed file are not the signature length")
         payload = signed[: -4 - sig_len]
-        if eboot_isize(payload, "gzip após remover a assinatura") != len(raw):
-            fail("Update.end() deixaria o eboot ler o tamanho errado")
+        if eboot_isize(payload, "gzip after stripping the signature") != len(raw):
+            fail("Update.end() would make eboot read the wrong size")
         check_reserve(len(signed), len(raw), "firmware.signed.bin")
-        check_fits(len(signed), len(raw), len(raw), "novo → próximo")
-        check_fits(len(signed), MAX_SKETCH, len(raw), "máximo → próximo")
+        check_fits(len(signed), len(raw), len(raw), "new → next")
+        check_fits(len(signed), MAX_SKETCH, len(raw), "maximum → next")
         with open(os.path.join(args.out_dir, "firmware.signed.bin"), "wb") as f:
             f.write(signed)
-        lines.append(f"| gzip assinado | {len(signed)} B |")
+        lines.append(f"| signed gzip | {len(signed)} B |")
 
-    lines.append(f"| reserva OTA | {OTA_RESERVE} B |")
-    lines.append(f"| sketch máximo | {MAX_SKETCH} B |")
-    lines.append(f"| limite (atual + OTA) | {UPDATE_END} B |")
-    summary = "| Imagem | Tamanho |\n|---|---|\n" + "\n".join(lines) + "\n"
+    lines.append(f"| OTA reserve | {OTA_RESERVE} B |")
+    lines.append(f"| maximum sketch | {MAX_SKETCH} B |")
+    lines.append(f"| limit (running + OTA) | {UPDATE_END} B |")
+    summary = "| Image | Size |\n|---|---|\n" + "\n".join(lines) + "\n"
     print(summary)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:

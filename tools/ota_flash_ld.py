@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-# Instala ld/eagle.flash.1m64.ota.ld no core ESP8266.
+# Installs ld/eagle.flash.1m64.ota.ld into the ESP8266 core.
 #
-# O recipe do arduino-cli copia tools/sdk/ld/{build.flash_ld}. Sem este
-# arquivo lá, --build-property build.flash_ld=eagle.flash.1m64.ota.ld
-# não acha o script. O PlatformIO procura o mesmo nome no SDK.
+# The arduino-cli recipe copies tools/sdk/ld/{build.flash_ld}. Without this
+# file there, --build-property build.flash_ld=eagle.flash.1m64.ota.ld does
+# not find the script. PlatformIO looks for the same name in the SDK.
 #
 # PIO: extra_scripts pre: (Import("env")).
 # CLI: python tools/ota_flash_ld.py
@@ -19,7 +19,7 @@ NAME = "eagle.flash.1m64.ota.ld"
 
 def _copy(src, dst_dir):
     if not os.path.isfile(src):
-        sys.stderr.write("OTA: linker script ausente: %s\n" % src)
+        sys.stderr.write("OTA: missing linker script: %s\n" % src)
         sys.exit(1)
     os.makedirs(dst_dir, exist_ok=True)
     dst = os.path.join(dst_dir, NAME)
@@ -51,7 +51,7 @@ def _arduino_ld_dirs():
 
 
 try:
-    Import("env")  # noqa: F821 — SCons, só no PlatformIO
+    Import("env")  # noqa: F821 (SCons, PlatformIO only)
     project = env.subst("$PROJECT_DIR")  # noqa: F821
     src = os.path.join(project, "ld", NAME)
     fw = env.PioPlatform().get_package_dir("framework-arduinoespressif8266")  # noqa: F821
@@ -62,7 +62,7 @@ except NameError:
     dirs = _arduino_ld_dirs()
     if not dirs:
         sys.stderr.write(
-            "OTA: core ESP8266 nao encontrado em .arduino15 / Arduino15\n")
+            "OTA: ESP8266 core not found in .arduino15 / Arduino15\n")
         sys.exit(1)
     for d in dirs:
         _copy(src, d)
