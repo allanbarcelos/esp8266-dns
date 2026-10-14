@@ -509,7 +509,10 @@ private:
     bool _checkCSRF(bool signIn = false) {
         String got = _server.arg("_csrf");
         const char* want = _formToken(signIn);
-        if (!*want || !_spanEq(got.c_str(), got.length(), want, strlen(want), sizeof(_csrfToken) - 1)) {
+        // An empty token never matches. After begin() neither token can be
+        // empty, so this is only a guard: both sides run, no short circuit.
+        // cppcheck-suppress bitwiseOnBoolean
+        if ((*want == '\0') | (!_spanEq(got.c_str(), got.length(), want, strlen(want), sizeof(_csrfToken) - 1))) {
             _server.send(403, "text/plain", "Invalid CSRF token");
             return false;
         }

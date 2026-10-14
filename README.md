@@ -301,7 +301,7 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 499,024 of 500,000 bytes (976 to spare) |
+| Firmware | 499,056 of 500,000 bytes (944 to spare) |
 | Panel text, 4 languages | 313 texts (the pin drawing included), 34 KB as text, 12 KB in flash |
 | Signed OTA package | ~358 KB of 400 KB (about 42 KB free) |
 | Embedded images | 1.1 KB pinout (gzipped SVG), 3.2 KB ESP-01 photo (AVIF, transparent background) |

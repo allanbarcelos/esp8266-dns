@@ -1164,6 +1164,28 @@ void test_password_save_needs_current_password_and_code() {
     TEST_ASSERT_EQUAL_MEMORY(PANEL_TOTP, cfg.totp, sizeof(PANEL_TOTP));   // the key stays
 }
 
+// The first password: there is none to confirm, so no current password or code
+void test_password_save_first_password() {
+    cfg.webpss = "";
+    cfg.webusr = "";
+    std::memset(cfg.totp, 0, sizeof(cfg.totp));
+    Fixture f;
+    f.post("/password/save", {{"user", "admin"}, {"pass1", "secret123"}, {"pass2", "secret123"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("admin",     cfg.webusr.c_str());
+    TEST_ASSERT_EQUAL_STRING("secret123", cfg.webpss.c_str());
+}
+
+// A blank key never matches, even inside a session: its codes are public
+void test_blank_key_code_never_matches() {
+    Fixture f;
+    std::memset(cfg.totp, 0, sizeof(cfg.totp));
+    f.post("/password/save", confirmed({{"user", "admin"}, {"pass1", "secret123"}, {"pass2", "secret123"}}));
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Wrong user, password or code"));
+    TEST_ASSERT_EQUAL_STRING("strong-pass", cfg.webpss.c_str());
+}
+
 void test_password_save_invalid() {
     Fixture f;
     // Each with its own code: a confirmed code is spent even when the new
@@ -2339,7 +2361,7 @@ void test_browser_time_while_clock_not_synced() {
     };
     // Not a time: the form explains the clock, and nothing counts
     const char* bad[] = {"", "abc", "1700100000x", "-1700100000", "1699999999", "4000000000",
-                         "17001000000", " 1700100000"};
+                         "17001000000", " 1700100000", "170010000x"};
     for (const char* t : bad) {
         login(code, t);
         TEST_ASSERT_EQUAL(200, f.srv.code);
@@ -2744,6 +2766,8 @@ int main() {
     RUN_TEST(test_password_page_first_access_without_auth);
     RUN_TEST(test_password_page_with_password);
     RUN_TEST(test_password_save_rotates_csrf);
+    RUN_TEST(test_password_save_first_password);
+    RUN_TEST(test_blank_key_code_never_matches);
     RUN_TEST(test_password_save_invalid);
     RUN_TEST(test_password_save_write_fails);
     RUN_TEST(test_update_initial_page);
