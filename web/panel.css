@@ -153,3 +153,8 @@ legend { padding: 0 6px; font-weight: 600; }
 button[aria-checked=false] { background: none; border: 1px solid var(--ln); color: var(--fg); }
 input[type=range] { padding: 0; }
 input[type=color] { height: 40px; padding: 2px; }
+
+/* Until i18n.js writes the text (html.i), the page stays hidden: no marker
+   shows up. If the script fails, it shows after 2 s anyway. */
+html:not(.i) body { visibility: hidden; animation: v 0s 2s forwards; }
+@keyframes v { to { visibility: visible; } }

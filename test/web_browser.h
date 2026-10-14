@@ -7,12 +7,15 @@
 #include <string>
 #include <base64.h>
 #include "HttpServer.h"
+#include "i18n_en.h"
 
 constexpr int HTTP_GET  = HttpServer::GET;
 constexpr int HTTP_POST = HttpServer::POST;
 
 // Test browser: writes the HTTP request on a new connection, runs one
-// server tick and reads the raw response (status, headers and body).
+// server tick and reads the raw response (status, headers and body). An
+// HTML body is read in English, as i18n.js writes it: out has the text and
+// raw keeps the markers.
 // Without an explicit Authorization, sends the panel login (basicUser/basicPass)
 // if authOk. Arguments go in the query (GET) or the urlencoded body (POST);
 // "plain" becomes the raw body, like curl -d.
@@ -104,5 +107,35 @@ struct MockBrowser {
         }
         contentType = headers["Content-Type"];
         out = tx.substr(end + 4);
+        if (contentType == "text/html") out = english(out);
+    }
+
+    // I18n.h markers (` plus two base-62 characters) → English text. A text
+    // with {0} takes the rest of its text node, up to the next tag or marker.
+    static std::string english(const std::string& s) {
+        static const std::string B62 =
+            "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        std::string o;
+        for (size_t i = 0; i < s.size(); i++) {
+            size_t a = i + 2 < s.size() ? B62.find(s[i + 1]) : std::string::npos;
+            size_t b = i + 2 < s.size() ? B62.find(s[i + 2]) : std::string::npos;
+            size_t n = a * 62 + b;
+            if (s[i] != '`' || a == std::string::npos || b == std::string::npos ||
+                n >= sizeof(I18N_EN) / sizeof(I18N_EN[0])) {
+                o += s[i];   // not a marker: a ` typed by someone stays
+                continue;
+            }
+            std::string t = I18N_EN[n];
+            i += 2;
+            size_t at = t.find("{0}");
+            if (at != std::string::npos) {
+                size_t stop = s.find_first_of("<`", i + 1);
+                if (stop == std::string::npos) stop = s.size();
+                t.replace(at, 3, s.substr(i + 1, stop - i - 1));
+                i = stop - 1;
+            }
+            o += t;
+        }
+        return o;
     }
 };

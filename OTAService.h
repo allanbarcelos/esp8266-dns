@@ -899,11 +899,19 @@ private:
         size_t n = f.readBytes(buf, sizeof(buf) - 1);
         f.close();
         buf[n] = '\0';
+        // "<tag> <boots>" read by hand: sscanf would pull scanf into the link (~2.9 KB)
+        const char* p = buf;
+        while (*p == ' ' || *p == '\n') p++;
         char tag[16];
-        unsigned boots = 0;
-        int got = sscanf(buf, "%15s %u", tag, &boots);
+        size_t t = 0;
+        while (t < sizeof(tag) - 1 && p[t] && p[t] != ' ' && p[t] != '\n') {
+            tag[t] = p[t];
+            t++;
+        }
+        tag[t] = '\0';
+        unsigned boots = (unsigned)strtoul(p + t, nullptr, 10);
         bool isCheck = strcmp(tag, "check") == 0;
-        if (got < 1 || (!isCheck && parseTag(tag) < 0)) {
+        if (t == 0 || (!isCheck && parseTag(tag) < 0)) {
             LittleFS.remove(PENDING_PATH);
             _log.log(PSTR("OTA: invalid recovery request"));
             return;

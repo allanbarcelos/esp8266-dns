@@ -320,6 +320,7 @@ void test_full_round_trip() {
     strlcpy(config.hostname,   "portao",           sizeof(config.hostname));
     config.tz = -180;
     config.bat_sda = 3;
+    strlcpy(config.lang, "pt", sizeof(config.lang));
     config.iot.window = true;
     config.iot.winStart = 22 * 60;
     config.iot.winEnd = 6 * 60;
@@ -331,6 +332,7 @@ void test_full_round_trip() {
     TEST_ASSERT_EQUAL_STRING("portao",           config.hostname);
     TEST_ASSERT_EQUAL(-180, config.tz);
     TEST_ASSERT_EQUAL(3, config.bat_sda);
+    TEST_ASSERT_EQUAL_STRING("pt", config.lang);
     TEST_ASSERT_TRUE(config.iot.window);
     TEST_ASSERT_EQUAL(22 * 60, config.iot.winStart);
     TEST_ASSERT_EQUAL(6 * 60, config.iot.winEnd);
@@ -365,6 +367,7 @@ void test_save_worst_case_fits() {
     std::memset(config.cf_record,  'r', sizeof(config.cf_record) - 1);
     std::memset(config.dev_name,   'd', sizeof(config.dev_name) - 1);
     std::memset(config.hostname,   'o', sizeof(config.hostname) - 1);
+    std::memset(config.lang,       'l', sizeof(config.lang) - 1);
     std::memset(config.iot.sensor,   's', sizeof(config.iot.sensor) - 1);
     std::memset(config.iot.actuator, 'a', sizeof(config.iot.actuator) - 1);
     std::memset(config.iot.onText,   'o', sizeof(config.iot.onText) - 1);

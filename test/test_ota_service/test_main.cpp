@@ -623,6 +623,43 @@ void test_invalid_pending_request() {
     TEST_ASSERT_TRUE(logHas(logger, "invalid recovery request"));
 }
 
+void test_blank_pending_request() {
+    MockFS::put("/ota.pending", " \n");
+    Fixture f;
+    f.ota.begin();
+    TEST_ASSERT_FALSE(f.ota.slim());
+    TEST_ASSERT_FALSE(LittleFS.exists("/ota.pending"));
+    TEST_ASSERT_TRUE(logHas(logger, "invalid recovery request"));
+}
+
+// A tag longer than 15 characters is cut there: not a version, so it goes away
+void test_long_pending_request() {
+    MockFS::put("/ota.pending", "v1234567890123456789 1");
+    Fixture f;
+    f.ota.begin();
+    TEST_ASSERT_FALSE(f.ota.slim());
+    TEST_ASSERT_FALSE(LittleFS.exists("/ota.pending"));
+    TEST_ASSERT_TRUE(logHas(logger, "invalid recovery request"));
+}
+
+// Leading space and a newline at the end, as an editor would leave it
+void test_pending_request_with_spaces() {
+    MockFS::put("/ota.pending", " v42 2\n");
+    Fixture f;
+    f.ota.begin();
+    TEST_ASSERT_TRUE(f.ota.slim());
+    TEST_ASSERT_EQUAL_STRING("v42 3", MockFS::files["/ota.pending"].c_str());
+}
+
+// The tag ends at the newline: no counter, first attempt
+void test_pending_request_ending_in_newline() {
+    MockFS::put("/ota.pending", "v42\n");
+    Fixture f;
+    f.ota.begin();
+    TEST_ASSERT_TRUE(f.ota.slim());
+    TEST_ASSERT_EQUAL_STRING("v42 1", MockFS::files["/ota.pending"].c_str());
+}
+
 void test_pending_request_without_counter() {
     MockFS::put("/ota.pending", "v42");
     Fixture f;
@@ -1248,6 +1285,10 @@ int main() {
     RUN_TEST(test_recovery_up_to_date_restores_panel);
     RUN_TEST(test_loads_pending_request);
     RUN_TEST(test_invalid_pending_request);
+    RUN_TEST(test_blank_pending_request);
+    RUN_TEST(test_long_pending_request);
+    RUN_TEST(test_pending_request_with_spaces);
+    RUN_TEST(test_pending_request_ending_in_newline);
     RUN_TEST(test_pending_request_without_counter);
     RUN_TEST(test_crash_spends_a_boot);
     RUN_TEST(test_rejected_image_is_not_downloaded_again);

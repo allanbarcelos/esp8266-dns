@@ -2,7 +2,7 @@
 
 Status on 2026-10-13. The list came from the documents of the same day: [Status and next steps](STATUS-AND-NEXT-STEPS.md), [What to port from Tasmota](PORTING-FROM-TASMOTA.md) and [Battery and solar panel](BATTERY-AND-SOLAR.md), plus the README's remote log. The round implemented items 5, 6, 7, 8, 10 and 11, one commit per item. Item 7 came first because it freed the room for the others.
 
-After the round, the adjustments and the move to English at the end of this page, the firmware is **494,384 bytes**, under the 500,000 cap (5,616 to spare). Before the lean server it was 499,312. There are 417 native tests, with 100 % of functions and branches.
+After the round, the adjustments and the move to English at the end of this page, the firmware is **497,936 bytes**, under the 500,000 cap (2,064 to spare). Before the lean server it was 499,312. There are 423 native tests, with 100 % of functions and branches.
 
 ## Do not change the firmware
 
@@ -58,3 +58,5 @@ After the round, the adjustments and the move to English at the end of this page
 | `bd5b75b` | Time zone picked from a list of the 38 official zones (UTC−12 to UTC+14), each with an example place; no automatic daylight saving | 495,456 |
 | `e2319b4` | Source, tests and public interface (commands, identifiers, panel, logs) in English | 494,416 |
 | `39d0393` | Tooling, CI and the web installer in English; the installer still reads the AP password from firmware that prints `senha:` | 494,416 |
+| `3d65b57` | Pin drawing on the IoT page in English | 494,384 |
+| Panel in four languages | Panel in English, Portuguese, Spanish and French (Settings, or the browser's language), from one compressed table decoded by the browser; `sscanf` replaced by a hand parser (−3,152 bytes) to make room | 497,936 |

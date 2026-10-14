@@ -257,7 +257,8 @@ void test_root_setup_mode_first_access() {
     TEST_ASSERT_TRUE(contains(f.out(), "</html>"));
     // AP mode has no internet: the style comes from the device itself, nothing external
     TEST_ASSERT_TRUE(contains(f.out(), "<link rel='stylesheet' href='/s.css?v=" WEB_CSS_TAG "'>"));
-    TEST_ASSERT_FALSE(contains(f.out(), "<script src"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<script src='/i18n.js?v=" WEB_I18N_TAG "#'></script>"));
+    TEST_ASSERT_FALSE(contains(f.out(), "<script src='http"));
     TEST_ASSERT_FALSE(contains(f.out(), "https://"));
 }
 
@@ -365,7 +366,8 @@ void test_embedded_device_image() {
     TEST_ASSERT_EQUAL(0u, f.srv.headers.count("Content-Encoding"));
 }
 
-// Panel CSS and JS: gzipped, public (the first setup page uses them)
+// Panel CSS and JS: gzipped, public (the first setup page uses them) and,
+// with the content hash in the URL, cached for a year
 static void assetGz(const char* path, const char* type, size_t len) {
     cfg.webpss = "";
     Fixture f;
@@ -373,7 +375,7 @@ static void assetGz(const char* path, const char* type, size_t len) {
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL_STRING(type, f.srv.contentType.c_str());
     TEST_ASSERT_EQUAL_STRING("gzip", f.srv.headers["Content-Encoding"].c_str());
-    TEST_ASSERT_EQUAL_STRING("max-age=604800", f.srv.headers["Cache-Control"].c_str());
+    TEST_ASSERT_EQUAL_STRING("max-age=31536000, immutable", f.srv.headers["Cache-Control"].c_str());
     TEST_ASSERT_EQUAL(len, f.out().size());
     TEST_ASSERT_EQUAL_HEX8(0x1f, (uint8_t)f.out()[0]);
     TEST_ASSERT_EQUAL_HEX8(0x8b, (uint8_t)f.out()[1]);
@@ -382,8 +384,10 @@ static void assetGz(const char* path, const char* type, size_t len) {
 void test_gzipped_css_and_js() {
     assetGz("/s.css", "text/css", sizeof(WEB_CSS_GZ));
     assetGz("/iot.js", "text/javascript", sizeof(WEB_IOT_GZ));
+    assetGz("/i18n.js", "text/javascript", sizeof(WEB_I18N_GZ));
     TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_CSS_TAG));
     TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_IOT_TAG));
+    TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_I18N_TAG));
 }
 
 void test_embedded_gzipped_svg_pinout() {
@@ -392,6 +396,7 @@ void test_embedded_gzipped_svg_pinout() {
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL_STRING("image/svg+xml", f.srv.contentType.c_str());
     TEST_ASSERT_EQUAL_STRING("gzip", f.srv.headers["Content-Encoding"].c_str());
+    TEST_ASSERT_EQUAL_STRING("max-age=604800", f.srv.headers["Cache-Control"].c_str());   // no hash in the URL
     TEST_ASSERT_EQUAL(sizeof(ASSET_PINOUT_GZ), f.out().size());
     TEST_ASSERT_EQUAL_HEX8(0x1f, (uint8_t)f.out()[0]);   // gzip signature
     TEST_ASSERT_EQUAL_HEX8(0x8b, (uint8_t)f.out()[1]);
@@ -594,6 +599,50 @@ void test_time_zone() {
     }
     TEST_ASSERT_EQUAL(-180, cfg.tz);
     TEST_ASSERT_EQUAL_STRING("", cfg.dev_name);
+}
+
+// Panel language: Settings saves it and the footer passes it to i18n.js,
+// after the #; blank = the browser's. The page itself carries markers, not
+// English (out is the English that the test browser writes back).
+void test_panel_language() {
+    Fixture f;
+    f.get("/config");
+    TEST_ASSERT_TRUE(contains(f.out(), "<select name='lang'><option value='' selected>Browser language</option>"
+                                       "<option value='en'>English</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value='fr'>Français</option></select>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "#'></script></body></html>"));
+    TEST_ASSERT_TRUE(contains(f.srv.raw, L_SETTINGS));
+    TEST_ASSERT_FALSE(contains(f.srv.raw, "Settings"));
+    TEST_ASSERT_FALSE(contains(f.srv.raw, "Browser language"));
+
+    f.post("/config/save", {{"name", ""}, {"hostname", ""}, {"lang", "pt"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("pt", cfg.lang);
+    f.get("/config");
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value=''>Browser language</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value='pt' selected>Português</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<script src='/i18n.js?v=" WEB_I18N_TAG "#pt'></script>"));
+
+    // Off the list: refused, nothing changes
+    const char* bad[] = {"de", "p", "ptx", "PT"};
+    for (const char* v : bad) {
+        f.post("/config/save", {{"name", ""}, {"hostname", ""}, {"lang", v}});
+        TEST_ASSERT_EQUAL(400, f.srv.code);
+        TEST_ASSERT_TRUE(contains(f.out(), "Invalid language"));
+    }
+    TEST_ASSERT_EQUAL_STRING("pt", cfg.lang);
+
+    // Without the field (an old form): back to the browser's
+    f.post("/config/save", {{"name", ""}, {"hostname", ""}});
+    TEST_ASSERT_EQUAL_STRING("", cfg.lang);
+}
+
+// The footer escapes what came from the file, even if it is not a language
+void test_panel_language_escaped() {
+    strlcpy(cfg.lang, "'>", sizeof(cfg.lang));
+    Fixture f;
+    f.get("/status");
+    TEST_ASSERT_TRUE(contains(f.out(), "#&#39;&gt;'></script>"));
 }
 
 void test_local_time_on_status() {
@@ -1095,7 +1144,9 @@ void test_iot_page_with_nothing_set() {
     TEST_ASSERT_TRUE(contains(f.out(), "var SK={dht22:3,dht11:2"));
     TEST_ASSERT_TRUE(contains(f.out(), "strip:4},T='"));
     TEST_ASSERT_TRUE(contains(f.out(), f.web.csrfToken()));
-    TEST_ASSERT_TRUE(contains(f.out(), "';</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "';</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
+    // i18n.js before iot.js: the form script uses L() and the translated names
+    TEST_ASSERT_TRUE(f.out().find("/i18n.js?v=") < f.out().find("var SK={"));
     // With nothing in use: no "Now" card (iot.js only reads live with ns/na)
     TEST_ASSERT_FALSE(contains(f.out(), "<h2>Now</h2>"));
     TEST_ASSERT_FALSE(contains(f.out(), "id='ns'"));
@@ -1869,6 +1920,8 @@ int main() {
     RUN_TEST(test_settings_save_name_and_hostname);
     RUN_TEST(test_settings_refuse_invalid_name_or_hostname);
     RUN_TEST(test_time_zone);
+    RUN_TEST(test_panel_language);
+    RUN_TEST(test_panel_language_escaped);
     RUN_TEST(test_local_time_on_status);
     RUN_TEST(test_iot_time_window);
     RUN_TEST(test_iot_sht3x_uses_two_pins);

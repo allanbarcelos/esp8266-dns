@@ -17,11 +17,16 @@
 #include "PowerService.h"
 #include "Assets.h"
 #include "WebAssets.h"
+#include "I18n.h"
 
 // ── PROGMEM ───────────────────────────────────────────────────────────────────
 // Header split so a <meta refresh> can go before </head>. The CSS
 // (web/panel.css) comes from the device itself, gzipped and cached: in AP
 // mode there is no internet to fetch a framework.
+//
+// Panel text goes out as I18n.h markers (L_...): /i18n.js, also from the
+// device and cached, writes the page in the language from Settings or the
+// browser's. Logs and the API stay in English.
 
 static const char _HTML_HEAD_A[] PROGMEM =
     "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
@@ -33,15 +38,22 @@ static const char _HTML_HEAD_B[] PROGMEM =
     "</head><body><header><b>&#9679; ";
 
 static const char _HTML_HEAD_C[] PROGMEM =
-    "<nav aria-label='Menu'><a href='/'>Home</a><a href='/status'>Status</a>"
-    "<a href='/log'>Logs</a><a href='/cloudflare'>Cloudflare</a><a href='/ntfy'>Ntfy</a><a href='/mqtt'>MQTT</a>"
-    "<a href='/iot'>IoT</a><a href='/config'>Settings</a><a href='/update'>Update</a>"
-    "<a href='/password'>Password</a>"
+    "<nav aria-label='" L_MENU "'><a href='/'>" L_HOME "</a><a href='/status'>" L_STATUS "</a>"
+    "<a href='/log'>" L_LOGS "</a><a href='/cloudflare'>Cloudflare</a><a href='/ntfy'>Ntfy</a><a href='/mqtt'>MQTT</a>"
+    "<a href='/iot'>IoT</a><a href='/config'>" L_SETTINGS "</a><a href='/update'>" L_UPDATE "</a>"
+    "<a href='/password'>" L_PASSWORD "</a>"
     "</nav></header><main>";
 
 static const char _HTML_FOOT_A[] PROGMEM = "</main><footer>Firmware: ";
 
-static const char _HTML_FOOT_B[] PROGMEM = "</footer></body></html>";
+// The panel language goes after the #: the browser does not send it, so
+// the cache keeps a single copy of i18n.js
+static const char _HTML_FOOT_B[] PROGMEM =
+    "</footer><script src='/i18n.js?v=" WEB_I18N_TAG "#";
+
+// Panel languages (Settings), in their own names; "" = the browser's
+static const char* const _LANG_CODES[] = {"en", "pt", "es", "fr"};
+static const char* const _LANG_NAMES[] = {"English", "Português", "Español", "Français"};
 
 // Official time zones, from UTC-12 to UTC+14, in minutes, and a place for
 // each (same order, separated by \0). No daylight saving: whoever has it
@@ -224,9 +236,11 @@ private:
             if (!strcmp_P(p, PSTR("/esp01.webp")))
                 return _asset("image/webp", ASSET_PHOTO, sizeof(ASSET_PHOTO), false);
             if (!strcmp_P(p, PSTR("/s.css")))
-                return _asset("text/css", WEB_CSS_GZ, sizeof(WEB_CSS_GZ), true);
+                return _asset("text/css", WEB_CSS_GZ, sizeof(WEB_CSS_GZ), true, true);
             if (!strcmp_P(p, PSTR("/iot.js")))
-                return _asset("text/javascript", WEB_IOT_GZ, sizeof(WEB_IOT_GZ), true);
+                return _asset("text/javascript", WEB_IOT_GZ, sizeof(WEB_IOT_GZ), true, true);
+            if (!strcmp_P(p, PSTR("/i18n.js")))
+                return _asset("text/javascript", WEB_I18N_GZ, sizeof(WEB_I18N_GZ), true, true);
             if (!strcmp_P(p, PSTR("/pinout.svg")))
                 return _asset("image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ), true);
         } else if (_server.method() == HttpServer::POST) {
@@ -346,15 +360,15 @@ private:
         _p(s == PowerService::BATTERY && _power->percent() < 20 ? PSTR("<span class='pw lo'")
                                                                  : PSTR("<span class='pw'"));
         if (s == PowerService::MAINS) {
-            _p(PSTR(" title='On supply'>&#9889; Power</span>"));
+            _p(PSTR(" title='" L_ON_SUPPLY "'>&#9889; " L_POWER "</span>"));
             return;
         }
         if (s == PowerService::UNKNOWN) {
-            _p(PSTR(" title='Gauge not answering'>&#128267; Battery ?</span>"));
+            _p(PSTR(" title='" L_GAUGE_SILENT "'>&#128267; " L_BATTERY " ?</span>"));
             return;
         }
-        _p(s == PowerService::CHARGING ? PSTR(" title='Battery charging'>&#9728; Charging ")
-                                       : PSTR(" title='On battery'>&#128267; Battery "));
+        _p(s == PowerService::CHARGING ? PSTR(" title='" L_BATTERY_CHARGING "'>&#9728; " L_CHARGING " ")
+                                       : PSTR(" title='" L_ON_BATTERY "'>&#128267; " L_BATTERY " "));
         _s(String(_power->percent()));
         _p(PSTR("%</span>"));
     }
@@ -365,10 +379,18 @@ private:
         else _p(PSTR("ESP8266 DNS"));
     }
 
-    void _pageEnd() {
+    // Footer and the translation; then the page's own scripts, if any
+    void _pageFoot() {
         _p(_HTML_FOOT_A);
         _s(firmware_version);
         _p(_HTML_FOOT_B);
+        _s(escape(_cfg.lang));
+        _p(PSTR("'></script>"));
+    }
+
+    void _pageEnd() {
+        _pageFoot();
+        _p(PSTR("</body></html>"));
     }
 
     // A page with no known length ends when the connection closes
@@ -478,7 +500,7 @@ private:
     void _backButton(PGM_P backHref) {
         _p(PSTR("<a class='b b2' href='"));
         _p(backHref);
-        _p(PSTR("'>Back</a>"));
+        _p(PSTR("'>" L_BACK "</a>"));
     }
 
     // Confirmation page with an automatic redirect
@@ -504,7 +526,7 @@ private:
         String v = _server.arg(name);
         v.trim();
         if (v.length() >= size) {
-            _errorPage(PSTR("Value too long"), backHref);
+            _errorPage(PSTR(L_VALUE_TOO_LONG), backHref);
             return false;
         }
         strlcpy(dst, v.c_str(), size);
@@ -517,15 +539,15 @@ private:
         String pass1 = _server.arg("pass1");
         user.trim();
         if (user.length() == 0 || user.length() > 32) {
-            _errorPage(PSTR("Invalid user"), backHref);
+            _errorPage(PSTR(L_INVALID_USER), backHref);
             return false;
         }
         if (pass1 != _server.arg("pass2")) {
-            _errorPage(PSTR("The passwords do not match"), backHref);
+            _errorPage(PSTR(L_PASS_MISMATCH), backHref);
             return false;
         }
         if (pass1.length() < MIN_PANEL_PASSWORD_LEN || pass1.length() > 64) {
-            _errorPage(PSTR("The password must have 8 to 64 characters"), backHref);
+            _errorPage(PSTR(L_PASS_LENGTH), backHref);
             return false;
         }
         _cfg.webusr = user;
@@ -536,7 +558,7 @@ private:
     void _otaProgressBar() {
         if (!_ota.inProgress()) return;
         String pct(_ota.progressPercent());
-        _p(PSTR("<div class='a' role='status'>OTA in progress: <b>"));
+        _p(PSTR("<div class='a' role='status'>" L_OTA_PROGRESS " <b>"));
         _s(pct);
         _p(PSTR("%</b><progress max='100' value='"));
         _s(pct);
@@ -555,32 +577,32 @@ private:
         _deviceMark();
 
         if (_wifi.inConfigMode()) {
-            _alertP(PSTR("warning"), PSTR("Setup mode - connect to Wi-Fi"));
+            _alertP(PSTR("warning"), PSTR(L_SETUP_MODE));
             _p(PSTR("<form action='/save' method='POST'>"));
             _csrfField();
             _input(PSTR("SSID"), PSTR("ssid"), _cfg.ssid, PSTR("required maxlength='32'"));
-            _passwordInput(PSTR("Wi-Fi password"), PSTR("pass"), PSTR("maxlength='63'"));
+            _passwordInput(PSTR(L_WIFI_PASSWORD), PSTR("pass"), PSTR("maxlength='63'"));
             if (_cfg.webpss.length() == 0) {
-                _p(PSTR("<h2>Panel access</h2>"));
-                _input(PSTR("User"), PSTR("user"), _cfg.webusr.length() ? _cfg.webusr : String("admin"),
+                _p(PSTR("<h2>" L_PANEL_ACCESS "</h2>"));
+                _input(PSTR(L_USER), PSTR("user"), _cfg.webusr.length() ? _cfg.webusr : String("admin"),
                        PSTR("required maxlength='32'"));
-                _passwordInput(PSTR("Panel password (min. 8)"), PSTR("pass1"), PSTR("required minlength='8'"));
-                _passwordInput(PSTR("Confirm password"), PSTR("pass2"), PSTR("required minlength='8'"));
+                _passwordInput(PSTR(L_PANEL_PASS_MIN), PSTR("pass1"), PSTR("required minlength='8'"));
+                _passwordInput(PSTR(L_CONFIRM_PASS), PSTR("pass2"), PSTR("required minlength='8'"));
             }
-            _button(PSTR("Connect"));
+            _button(PSTR(L_CONNECT));
         } else {
             _otaProgressBar();
 
-            _box(PSTR("Network"));
+            _box(PSTR(L_NETWORK));
             _row(PSTR("SSID"),       WiFi.SSID());
-            _row(PSTR("Local IP"),   WiFi.localIP().toString());
-            _row(PSTR("Public IP"), _cfg.publicIP[0] ? String(_cfg.publicIP) : String("-"));
+            _row(PSTR(L_LOCAL_IP),   WiFi.localIP().toString());
+            _row(PSTR(L_PUBLIC_IP), _cfg.publicIP[0] ? String(_cfg.publicIP) : String("-"));
             _row(PSTR("RSSI"),       String(WiFi.RSSI()) + " dBm");
             _boxEnd();
 
             _box(PSTR("DNS Cloudflare"));
             _row(PSTR("Host"), _cfg.cf_host[0] ? String(_cfg.cf_host) : String("-"));
-            _row(PSTR("Last update"), _ago(_cfg.lastDnsUpdate != 0, _cfg.lastDnsUpdate));
+            _row(PSTR(L_LAST_UPDATE), _ago(_cfg.lastDnsUpdate != 0, _cfg.lastDnsUpdate));
             _boxEnd();
         }
 
@@ -591,19 +613,23 @@ private:
     void _handleConfig() {
         if (!_guard()) return;
         _pageBegin();
-        _title(PSTR("Settings"));
+        _title(PSTR(L_SETTINGS));
         _p(PSTR("<form action='/config/save' method='POST'>"));
         _csrfField();
-        _input(PSTR("Name <span class='m'>(panel and Home Assistant)</span>"), PSTR("name"),
+        _input(PSTR(L_NAME " <span class='m'>" L_NAME_HINT "</span>"), PSTR("name"),
                _cfg.dev_name, PSTR("maxlength='31' placeholder='ESP8266 DNS'"));
-        _input(PSTR("Hostname <span class='m'>(router; applies on the next connection)</span>"),
+        _input(PSTR("Hostname <span class='m'>" L_HOSTNAME_HINT "</span>"),
                PSTR("hostname"), _cfg.hostname,
                PSTR("maxlength='32' pattern='[A-Za-z0-9]([A-Za-z0-9\\-]*[A-Za-z0-9])?'"));
         _tzSelect();
-        _pinSelect(PSTR("MAX17048 battery gauge <span class='m'>(SDA; SCL goes on the pair: "
-                        "GPIO0 with GPIO2, RX with TX)</span>"), PSTR("bat_sda"), _cfg.bat_sda,
-                   PSTR("None"));
-        _button(PSTR("Save"));
+        _pinSelect(PSTR(L_GAUGE " <span class='m'>" L_GAUGE_HINT "</span>"), PSTR("bat_sda"), _cfg.bat_sda,
+                   PSTR(L_NONE));
+        _selectOpen(PSTR(L_LANGUAGE), PSTR("lang"));
+        _option("", PSTR(L_BROWSER_LANG), !_cfg.lang[0]);
+        for (size_t i = 0; i < sizeof(_LANG_CODES) / sizeof(_LANG_CODES[0]); i++)
+            _option(_LANG_CODES[i], _LANG_NAMES[i], strcmp(_cfg.lang, _LANG_CODES[i]) == 0);
+        _selectEnd();
+        _button(PSTR(L_SAVE));
         _pageEnd();
     }
 
@@ -614,11 +640,11 @@ private:
         String ssid = _server.arg("ssid");
         String pass = _server.arg("pass");
         if (ssid.length() == 0 || ssid.length() > 32) {
-            _errorPage(PSTR("Invalid SSID"), PSTR("/"));
+            _errorPage(PSTR(L_INVALID_SSID), PSTR("/"));
             return;
         }
         if (pass.length() > 63 || (pass.length() > 0 && pass.length() < 8)) {
-            _errorPage(PSTR("The Wi-Fi password must have 8 to 63 characters"), PSTR("/"));
+            _errorPage(PSTR(L_WIFI_PASS_LENGTH), PSTR("/"));
             return;
         }
         if (_cfg.webpss.length() == 0 && !_readPanelCredentials("/")) return;
@@ -626,16 +652,17 @@ private:
         _cfg.ssid = ssid;
         _cfg.pass = pass;
         if (!_store.save()) {
-            _errorPage(PSTR("Could not save the configuration"), PSTR("/"));
+            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/"));
             return;
         }
-        _savedPage(PSTR("Wi-Fi set! Restarting..."), PSTR("/"));
+        _savedPage(PSTR(L_WIFI_SET), PSTR("/"));
         _wifi.scheduleRestart(2000);
     }
 
     // Name: up to 31 bytes, with no quotes, backslash or control characters
     // (it goes unescaped into the discovery JSON). Hostname: letters, digits
-    // and hyphen, with no hyphen at either end (RFC 1123).
+    // and hyphen, with no hyphen at either end (RFC 1123). Language: one of
+    // _LANG_CODES, or blank for the browser's.
     void _handleConfigSave() {
         if (!_guard()) return;
         if (!_checkCSRF()) return;
@@ -644,13 +671,21 @@ private:
         int16_t tz = 0;
         String tzArg = _server.arg("tz");
         if (tzArg.length() && (!IoTService::parseI16(tzArg, -720, 840, tz) || !validTz(tz))) {
-            _errorPage(PSTR("Invalid time zone"), PSTR("/config"));
+            _errorPage(PSTR(L_INVALID_TZ), PSTR("/config"));
+            return;
+        }
+        String lang = _server.arg("lang");
+        bool known = lang.length() == 0;
+        for (size_t i = 0; !known && i < sizeof(_LANG_CODES) / sizeof(_LANG_CODES[0]); i++)
+            known = lang == _LANG_CODES[i];
+        if (!known) {
+            _errorPage(PSTR(L_INVALID_LANG), PSTR("/config"));
             return;
         }
         int8_t bat = -1;
         String batArg = _server.arg("bat_sda");
         if (batArg.length() && (!IoTService::parsePin(batArg, bat) || !PowerService::pinsFree(bat, _cfg.iot))) {
-            _errorPage(PSTR("The gauge pins are taken by the sensor or the actuator"), PSTR("/config"));
+            _errorPage(PSTR(L_GAUGE_PINS_TAKEN), PSTR("/config"));
             return;
         }
         name.trim();
@@ -661,7 +696,7 @@ private:
             ok = c >= 0x20 && c != '"' && c != '\\' && c != 0x7F;
         }
         if (!ok) {
-            _errorPage(PSTR("Invalid name (up to 31 characters, no quotes)"), PSTR("/config"));
+            _errorPage(PSTR(L_INVALID_NAME), PSTR("/config"));
             return;
         }
         size_t n = host.length();
@@ -671,27 +706,28 @@ private:
             ok = isalnum((unsigned char)c) || c == '-';
         }
         if (!ok) {
-            _errorPage(PSTR("Invalid hostname (letters, digits and hyphen)"), PSTR("/config"));
+            _errorPage(PSTR(L_INVALID_HOSTNAME), PSTR("/config"));
             return;
         }
         strlcpy(_cfg.dev_name, name.c_str(), sizeof(_cfg.dev_name));
         strlcpy(_cfg.hostname, host.c_str(), sizeof(_cfg.hostname));
         _cfg.tz = tz;
         _cfg.bat_sda = bat;
+        strlcpy(_cfg.lang, lang.c_str(), sizeof(_cfg.lang));
         if (!_store.save()) {
-            _errorPage(PSTR("Could not save the configuration"), PSTR("/config"));
+            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/config"));
             return;
         }
         if (_cfg.hostname[0]) WiFi.hostname(_cfg.hostname);
         if (_mqtt) _mqtt->reconnect();   // discovery carries the new name
         if (_power) _power->begin();
-        _savedPage(PSTR("Settings saved!"), PSTR("/config"));
+        _savedPage(PSTR(L_SETTINGS_SAVED), PSTR("/config"));
     }
 
     void _handleLog() {
         if (!_guard()) return;
         _pageBegin();
-        _title(PSTR("System log"));
+        _title(PSTR(L_SYSTEM_LOG));
         _p(PSTR("<pre>"));
         uint8_t cnt   = _log.count();
         uint8_t start = _log.startIndex();
@@ -706,78 +742,78 @@ private:
     void _handleStatus() {
         if (!_guard()) return;
         _pageBegin(30);
-        _title(PSTR("Status"));
+        _title(PSTR(L_STATUS));
 
         _otaProgressBar();
 
-        _box(PSTR("System"));
-        _row(PSTR("Uptime"),  formatDuration(millis()));
-        _row(PSTR("Local time"), _localTime());
-        _row(PSTR("Reset"),   ESP.getResetReason());
-        _row(PSTR("Cause"),   ESP.getResetInfo());
-        _row(PSTR("Chip ID"), String(ESP.getChipId(), HEX));
-        _row(PSTR("AP password " AP_SSID), _wifi.apPassword());
+        _box(PSTR(L_SYSTEM));
+        _row(PSTR(L_UPTIME),  formatDuration(millis()));
+        _row(PSTR(L_LOCAL_TIME), _localTime());
+        _row(PSTR(L_RESET),   ESP.getResetReason());
+        _row(PSTR(L_CAUSE),   ESP.getResetInfo());
+        _row(PSTR(L_CHIP_ID), String(ESP.getChipId(), HEX));
+        _row(PSTR(L_AP_PASSWORD " " AP_SSID), _wifi.apPassword());
         _row(PSTR("CPU"),     String(ESP.getCpuFreqMHz()) + " MHz");
         _row(PSTR("SDK"),     String(ESP.getSdkVersion()));
         _boxEnd();
 
-        _box(PSTR("Memory"));
-        _row(PSTR("Free heap"),   formatBytes(ESP.getFreeHeap()));
-        _row(PSTR("Largest block"),  formatBytes(ESP.getMaxFreeBlockSize()));
-        _row(PSTR("Fragmentation"), String(ESP.getHeapFragmentation()) + "%");
+        _box(PSTR(L_MEMORY));
+        _row(PSTR(L_FREE_HEAP),   formatBytes(ESP.getFreeHeap()));
+        _row(PSTR(L_LARGEST_BLOCK),  formatBytes(ESP.getMaxFreeBlockSize()));
+        _row(PSTR(L_FRAGMENTATION), String(ESP.getHeapFragmentation()) + "%");
         _boxEnd();
 
         _box(PSTR("Flash"));
         _row(PSTR("Total"),      formatBytes(ESP.getFlashChipSize()));
         _row(PSTR("Sketch"),     formatBytes(ESP.getSketchSize()));
-        _row(PSTR("OTA reserve"), formatBytes(FlashLayout::OTA_RESERVE));
-        _row(PSTR("Free"),      formatBytes(ESP.getFreeSketchSpace()));
+        _row(PSTR(L_OTA_RESERVE), formatBytes(FlashLayout::OTA_RESERVE));
+        _row(PSTR(L_FREE),      formatBytes(ESP.getFreeSketchSpace()));
         _boxEnd();
 
         _box(PSTR("LittleFS"));
         FSInfo fs;
         LittleFS.info(fs);
         _row(PSTR("Total"), formatBytes((uint32_t)fs.totalBytes));
-        _row(PSTR("Used"), formatBytes((uint32_t)fs.usedBytes));
+        _row(PSTR(L_USED), formatBytes((uint32_t)fs.usedBytes));
         Dir dir = LittleFS.openDir("/");
         int fc = 0;
         while (dir.next()) fc++;
-        _row(PSTR("Files"), String(fc));
+        _row(PSTR(L_FILES), String(fc));
         _boxEnd();
 
         _box(PSTR("Wi-Fi"));
         bool con = WiFi.isConnected();
         _row(PSTR("SSID"),    con ? WiFi.SSID()                 : String("-"));
         _row(PSTR("IP"),      con ? WiFi.localIP().toString()   : String("-"));
-        _row(PSTR("Gateway"), con ? WiFi.gatewayIP().toString() : String("-"));
-        _row(PSTR("Netmask"), con ? WiFi.subnetMask().toString(): String("-"));
+        _row(PSTR(L_GATEWAY), con ? WiFi.gatewayIP().toString() : String("-"));
+        _row(PSTR(L_NETMASK), con ? WiFi.subnetMask().toString(): String("-"));
         _row(PSTR("DNS"),     con ? WiFi.dnsIP().toString()     : String("-"));
         _row(PSTR("MAC"),     WiFi.macAddress());
         _row(PSTR("RSSI"),    String(WiFi.RSSI()) + " dBm");
         _boxEnd();
 
         if (_power && _power->configured()) {
-            _box(PSTR("Battery"));
+            _box(PSTR(L_BATTERY));
             bool ok = _power->source() != PowerService::UNKNOWN;
-            _row(PSTR("State"), PowerService::name(_power->source()));
-            _row(PSTR("Charge"),  ok ? String(_power->percent()) + "%" : String("-"));
+            _row(PSTR(L_STATE), PowerService::name(_power->source()));
+            _row(PSTR(L_CHARGE),  ok ? String(_power->percent()) + "%" : String("-"));
             char b[16];
             snprintf(b, sizeof(b), "%u.%02u V", _power->millivolts() / 1000u,
                      (_power->millivolts() % 1000u) / 10u);
-            _row(PSTR("Voltage"), ok ? String(b) : String("-"));
+            _row(PSTR(L_VOLTAGE), ok ? String(b) : String("-"));
             int r = _power->rateTenths();
             snprintf(b, sizeof(b), "%s%d.%d %%/h", r < 0 ? "-" : "", abs(r) / 10, abs(r) % 10);
-            _row(PSTR("Rate"), ok ? String(b) : String("-"));
+            _row(PSTR(L_RATE), ok ? String(b) : String("-"));
             _boxEnd();
         }
 
         // Checked every 5 min (PublicIPResolver); reverse name from the network's DNS
-        _box(PSTR("Public IP"));
+        _box(PSTR(L_PUBLIC_IP));
         bool ip = _cfg.publicIP[0];
         _row(PSTR("IP"),      ip ? String(_cfg.publicIP) : String("-"));
-        _row(PSTR("Reverse"), _cfg.publicHost[0] ? String(_cfg.publicHost) : String("-"));
-        _row(PSTR("Changed"),   _ago(ip, _cfg.ipChanged));
-        _row(PSTR("Last check"), _ago(ip, _cfg.ipChecked));
+        _row(PSTR(L_REVERSE), _cfg.publicHost[0] ? String(_cfg.publicHost) : String("-"));
+        _row(PSTR(L_CHANGED),   _ago(ip, _cfg.ipChanged));
+        _row(PSTR(L_LAST_CHECK), _ago(ip, _cfg.ipChecked));
         _boxEnd();
 
         _pageEnd();
@@ -789,21 +825,21 @@ private:
         _title(PSTR("Cloudflare DDNS"));
 
         if (_cfg.cf_token[0])
-            _alert(PSTR("success"), "Token set: " + maskSecret(_cfg.cf_token));
+            _alert(PSTR("success"), L_TOKEN_SET " " + maskSecret(_cfg.cf_token));
         else
-            _alertP(PSTR("warning"), PSTR("Token not set"));
+            _alertP(PSTR("warning"), PSTR(L_TOKEN_NOT_SET));
 
         _p(PSTR("<form action='/cloudflare/save' method='POST'>"));
         _csrfField();
 
         // Token: an empty field keeps the current one; a filled one replaces it
-        _passwordInput(PSTR("API Token <span class='m'>(leave blank to keep)</span>"),
-                       PSTR("token"), PSTR("placeholder='New token' maxlength='47'"));
-        _input(PSTR("Zone ID"), PSTR("zone"), _cfg.cf_zone, PSTR("maxlength='39'"));
-        _input(PSTR("Hostname (display)"), PSTR("host"), _cfg.cf_host, PSTR("maxlength='63'"));
-        _input(PSTR("Record ID"), PSTR("record"), _cfg.cf_record, PSTR("maxlength='39'"));
+        _passwordInput(PSTR(L_API_TOKEN " <span class='m'>" L_KEEP_BLANK "</span>"),
+                       PSTR("token"), PSTR("placeholder='" L_NEW_TOKEN "' maxlength='47'"));
+        _input(PSTR(L_ZONE_ID), PSTR("zone"), _cfg.cf_zone, PSTR("maxlength='39'"));
+        _input(PSTR(L_HOSTNAME_DISPLAY), PSTR("host"), _cfg.cf_host, PSTR("maxlength='63'"));
+        _input(PSTR(L_RECORD_ID), PSTR("record"), _cfg.cf_record, PSTR("maxlength='39'"));
 
-        _button(PSTR("Save"));
+        _button(PSTR(L_SAVE));
         _pageEnd();
     }
 
@@ -828,50 +864,44 @@ private:
         strlcpy(_cfg.cf_record, record, sizeof(_cfg.cf_record));
 
         if (!_store.save()) {
-            _errorPage(PSTR("Could not save the configuration"), PSTR("/cloudflare"));
+            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/cloudflare"));
             return;
         }
-        _savedPage(PSTR("Cloudflare set!"), PSTR("/cloudflare"));
+        _savedPage(PSTR(L_CF_SET), PSTR("/cloudflare"));
     }
 
     void _handleNtfy() {
         if (!_guard()) return;
         _pageBegin();
-        _title(PSTR("ntfy notifications"));
+        _title(PSTR(L_NTFY_TITLE));
 
         if (_cfg.ntfy_topic[0])
-            _alert(PSTR("success"), String("Topic: ") + _cfg.ntfy_topic);
+            _alert(PSTR("success"), String(L_TOPIC " ") + _cfg.ntfy_topic);
         else
-            _alertP(PSTR("warning"), PSTR("Topic not set - notifications off"));
+            _alertP(PSTR("warning"), PSTR(L_TOPIC_NOT_SET));
         if (_cfg.ntfy_cmd[0] && strlen(_cfg.ntfy_cmd) < MIN_CMD_TOPIC && !_cfg.ntfy_token[0])
-            _alertP(PSTR("warning"), PSTR("Short command topic and no token: anyone who guesses "
-                                          "the name controls the device"));
+            _alertP(PSTR("warning"), PSTR(L_SHORT_TOPIC_WARN));
         if (_ntfy) {
-            _box(PSTR("Commands over ntfy"));
-            _row(PSTR("State"), _ntfy->commandStatus());
+            _box(PSTR(L_NTFY_COMMANDS));
+            _row(PSTR(L_STATE), _ntfy->commandStatus());
             _boxEnd();
         }
 
         _p(PSTR("<form action='/ntfy/save' method='POST'>"));
         _csrfField();
-        _input(PSTR("ntfy.sh topic"), PSTR("topic"), _cfg.ntfy_topic,
+        _input(PSTR(L_NTFY_TOPIC), PSTR("topic"), _cfg.ntfy_topic,
                PSTR("maxlength='63' pattern='[A-Za-z0-9_\\-]*' placeholder='my-secret-topic'"));
-        _p(PSTR("<p class='m'>Gets the IP at boot and when it changes, and the IoT readings "
-                "and changes. Leave blank to turn it off.</p>"));
-        _input(PSTR("Command topic"), PSTR("cmd"), _cfg.ntfy_cmd,
+        _p(PSTR("<p class='m'>" L_NTFY_TOPIC_HELP "</p>"));
+        _input(PSTR(L_COMMAND_TOPIC), PSTR("cmd"), _cfg.ntfy_cmd,
                PSTR("id='cmd' maxlength='63' pattern='[A-Za-z0-9_\\-]*'"));
         _p(PSTR("<button type='button' class='b2' onclick=\"var a=new Uint8Array(12);"
                 "crypto.getRandomValues(a);document.getElementById('cmd').value='cmd-'+"
                 "Array.from(a,function(b){return('0'+b.toString(16)).slice(-2)}).join('')\">"
-                "Generate random name</button>"
-                "<p class='m'>Each message published to this topic becomes an actuator command "
-                "(on, off, pulse 5, 50%, open, auto). Anyone who knows the name can "
-                "control it: use a long random name, different from the topic above, or an "
-                "access token. Blank turns it off.</p>"));
-        _passwordInput(PSTR("ntfy access token <span class='m'>(optional; blank keeps it)"
-                            "</span>"), PSTR("token"), PSTR("maxlength='47' placeholder='tk_...'"));
-        _switch(PSTR("token_clear"), PSTR("Delete the saved token"), false);
-        _button(PSTR("Save"));
+                L_GEN_RANDOM "</button><p class='m'>" L_CMD_TOPIC_HELP "</p>"));
+        _passwordInput(PSTR(L_NTFY_TOKEN " <span class='m'>" L_OPTIONAL_KEEPS "</span>"), PSTR("token"),
+                       PSTR("maxlength='47' placeholder='tk_...'"));
+        _switch(PSTR("token_clear"), PSTR(L_DELETE_TOKEN), false);
+        _button(PSTR(L_SAVE));
         _pageEnd();
     }
 
@@ -886,11 +916,11 @@ private:
         cmd.trim();
         token.trim();
         if (topic.length() > 0 && !NtfyNotifier::isValidTopic(topic)) {
-            _errorPage(PSTR("Invalid topic (use letters, digits, _ or -)"), PSTR("/ntfy"));
+            _errorPage(PSTR(L_INVALID_TOPIC), PSTR("/ntfy"));
             return;
         }
         if (cmd.length() > 0 && !NtfyNotifier::isValidTopic(cmd)) {
-            _errorPage(PSTR("Invalid command topic (use letters, digits, _ or -)"),
+            _errorPage(PSTR(L_INVALID_CMD_TOPIC),
                        PSTR("/ntfy"));
             return;
         }
@@ -898,13 +928,13 @@ private:
         // must be long enough not to be guessed
         bool hasToken = token.length() > 0 || (_cfg.ntfy_token[0] && !_flag("token_clear"));
         if (cmd.length() > 0 && cmd.length() < MIN_CMD_TOPIC && !hasToken) {
-            _errorPage(PSTR("Short command topic: use Generate random name or a token"),
+            _errorPage(PSTR(L_SHORT_TOPIC),
                        PSTR("/ntfy"));
             return;
         }
         // The reply goes to the data topic: the same topic would read its own reply
         if (cmd.length() > 0 && cmd == topic) {
-            _errorPage(PSTR("The command topic must be different"), PSTR("/ntfy"));
+            _errorPage(PSTR(L_SAME_TOPIC), PSTR("/ntfy"));
             return;
         }
         bool tokenOk = token.length() < sizeof(_cfg.ntfy_token);
@@ -913,7 +943,7 @@ private:
             tokenOk = isalnum((unsigned char)c) || c == '_';
         }
         if (!tokenOk) {
-            _errorPage(PSTR("Invalid ntfy token"), PSTR("/ntfy"));
+            _errorPage(PSTR(L_INVALID_NTFY_TOKEN), PSTR("/ntfy"));
             return;
         }
         strlcpy(_cfg.ntfy_topic, topic.c_str(), sizeof(_cfg.ntfy_topic));
@@ -921,10 +951,10 @@ private:
         if (_flag("token_clear")) _cfg.ntfy_token[0] = '\0';
         else if (token.length()) strlcpy(_cfg.ntfy_token, token.c_str(), sizeof(_cfg.ntfy_token));
         if (!_store.save()) {
-            _errorPage(PSTR("Could not save the configuration"), PSTR("/ntfy"));
+            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/ntfy"));
             return;
         }
-        _savedPage(PSTR("ntfy settings saved!"), PSTR("/ntfy"));
+        _savedPage(PSTR(L_NTFY_SAVED), PSTR("/ntfy"));
     }
 
     // ── MQTT ─────────────────────────────────────────────────────────────────
@@ -934,26 +964,22 @@ private:
         _pageBegin();
         _title(PSTR("MQTT"));
         if (_mqtt) {
-            _box(PSTR("Connection"));
-            _row(PSTR("State"), _mqtt->status());
-            _row(PSTR("Topics"), String(_mqtt->base()) + "/state, /cmd, /avail");
+            _box(PSTR(L_CONNECTION));
+            _row(PSTR(L_STATE), _mqtt->status());
+            _row(PSTR(L_TOPICS), String(_mqtt->base()) + "/state, /cmd, /avail");
             _boxEnd();
         }
         _p(PSTR("<form action='/mqtt/save' method='POST'>"));
         _csrfField();
-        _input(PSTR("Broker <span class='m'>(host or host:port)</span>"), PSTR("host"),
+        _input(PSTR("Broker <span class='m'>" L_BROKER_HINT "</span>"), PSTR("host"),
                _cfg.mqtt_host, PSTR("maxlength='63' placeholder='192.168.1.10:1883'"));
-        _input(PSTR("User"), PSTR("user"), _cfg.mqtt_user,
+        _input(PSTR(L_USER), PSTR("user"), _cfg.mqtt_user,
                PSTR("maxlength='31' autocomplete='off'"));
-        _passwordInput(PSTR("Password <span class='m'>(blank keeps it)</span>"), PSTR("pass"),
+        _passwordInput(PSTR(L_PASSWORD " <span class='m'>" L_BLANK_KEEPS "</span>"), PSTR("pass"),
                        PSTR("maxlength='63'"));
-        _switch(PSTR("pass_clear"), PSTR("Delete the saved password"), false);
-        _p(PSTR("<p class='m'>Home Assistant finds the device on its own (discovery). "
-                "It publishes the state (the same JSON as the API) and takes commands (the "
-                "same text as the panel). No TLS: use a broker on the local network, with a "
-                "user and password; anyone who publishes to the broker controls the actuator. "
-                "Use the broker's IP (.local names do not resolve). Blank turns it off.</p>"));
-        _button(PSTR("Save"));
+        _switch(PSTR("pass_clear"), PSTR(L_DELETE_PASSWORD), false);
+        _p(PSTR("<p class='m'>" L_MQTT_HELP "</p>"));
+        _button(PSTR(L_SAVE));
         _pageEnd();
     }
 
@@ -969,11 +995,11 @@ private:
         char h[sizeof(_cfg.mqtt_host)];
         uint16_t port;
         if (host.length() && !MqttService::parseBroker(host.c_str(), h, sizeof(h), port)) {
-            _errorPage(PSTR("Invalid broker (use host or host:port)"), PSTR("/mqtt"));
+            _errorPage(PSTR(L_INVALID_BROKER), PSTR("/mqtt"));
             return;
         }
         if (user.length() >= sizeof(_cfg.mqtt_user) || pass.length() >= sizeof(_cfg.mqtt_pass)) {
-            _errorPage(PSTR("User or password too long"), PSTR("/mqtt"));
+            _errorPage(PSTR(L_USER_PASS_LONG), PSTR("/mqtt"));
             return;
         }
         strlcpy(_cfg.mqtt_host, host.c_str(), sizeof(_cfg.mqtt_host));
@@ -981,26 +1007,26 @@ private:
         if (_flag("pass_clear")) _cfg.mqtt_pass[0] = '\0';
         else if (pass.length()) strlcpy(_cfg.mqtt_pass, pass.c_str(), sizeof(_cfg.mqtt_pass));
         if (!_store.save()) {
-            _errorPage(PSTR("Could not save the configuration"), PSTR("/mqtt"));
+            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/mqtt"));
             return;
         }
         if (_mqtt) _mqtt->reconnect();
-        _savedPage(PSTR("MQTT settings saved!"), PSTR("/mqtt"));
+        _savedPage(PSTR(L_MQTT_SAVED), PSTR("/mqtt"));
     }
 
     void _handlePassword() {
         if (!_guard(true)) return;
         _pageBegin();
-        _title(PSTR("Panel password"));
+        _title(PSTR(L_PANEL_PASSWORD));
         if (_cfg.webpss.length() == 0)
-            _alertP(PSTR("warning"), PSTR("Set a password to unlock the panel"));
+            _alertP(PSTR("warning"), PSTR(L_SET_PASSWORD));
         _p(PSTR("<form action='/password/save' method='POST'>"));
         _csrfField();
-        _input(PSTR("User"), PSTR("user"), _cfg.webusr.length() ? _cfg.webusr : String("admin"),
+        _input(PSTR(L_USER), PSTR("user"), _cfg.webusr.length() ? _cfg.webusr : String("admin"),
                PSTR("required maxlength='32'"));
-        _passwordInput(PSTR("New password (min. 8)"), PSTR("pass1"), PSTR("required minlength='8' maxlength='64'"));
-        _passwordInput(PSTR("Confirm password"), PSTR("pass2"), PSTR("required minlength='8' maxlength='64'"));
-        _button(PSTR("Save"));
+        _passwordInput(PSTR(L_NEW_PASS_MIN), PSTR("pass1"), PSTR("required minlength='8' maxlength='64'"));
+        _passwordInput(PSTR(L_CONFIRM_PASS), PSTR("pass2"), PSTR("required minlength='8' maxlength='64'"));
+        _button(PSTR(L_SAVE));
         _pageEnd();
     }
 
@@ -1009,26 +1035,27 @@ private:
         if (!_checkCSRF()) return;
         if (!_readPanelCredentials("/password")) return;
         if (!_store.save()) {
-            _errorPage(PSTR("Could not save the configuration"), PSTR("/password"));
+            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/password"));
             return;
         }
         _generateCSRF(); // rotates CSRF after a credentials change
-        _savedPage(PSTR("Password updated!"), PSTR("/"));
+        _savedPage(PSTR(L_PASSWORD_UPDATED), PSTR("/"));
     }
 
-    // Served straight from flash; the cache avoids resending on every page
-    // (CSS and JS carry the content hash in the URL: a new version does not use
-    // the old cache). The type is in RAM: it goes into the header's %s, which
-    // does not read from flash.
-    void _asset(const char* type, const uint8_t* data, size_t len, bool gz) {
-        _server.sendHeader("Cache-Control", "max-age=604800");
+    // Served straight from flash; the cache avoids resending on every page.
+    // CSS and JS carry the content hash in the URL (hashed): a new version is
+    // another URL, so the browser keeps them for a year without asking again.
+    // The type is in RAM: it goes into the header's %s, which does not read
+    // from flash.
+    void _asset(const char* type, const uint8_t* data, size_t len, bool gz, bool hashed = false) {
+        _server.sendHeader("Cache-Control", hashed ? "max-age=31536000, immutable" : "max-age=604800");
         if (gz) _server.sendHeader("Content-Encoding", "gzip");
         _server.send_P(200, type, reinterpret_cast<PGM_P>(data), len);
     }
 
     // "UTC-03:00 Brasilia, Buenos Aires", with the saved zone selected
     void _tzSelect() {
-        _selectOpen(PSTR("Time zone <span class='m'>(no daylight saving)</span>"), PSTR("tz"));
+        _selectOpen(PSTR(L_TIME_ZONE " <span class='m'>" L_NO_DST "</span>"), PSTR("tz"));
         PGM_P place = _TZ_PLACES;
         for (size_t i = 0; i < sizeof(_TZ_MIN) / sizeof(_TZ_MIN[0]); i++) {
             int16_t tz = (int16_t)pgm_read_word(&_TZ_MIN[i]);
@@ -1056,7 +1083,7 @@ private:
 
     String _localTime() const {
         uint16_t m;
-        return _iot.localMinute(m) ? _hhmm(m) : String("clock not synchronized");
+        return _iot.localMinute(m) ? _hhmm(m) : String(L_CLOCK_NOT_SYNC);
     }
 
     // "HH:MM" (time field) to a minute of the day
@@ -1081,9 +1108,10 @@ public:
     }
 
 private:
-    // "how long ago" from a millis(); "never" if it did not happen
+    // "how long ago" from a millis(); "never" if it did not happen. The
+    // duration goes after the marker: the language puts it in its place
     static String _ago(bool happened, unsigned long at) {
-        return happened ? formatDuration(millis() - at) + " ago" : String("never");
+        return happened ? L_AGO + formatDuration(millis() - at) : String(L_NEVER);
     }
 
     void _go(const char* href) {
@@ -1096,29 +1124,29 @@ private:
         _pageBegin(_ota.pending() ? 3 : 0);
         _otaProgressBar();
 
-        _title(PSTR("Update"));
+        _title(PSTR(L_UPDATE));
         _box(PSTR("Firmware"));
-        _row(PSTR("Current version"), firmware_version);
-        _row(PSTR("Automatic"), _cfg.ota_auto ? String("on") : String("off"));
+        _row(PSTR(L_CURRENT_VERSION), firmware_version);
+        _row(PSTR(L_AUTOMATIC_CAP), String(_cfg.ota_auto ? L_ON : L_OFF));
         if (_ota.availableVersion()[0] != '\0')
-            _row(PSTR("Available"), _ota.availableVersion());
+            _row(PSTR(L_AVAILABLE), _ota.availableVersion());
         if (_ota.detail()[0] != '\0')
-            _row(PSTR("State"), _ota.detail());
+            _row(PSTR(L_STATE), _ota.detail());
         _boxEnd();
 
         _p(PSTR("<form action='/update/auto' method='POST'>"));
         _csrfField();
-        _switch(PSTR("ota_auto"), PSTR("Automatic update"), _cfg.ota_auto);
-        _p(PSTR("<button class='b2'>Save</button></form>"));
+        _switch(PSTR("ota_auto"), PSTR(L_AUTO_UPDATE), _cfg.ota_auto);
+        _p(PSTR("<button class='b2'>" L_SAVE "</button></form>"));
 
         _p(PSTR("<form action='/update/check' method='POST'>"));
         _csrfField();
-        _button(PSTR("Check now"));
+        _button(PSTR(L_CHECK_NOW));
 
         if (_ota.availableVersion()[0] != '\0' && !_ota.inProgress()) {
             _p(PSTR("<form action='/update/install' method='POST'>"));
             _csrfField();
-            _button(PSTR("Install this version"));
+            _button(PSTR(L_INSTALL_VERSION));
         }
         _pageEnd();
     }
@@ -1129,12 +1157,12 @@ private:
         _cfg.ota_auto = _server.arg("ota_auto") == "1";
         _ota.setAutomatic(_cfg.ota_auto);
         if (!_store.save()) {
-            _errorPage(PSTR("Could not save the configuration"), PSTR("/update"));
+            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/update"));
             return;
         }
         _savedPage(_cfg.ota_auto
-                       ? PSTR("Automatic update on")
-                       : PSTR("Automatic update off"),
+                       ? PSTR(L_AUTO_UPDATE_ON)
+                       : PSTR(L_AUTO_UPDATE_OFF),
                    PSTR("/update"));
     }
 
@@ -1149,7 +1177,7 @@ private:
         if (!_guard()) return;
         if (!_checkCSRF()) return;
         if (_ota.availableVersion()[0] == '\0') {
-            _errorPage(PSTR("No new version to install"), PSTR("/update"));
+            _errorPage(PSTR(L_NO_NEW_VERSION), PSTR("/update"));
             return;
         }
         _ota.requestInstall();
@@ -1158,8 +1186,8 @@ private:
 
     void _deviceMark() {
         _p(PSTR("<figure><img src='/esp01.webp' alt='ESP-01' width='220' height='209'>"
-                "<figcaption class='m'>Firmware for the ESP-01 module<br>"
-                "Photo: SparkFun, CC BY 2.0</figcaption></figure>"));
+                "<figcaption class='m'>" L_FW_MODULE "<br>"
+                L_PHOTO ": SparkFun, CC BY 2.0</figcaption></figure>"));
     }
 
     // ── IoT ──────────────────────────────────────────────────────────────────
@@ -1191,7 +1219,7 @@ private:
 
     // none: the text for -1 ("Choose" for IoT, "None" for the gauge)
     void _pinSelect(PGM_P label, PGM_P name, int8_t current, PGM_P none = nullptr) {
-        if (!none) none = PSTR("Choose");   // PSTR cannot be a default argument
+        if (!none) none = PSTR(L_CHOOSE);   // PSTR cannot be a default argument
         static const int8_t pins[] = {-1, 2, 0, 1, 3};
         static const char* const values[] = {"-1", "2", "0", "1", "3"};
         static const char* const labels[] = {
@@ -1209,7 +1237,7 @@ private:
     }
 
     void _sensorSelect(const char* current) {
-        _selectOpen(PSTR("Type"), PSTR("sensor"));
+        _selectOpen(PSTR(L_TYPE), PSTR("sensor"));
         for (uint8_t g = 0; g < 3; g++) {
             _groupOpen(iot::SENSOR_GROUPS[g]);
             for (const iot::SensorDef& s : iot::SENSORS)
@@ -1220,7 +1248,7 @@ private:
     }
 
     void _actuatorSelect(const char* current) {
-        _selectOpen(PSTR("Type"), PSTR("actuator"));
+        _selectOpen(PSTR(L_TYPE), PSTR("actuator"));
         for (uint8_t cap = iot::C_ONOFF; cap <= iot::C_COLOR; cap++) {
             _groupOpen(iot::ACTUATOR_GROUPS[cap - 1]);
             for (const iot::ActuatorDef& a : iot::ACTUATORS)
@@ -1298,8 +1326,8 @@ private:
         char buf[32];
         _p(PSTR("<div class='ctl'>"));
         if (cap == iot::C_POSITION) {
-            _p(PSTR("<button type='button' onclick=\"c('open')\">Open</button>"
-                    "<button type='button' class='b2' onclick=\"c('close')\">Close</button>"));
+            _p(PSTR("<button type='button' onclick=\"c('open')\">" L_OPEN_BTN "</button>"
+                    "<button type='button' class='b2' onclick=\"c('close')\">" L_CLOSE_BTN "</button>"));
         } else {
             _p(PSTR("<button type='button' role='switch' id='sw' aria-checked='"));
             _p(_iot.actuatorOn() ? PSTR("true") : PSTR("false"));
@@ -1307,25 +1335,25 @@ private:
             _p(a->label);
             _p(PSTR("</button>"));
         }
-        _p(PSTR("<label>Pulse (s)<input type='number' id='pd' min='1' max='3600' value='"));
+        _p(PSTR("<label>" L_PULSE_S "<input type='number' id='pd' min='1' max='3600' value='"));
         snprintf(buf, sizeof(buf), "%u", a->pulse);
         _s(buf);
         _p(PSTR("'></label><button type='button' class='b2' onclick=\"c('pulse '+$('pd').value)\">"
-                "Pulse</button>"));
+                L_PULSE "</button>"));
         if (_iot.hasRule()) {
             _p(PSTR("<button type='button' class='b2' id='au' onclick=\"c('auto')\""));
             if (!_iot.manual()) _p(PSTR(" hidden"));
-            _p(PSTR(">Back to automatic</button>"));
+            _p(PSTR(">" L_BACK_AUTO "</button>"));
         }
         _p(PSTR("</div>"));
         if (cap == iot::C_LEVEL || cap == iot::C_COLOR)
-            _range(cap == iot::C_LEVEL ? PSTR("Level") : PSTR("Brightness"),
+            _range(cap == iot::C_LEVEL ? PSTR(L_LEVEL) : PSTR(L_BRIGHTNESS),
                    PSTR("lv"), _iot.level(), 100, PSTR("level "), PSTR("%"));
         if (cap == iot::C_POSITION)
-            _range(PSTR("Angle"), PSTR("ag"), _iot.angle(), 180, PSTR("angle "), PSTR(" deg"));
+            _range(PSTR(L_ANGLE), PSTR("ag"), _iot.angle(), 180, PSTR("angle "), PSTR(" deg"));
         if (cap == iot::C_COLOR) {
             snprintf(buf, sizeof(buf), "%06lx", (unsigned long)_iot.color());
-            _p(PSTR("<label>Color<input type='color' id='co' value='#"));
+            _p(PSTR("<label>" L_COLOR "<input type='color' id='co' value='#"));
             _s(buf);
             _p(PSTR("' onchange=\"c('color '+this.value)\"></label>"));
         }
@@ -1337,20 +1365,20 @@ private:
         _title(PSTR("IoT"));
         const IoTConfig& t = _cfg.iot;
         if (_iot.unknownType())
-            _alertP(PSTR("warning"), PSTR("Type unknown to this version: that part stays off"));
+            _alertP(PSTR("warning"), PSTR(L_TYPE_UNKNOWN));
         if (t.notify && _cfg.ntfy_topic[0] == '\0')
-            _alertP(PSTR("warning"), PSTR("Set the ntfy topic to send the reading"));
+            _alertP(PSTR("warning"), PSTR(L_SET_NTFY_TOPIC));
 
         bool live = _iot.hasSensor() || _iot.hasActuator();
         if (live) {
-            _box(PSTR("Now"));
-            if (_iot.hasSensor()) _row(PSTR("Sensor"), _iot.sensorText(), PSTR("ns"));
+            _box(PSTR(L_NOW));
+            if (_iot.hasSensor()) _row(PSTR(L_SENSOR), _iot.sensorText(), PSTR("ns"));
             if (_iot.hasActuator()) {
-                _row(PSTR("Actuator"), _iot.actuatorText(), PSTR("na"));
+                _row(PSTR(L_ACTUATOR), _iot.actuatorText(), PSTR("na"));
                 if (_iot.hasRule())
-                    _row(PSTR("Mode"), _iot.manual() ? String("manual")
-                                       : _iot.inHours() ? String("automatic")
-                                       : String("automatic, outside the window"),
+                    _row(PSTR(L_MODE), String(_iot.manual() ? L_MANUAL
+                                              : _iot.inHours() ? L_AUTOMATIC
+                                              : L_AUTO_OUTSIDE),
                          PSTR("nm"));
             }
             _boxEnd();
@@ -1359,94 +1387,93 @@ private:
         }
 
         _p(PSTR("<figure><img src='/pinout.svg' width='1040' height='700' "
-                "alt='ESP-01 pins, top view: GPIO0, RX (GPIO3), GPIO2, GND; "
-                "VCC 3.3 V, RST, CH_PD, TX (GPIO1)'></figure>"));
+                "alt='" L_PINOUT_ALT "'></figure>"));
 
         bool hs = t.sensor[0] && t.sensorPin >= 0;
         bool ha = t.actuator[0] && t.actuatorPin >= 0;
         _p(PSTR("<form action='/iot/save' method='POST'>"));
         _csrfField();
-        _fieldsetOpen(PSTR("fp"), PSTR("What does this device do?"));
-        _radio(PSTR("n"), PSTR("Nothing (IoT off)"), !hs && !ha);
-        _radio(PSTR("s"), PSTR("Sensor only: measures and reports"), hs && !ha);
-        _radio(PSTR("a"), PSTR("Actuator only: obeys commands"), !hs && ha);
-        _radio(PSTR("sa"), PSTR("Sensor and actuator"), hs && ha);
+        _fieldsetOpen(PSTR("fp"), PSTR(L_ROLE_QUESTION));
+        _radio(PSTR("n"), PSTR(L_ROLE_NONE), !hs && !ha);
+        _radio(PSTR("s"), PSTR(L_ROLE_SENSOR), hs && !ha);
+        _radio(PSTR("a"), PSTR(L_ROLE_ACTUATOR), !hs && ha);
+        _radio(PSTR("sa"), PSTR(L_ROLE_BOTH), hs && ha);
         _p(PSTR("</fieldset>"));
 
-        _fieldsetOpen(PSTR("fs"), PSTR("Sensor"));
+        _fieldsetOpen(PSTR("fs"), PSTR(L_SENSOR));
         _sensorSelect(t.sensor);
-        _pinSelect(PSTR("Pin"), PSTR("sensor_pin"), t.sensorPin);
+        _pinSelect(PSTR(L_PIN), PSTR("sensor_pin"), t.sensorPin);
         _divOpen(PSTR("sd"));
-        _pair(PSTR("Active with the pin"), PSTR("sensor_high"),
-              PSTR("Low"), PSTR("High"), t.sensorHigh);
-        _input(PSTR("Active state name"), PSTR("sensor_on"), t.onText, PSTR("maxlength='15' placeholder='type default'"));
-        _input(PSTR("Inactive state name"), PSTR("sensor_off"), t.offText,
-               PSTR("maxlength='15' placeholder='type default'"));
+        _pair(PSTR(L_ACTIVE_WITH_PIN), PSTR("sensor_high"),
+              PSTR(L_LOW), PSTR(L_HIGH), t.sensorHigh);
+        _input(PSTR(L_ACTIVE_NAME), PSTR("sensor_on"), t.onText, PSTR("maxlength='15' placeholder='" L_TYPE_DEFAULT "'"));
+        _input(PSTR(L_INACTIVE_NAME), PSTR("sensor_off"), t.offText,
+               PSTR("maxlength='15' placeholder='" L_TYPE_DEFAULT "'"));
         _p(PSTR("</div>"));
         _divOpen(PSTR("sm"));
-        _pair(PSTR("Value used by the rule"), PSTR("metric"),
-              PSTR("Humidity"), PSTR("Temperature"), t.metric == 1);
+        _pair(PSTR(L_RULE_VALUE), PSTR("metric"),
+              PSTR(L_HUMIDITY), PSTR(L_TEMPERATURE), t.metric == 1);
         _p(PSTR("</div><p class='m' id='sh'></p></fieldset>"));
 
-        _fieldsetOpen(PSTR("fa"), PSTR("Actuator"));
+        _fieldsetOpen(PSTR("fa"), PSTR(L_ACTUATOR));
         _actuatorSelect(t.actuator);
-        _pinSelect(PSTR("Pin"), PSTR("actuator_pin"), t.actuatorPin);
+        _pinSelect(PSTR(L_PIN), PSTR("actuator_pin"), t.actuatorPin);
         _divOpen(PSTR("al"));
-        _pair(PSTR("On with the pin"), PSTR("actuator_high"),
-              PSTR("Low (common relay modules)"), PSTR("High"), t.actuatorHigh);
+        _pair(PSTR(L_ON_WITH_PIN), PSTR("actuator_high"),
+              PSTR(L_LOW_RELAY), PSTR(L_HIGH), t.actuatorHigh);
         _p(PSTR("</div>"));
         _divOpen(PSTR("ap"));
-        _number(PSTR("Level when on (%)"), "duty_on", t.dutyOn, 0, 100);
-        _number(PSTR("Level when off (%)"), "duty_off", t.dutyOff, 0, 100);
+        _number(PSTR(L_LEVEL_ON), "duty_on", t.dutyOn, 0, 100);
+        _number(PSTR(L_LEVEL_OFF), "duty_off", t.dutyOff, 0, 100);
         _p(PSTR("</div>"));
         _divOpen(PSTR("aa"));
-        _number(PSTR("Open angle"), "angle_on", t.angleOn, 0, 180);
-        _number(PSTR("Closed angle"), "angle_off", t.angleOff, 0, 180);
+        _number(PSTR(L_OPEN_ANGLE), "angle_on", t.angleOn, 0, 180);
+        _number(PSTR(L_CLOSED_ANGLE), "angle_off", t.angleOff, 0, 180);
         _p(PSTR("</div>"));
         _divOpen(PSTR("ac"));
-        _number(PSTR("Number of LEDs"), "leds", t.leds, 1, IoTService::MAX_LEDS);
+        _number(PSTR(L_LED_COUNT), "leds", t.leds, 1, IoTService::MAX_LEDS);
         _p(PSTR("</div>"));
-        _number(PSTR("Turn off by itself after (min; 0 = never)"), "max_on", t.maxOn, 0, 1440);
-        _pair(PSTR("On power-up"), PSTR("restore"),
-              PSTR("Off"), PSTR("Last command"), t.restore);
+        _number(PSTR(L_MAX_ON), "max_on", t.maxOn, 0, 1440);
+        _pair(PSTR(L_POWER_UP), PSTR("restore"),
+              PSTR(L_OFF_CAP), PSTR(L_LAST_COMMAND), t.restore);
         _p(PSTR("<p class='m' id='ah'></p></fieldset>"));
 
-        _fieldsetOpen(PSTR("fr"), PSTR("Rule"));
-        _switch(PSTR("rule"), PSTR("The sensor drives the actuator (automatic mode)"), t.rule);
+        _fieldsetOpen(PSTR("fr"), PSTR(L_RULE));
+        _switch(PSTR("rule"), PSTR(L_RULE_SWITCH), t.rule);
         _divOpen(PSTR("rd"));
-        _pair(PSTR("When the sensor becomes active"), PSTR("toggle"),
-              PSTR("On while active"), PSTR("Flip the actuator"), t.toggle);
+        _pair(PSTR(L_WHEN_ACTIVE), PSTR("toggle"),
+              PSTR(L_ON_WHILE_ACTIVE), PSTR(L_FLIP), t.toggle);
         _p(PSTR("</div>"));
         _divOpen(PSTR("rn"));
-        _pair(PSTR("On when the value is"), PSTR("above"),
-              PSTR("Below the limit"), PSTR("Above the limit"), t.above);
-        _number(PSTR("Limit"), "threshold", t.threshold, -999, 9999);
-        _number(PSTR("Margin to turn off"), "margin", t.margin, 0, 50);
+        _pair(PSTR(L_ON_WHEN_VALUE), PSTR("above"),
+              PSTR(L_BELOW_LIMIT), PSTR(L_ABOVE_LIMIT), t.above);
+        _number(PSTR(L_LIMIT), "threshold", t.threshold, -999, 9999);
+        _number(PSTR(L_MARGIN), "margin", t.margin, 0, 50);
         _divOpen(PSTR("rl"));
-        _pair(PSTR("Level"), PSTR("linear"),
-              PSTR("On and off at the limit"), PSTR("Proportional up to the high limit"), t.linear);
+        _pair(PSTR(L_LEVEL), PSTR("linear"),
+              PSTR(L_ONOFF_AT_LIMIT), PSTR(L_PROPORTIONAL), t.linear);
         _divOpen(PSTR("rh"));
-        _number(PSTR("High limit"), "threshold_hi", t.thresholdHi, -999, 9999);
+        _number(PSTR(L_HIGH_LIMIT), "threshold_hi", t.thresholdHi, -999, 9999);
         _p(PSTR("</div>"));
         _p(PSTR("</div></div>"));
         _divOpen(PSTR("rt"));
-        _switch(PSTR("window"), PSTR("Only within a time window (local time)"), t.window);
+        _switch(PSTR("window"), PSTR(L_WINDOW_SWITCH), t.window);
         _divOpen(PSTR("rw"));
-        _time(PSTR("From"), PSTR("win_start"), t.winStart);
-        _time(PSTR("To"), PSTR("win_end"), t.winEnd);
-        _p(PSTR("<p class='m'>Outside the window, automatic mode keeps the actuator off; "
-                "a manual command holds until auto. The time zone is in Settings.</p>"));
+        _time(PSTR(L_FROM), PSTR("win_start"), t.winStart);
+        _time(PSTR(L_TO), PSTR("win_end"), t.winEnd);
+        _p(PSTR("<p class='m'>" L_WINDOW_HELP "</p>"));
         _p(PSTR("</div></div><p class='m' id='rs'></p></fieldset>"));
 
-        _switch(PSTR("notify"), PSTR("Send readings and changes to ntfy"), t.notify);
-        _button(PSTR("Save"));
+        _switch(PSTR("notify"), PSTR(L_NOTIFY), t.notify);
+        _button(PSTR(L_SAVE));
         if (live) _apiBox();
         if (hs || ha) {
             _p(PSTR("<form action='/iot/clear' method='POST'>"));
             _csrfField();
-            _p(PSTR("<button class='b2'>Remove sensor and actuator</button></form>"));
+            _p(PSTR("<button class='b2'>" L_REMOVE_BOTH "</button></form>"));
         }
 
+        _pageFoot();
         _p(PSTR("<script>var SK={"));
         for (uint8_t i = 0; i < iot::SENSOR_COUNT; i++) {
             char buf[24];
@@ -1463,14 +1490,13 @@ private:
         }
         _p(PSTR("},T='"));
         _s(_csrfToken);
-        _p(PSTR("';</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script>"));
-        _pageEnd();
+        _p(PSTR("';</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
     }
 
     // Reads an integer from the form within the range; otherwise answers 400
     bool _int(const char* name, int min, int max, int16_t& out) {
         if (IoTService::parseI16(_server.arg(name), min, max, out)) return true;
-        _errorPage(PSTR("Invalid value"), PSTR("/iot"));
+        _errorPage(PSTR(L_INVALID_VALUE), PSTR("/iot"));
         return false;
     }
 
@@ -1493,7 +1519,7 @@ private:
             ok = isalnum((unsigned char)c) || strchr(" -_.,", c) != nullptr;
         }
         if (!ok) {
-            _errorPage(PSTR("Invalid state name"), PSTR("/iot"));
+            _errorPage(PSTR(L_INVALID_STATE_NAME), PSTR("/iot"));
             return false;
         }
         strlcpy(dst, v.c_str(), 16);
@@ -1503,7 +1529,7 @@ private:
     bool _pinArg(const char* name, int8_t& out) {
         String v = _server.arg(name);   // a temporary inside && counts one more branch
         if (IoTService::parsePin(v, out) && iot::allowedPin(out)) return true;
-        _errorPage(PSTR("Choose the pin"), PSTR("/iot"));
+        _errorPage(PSTR(L_CHOOSE_PIN), PSTR("/iot"));
         return false;
     }
 
@@ -1515,7 +1541,7 @@ private:
         bool hs = role == "s" || role == "sa";
         bool ha = role == "a" || role == "sa";
         if (!hs && !ha && role != "n") {
-            _errorPage(PSTR("Choose what the device does"), PSTR("/iot"));
+            _errorPage(PSTR(L_CHOOSE_ROLE), PSTR("/iot"));
             return;
         }
 
@@ -1532,7 +1558,7 @@ private:
             String slug = _server.arg("sensor");
             int8_t i = iot::sensorIndex(slug.c_str());
             if (i < 0) {
-                _errorPage(PSTR("Invalid sensor type"), PSTR("/iot"));
+                _errorPage(PSTR(L_INVALID_SENSOR), PSTR("/iot"));
                 return;
             }
             strlcpy(t.sensor, slug.c_str(), sizeof(t.sensor));
@@ -1550,7 +1576,7 @@ private:
             String slug = _server.arg("actuator");
             int8_t i = iot::actuatorIndex(slug.c_str());
             if (i < 0) {
-                _errorPage(PSTR("Invalid actuator type"), PSTR("/iot"));
+                _errorPage(PSTR(L_INVALID_ACTUATOR), PSTR("/iot"));
                 return;
             }
             strlcpy(t.actuator, slug.c_str(), sizeof(t.actuator));
@@ -1558,7 +1584,7 @@ private:
             if (!_pinArg("actuator_pin", t.actuatorPin)) return;
             if (hs && (t.actuatorPin == t.sensorPin ||
                        (kind == iot::K_SHT3X && t.actuatorPin == I2cBus::sclFor(t.sensorPin)))) {
-                _errorPage(PSTR("Sensor and actuator need different pins"), PSTR("/iot"));
+                _errorPage(PSTR(L_SAME_PINS), PSTR("/iot"));
                 return;
             }
             if (cap == iot::C_ONOFF) t.actuatorHigh = _flag("actuator_high");
@@ -1586,7 +1612,7 @@ private:
                 if (t.linear) {
                     if (!_int("threshold_hi", -999, 9999, t.thresholdHi)) return;
                     if (t.thresholdHi <= t.threshold) {
-                        _errorPage(PSTR("The high limit must be above the limit"), PSTR("/iot"));
+                        _errorPage(PSTR(L_HIGH_ABOVE), PSTR("/iot"));
                         return;
                     }
                 }
@@ -1596,29 +1622,29 @@ private:
                 String from = _server.arg("win_start");   // a temporary inside || counts one more branch
                 String to = _server.arg("win_end");
                 if (!parseHhmm(from, t.winStart) || !parseHhmm(to, t.winEnd)) {
-                    _errorPage(PSTR("Invalid time"), PSTR("/iot"));
+                    _errorPage(PSTR(L_INVALID_TIME), PSTR("/iot"));
                     return;
                 }
                 if (t.winStart == t.winEnd) {
-                    _errorPage(PSTR("The window needs different start and end times"), PSTR("/iot"));
+                    _errorPage(PSTR(L_WINDOW_SAME), PSTR("/iot"));
                     return;
                 }
             }
         }
         t.notify = _flag("notify");
         if (!PowerService::pinsFree(_cfg.bat_sda, t)) {
-            _errorPage(PSTR("Pin used by the battery gauge"), PSTR("/iot"));
+            _errorPage(PSTR(L_PIN_GAUGE), PSTR("/iot"));
             return;
         }
         if ((hs || ha) && !_cfg.api_token[0]) _newToken();
 
         _cfg.iot = t;
         if (!_store.save()) {
-            _errorPage(PSTR("Could not save the configuration"), PSTR("/iot"));
+            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/iot"));
             return;
         }
         _iot.begin();
-        _savedPage(PSTR("IoT set"), PSTR("/iot"));
+        _savedPage(PSTR(L_IOT_SET), PSTR("/iot"));
     }
 
     // State as JSON, or the command error
@@ -1712,27 +1738,26 @@ private:
         if (!_checkCSRF()) return;
         _newToken();
         if (!_store.save()) {
-            _errorPage(PSTR("Could not save the configuration"), PSTR("/iot"));
+            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/iot"));
             return;
         }
-        _savedPage(PSTR("New token generated; the old one no longer works"), PSTR("/iot"));
+        _savedPage(PSTR(L_NEW_TOKEN_DONE), PSTR("/iot"));
     }
 
     // Deletes sensor, actuator, rule and token. Asks for confirmation on its
-    // own page: it works without JavaScript and the screen reader announces it.
+    // own page: a plain form (no script of its own) that the screen reader announces.
     void _handleIotClear() {
         if (!_guard()) return;
         if (!_checkCSRF()) return;
         if (!_flag("confirm")) {
             _pageBegin();
-            _title(PSTR("Remove"));
+            _title(PSTR(L_REMOVE));
             _alertP(PSTR("warning"),
-                    PSTR("The sensor and the actuator will be deleted with all settings and the rule. "
-                         "The actuator turns off, the local API stops answering and the token stops working."));
+                    PSTR(L_REMOVE_WARNING));
             _p(PSTR("<form action='/iot/clear' method='POST'>"));
             _csrfField();
             _p(PSTR("<input type='hidden' name='confirm' value='1'>"
-                    "<button class='bx'>Yes, remove</button></form>"));
+                    "<button class='bx'>" L_YES_REMOVE "</button></form>"));
             _backButton(PSTR("/iot"));
             _pageEnd();
             return;
@@ -1740,23 +1765,22 @@ private:
         _cfg.iot = IoTConfig();
         _cfg.api_token[0] = '\0';
         if (!_store.save()) {
-            _errorPage(PSTR("Could not save the configuration"), PSTR("/iot"));
+            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/iot"));
             return;
         }
         LittleFS.remove(IoTState::PATH);
         _iot.begin();
         _log.log(PSTR("IoT: sensor and actuator removed"));
-        _savedPage(PSTR("Sensor and actuator removed"), PSTR("/iot"));
+        _savedPage(PSTR(L_REMOVED), PSTR("/iot"));
     }
 
     // Token and examples to integrate without internet (scripts, Home Assistant)
     void _apiBox() {
         String ip = WiFi.localIP().toString();
-        _box(PSTR("Local API"));
-        _p(PSTR("<div class='r'><span>No internet, same network: GET /api/state and "
-                "POST /api/cmd with the Authorization: Bearer header and the token.</span></div>"));
+        _box(PSTR(L_LOCAL_API));
+        _p(PSTR("<div class='r'><span>" L_API_HELP "</span></div>"));
         if (_cfg.api_token[0]) {
-            _p(PSTR("<div class='r'><label>Token<input readonly value='"));
+            _p(PSTR("<div class='r'><label>" L_TOKEN "<input readonly value='"));
             _s(_cfg.api_token);
             _p(PSTR("' onclick='this.select()'></label></div><pre>curl -H 'Authorization: Bearer "));
             _s(_cfg.api_token);
@@ -1771,7 +1795,7 @@ private:
         _boxEnd();
         _p(PSTR("<form action='/iot/token' method='POST'>"));
         _csrfField();
-        _p(_cfg.api_token[0] ? PSTR("<button class='b2'>Generate new token</button></form>")
-                             : PSTR("<button class='b2'>Generate token</button></form>"));
+        _p(_cfg.api_token[0] ? PSTR("<button class='b2'>" L_GEN_NEW_TOKEN "</button></form>")
+                             : PSTR("<button class='b2'>" L_GEN_TOKEN "</button></form>"));
     }
 };

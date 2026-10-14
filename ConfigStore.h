@@ -83,6 +83,7 @@ public:
         strlcpy(_cfg.hostname,   doc["hostname"]   | "", sizeof(_cfg.hostname));
         _cfg.tz = doc["tz"] | 0;
         _cfg.bat_sda = doc["bat_sda"] | -1;
+        strlcpy(_cfg.lang, doc["lang"] | "", sizeof(_cfg.lang));
         strlcpy(_cfg.ntfy_token, doc["ntfy_token"] | "", sizeof(_cfg.ntfy_token));
         _cfg.ota_auto = doc["ota_auto"] | true;
         strlcpy(_cfg.api_token,  doc["api_token"]  | "", sizeof(_cfg.api_token));
@@ -129,6 +130,7 @@ public:
         doc["hostname"]   = _cfg.hostname;
         doc["tz"]         = _cfg.tz;
         doc["bat_sda"]    = _cfg.bat_sda;
+        doc["lang"]       = _cfg.lang;
         doc["ota_auto"]   = _cfg.ota_auto;
         doc["api_token"]  = _cfg.api_token;
         doc["cf_token"]   = _cfg.cf_token;

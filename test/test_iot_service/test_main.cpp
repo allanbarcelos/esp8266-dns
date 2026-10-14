@@ -350,7 +350,7 @@ void test_on_off_obeys_commands() {
     TEST_ASSERT_EQUAL(OUTPUT, mock::pinModeV[0]);
     TEST_ASSERT_EQUAL(HIGH, mock::pinOut[0]);          // switches on low
     TEST_ASSERT_EQUAL_STRING("off", iot.actuatorText());
-    TEST_ASSERT_EQUAL_STRING("Relay", iot.actuatorDef()->label);
+    TEST_ASSERT_EQUAL_STRING(L_A_RELAY, iot.actuatorDef()->label);   // panel text: I18n.h marker
     TEST_ASSERT_EQUAL_STRING(
         "{\"api\":1,\"sensor\":null,\"actuator\":{\"type\":\"relay\",\"capability\":\"onoff\","
         "\"on\":false,\"mode\":\"manual\",\"text\":\"off\"}}", json(iot).c_str());

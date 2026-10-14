@@ -72,6 +72,7 @@ struct Config {
     char    hostname[33]              = {};   // name in the router's DHCP; "" = the core's (ESP-xxxxxx)
     int16_t tz                        = 0;    // time zone: minutes from UTC (local time)
     int8_t  bat_sda                   = -1;   // battery gauge (MAX17048): SDA; -1 = no gauge
+    char    lang[3]                   = {};   // panel language (en, pt, es, fr); "" = the browser's
 
     IoTConfig iot;
 

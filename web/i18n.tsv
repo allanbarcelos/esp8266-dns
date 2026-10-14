@@ -1,0 +1,296 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+#
+# Panel text in every language, one row per text: key, en, pt, es, fr
+# (tab-separated). An empty column is the English text. The C++ uses the
+# key (L_<key> in I18n.h) and web/iot.js the English text (L('...')).
+# {0}, {1}... are the values filled in by the page. After editing, run
+# python tools/embed_web.py
+HOME	Home	Início	Inicio	Accueil
+STATUS	Status		Estado	État
+LOGS	Logs		Registros	Journaux
+SETTINGS	Settings	Configurações	Configuración	Paramètres
+UPDATE	Update	Atualizar	Actualizar	Mise à jour
+PASSWORD	Password	Senha	Contraseña	Mot de passe
+MENU	Menu		Menú
+ON_SUPPLY	On supply	Na fonte	Con alimentación	Sur secteur
+GAUGE_SILENT	Gauge not answering	O medidor não responde	El medidor no responde	La jauge ne répond pas
+BATTERY_CHARGING	Battery charging	Bateria carregando	Batería cargando	Batterie en charge
+ON_BATTERY	On battery	Na bateria	Con batería	Sur batterie
+POWER	Power	Energia	Energía	Secteur
+BATTERY	Battery	Bateria	Batería	Batterie
+CHARGING	Charging	Carregando	Cargando	En charge
+BACK	Back	Voltar	Volver	Retour
+VALUE_TOO_LONG	Value too long	Valor longo demais	Valor demasiado largo	Valeur trop longue
+INVALID_USER	Invalid user	Usuário inválido	Usuario no válido	Utilisateur invalide
+PASS_MISMATCH	The passwords do not match	As senhas não conferem	Las contraseñas no coinciden	Les mots de passe ne correspondent pas
+PASS_LENGTH	The password must have 8 to 64 characters	A senha deve ter de 8 a 64 caracteres	La contraseña debe tener de 8 a 64 caracteres	Le mot de passe doit comporter de 8 à 64 caractères
+OTA_PROGRESS	OTA in progress:	OTA em andamento:	OTA en curso:	OTA en cours :
+SETUP_MODE	Setup mode - connect to Wi-Fi	Modo de configuração - conecte ao Wi-Fi	Modo de configuración - conéctese al Wi-Fi	Mode configuration - connectez-vous au Wi-Fi
+WIFI_PASSWORD	Wi-Fi password	Senha do Wi-Fi	Contraseña del Wi-Fi	Mot de passe Wi-Fi
+PANEL_ACCESS	Panel access	Acesso ao painel	Acceso al panel	Accès au panneau
+USER	User	Usuário	Usuario	Utilisateur
+PANEL_PASS_MIN	Panel password (min. 8)	Senha do painel (mín. 8)	Contraseña del panel (mín. 8)	Mot de passe du panneau (min. 8)
+CONFIRM_PASS	Confirm password	Confirme a senha	Confirme la contraseña	Confirmez le mot de passe
+CONNECT	Connect	Conectar	Conectar	Se connecter
+NETWORK	Network	Rede	Red	Réseau
+LOCAL_IP	Local IP	IP local	IP local	IP locale
+PUBLIC_IP	Public IP	IP público	IP pública	IP publique
+LAST_UPDATE	Last update	Última atualização	Última actualización	Dernière mise à jour
+FW_MODULE	Firmware for the ESP-01 module	Firmware para o módulo ESP-01	Firmware para el módulo ESP-01	Firmware pour le module ESP-01
+PHOTO	Photo	Foto	Foto
+NAME	Name	Nome	Nombre	Nom
+NAME_HINT	(panel and Home Assistant)	(painel e Home Assistant)	(panel y Home Assistant)	(panneau et Home Assistant)
+HOSTNAME_HINT	(router; applies on the next connection)	(roteador; vale na próxima conexão)	(router; se aplica en la próxima conexión)	(routeur ; appliqué à la prochaine connexion)
+TIME_ZONE	Time zone	Fuso horário	Zona horaria	Fuseau horaire
+NO_DST	(no daylight saving)	(sem horário de verão)	(sin horario de verano)	(sans heure d'été)
+LANGUAGE	Language	Idioma	Idioma	Langue
+BROWSER_LANG	Browser language	Idioma do navegador	Idioma del navegador	Langue du navigateur
+GAUGE	MAX17048 battery gauge	Medidor de bateria MAX17048	Medidor de batería MAX17048	Jauge de batterie MAX17048
+GAUGE_HINT	(SDA; SCL goes on the pair: GPIO0 with GPIO2, RX with TX)	(SDA; o SCL vai no par: GPIO0 com GPIO2, RX com TX)	(SDA; el SCL va en el par: GPIO0 con GPIO2, RX con TX)	(SDA ; SCL va sur la paire : GPIO0 avec GPIO2, RX avec TX)
+NONE	None	Nenhum	Ninguno	Aucun
+SAVE	Save	Salvar	Guardar	Enregistrer
+INVALID_SSID	Invalid SSID	SSID inválido	SSID no válido	SSID invalide
+WIFI_PASS_LENGTH	The Wi-Fi password must have 8 to 63 characters	A senha do Wi-Fi deve ter de 8 a 63 caracteres	La contraseña del Wi-Fi debe tener de 8 a 63 caracteres	Le mot de passe Wi-Fi doit comporter de 8 à 63 caractères
+SAVE_FAILED	Could not save the configuration	Não foi possível salvar a configuração	No se pudo guardar la configuración	Impossible d'enregistrer la configuration
+WIFI_SET	Wi-Fi set! Restarting...	Wi-Fi configurado! Reiniciando...	¡Wi-Fi configurado! Reiniciando...	Wi-Fi configuré ! Redémarrage...
+INVALID_TZ	Invalid time zone	Fuso horário inválido	Zona horaria no válida	Fuseau horaire invalide
+INVALID_LANG	Invalid language	Idioma inválido	Idioma no válido	Langue invalide
+GAUGE_PINS_TAKEN	The gauge pins are taken by the sensor or the actuator	Os pinos do medidor estão ocupados pelo sensor ou pelo atuador	Los pines del medidor están ocupados por el sensor o el actuador	Les broches de la jauge sont prises par le capteur ou l'actionneur
+INVALID_NAME	Invalid name (up to 31 characters, no quotes)	Nome inválido (até 31 caracteres, sem aspas)	Nombre no válido (hasta 31 caracteres, sin comillas)	Nom invalide (31 caractères maximum, sans guillemets)
+INVALID_HOSTNAME	Invalid hostname (letters, digits and hyphen)	Hostname inválido (letras, dígitos e hífen)	Hostname no válido (letras, dígitos y guion)	Nom d'hôte invalide (lettres, chiffres et trait d'union)
+SETTINGS_SAVED	Settings saved!	Configurações salvas!	¡Configuración guardada!	Paramètres enregistrés !
+SYSTEM_LOG	System log	Log do sistema	Registro del sistema	Journal du système
+SYSTEM	System	Sistema	Sistema	Système
+UPTIME	Uptime	Tempo ligado	Tiempo encendido	Temps de fonctionnement
+LOCAL_TIME	Local time	Hora local	Hora local	Heure locale
+RESET	Reset	Reinício	Reinicio	Redémarrage
+CAUSE	Cause	Causa	Causa
+CHIP_ID	Chip ID	ID do chip	ID del chip	ID de la puce
+AP_PASSWORD	AP password	Senha do AP	Contraseña del AP	Mot de passe de l'AP
+MEMORY	Memory	Memória	Memoria	Mémoire
+FREE_HEAP	Free heap	Heap livre	Heap libre	Tas libre
+LARGEST_BLOCK	Largest block	Maior bloco	Bloque más grande	Plus grand bloc
+FRAGMENTATION	Fragmentation	Fragmentação	Fragmentación
+OTA_RESERVE	OTA reserve	Reserva OTA	Reserva OTA	Réserve OTA
+FREE	Free	Livre	Libre	Libre
+USED	Used	Usado	Usado	Utilisé
+FILES	Files	Arquivos	Archivos	Fichiers
+GATEWAY	Gateway		Puerta de enlace	Passerelle
+NETMASK	Netmask	Máscara	Máscara	Masque
+STATE	State	Estado	Estado	État
+CHARGE	Charge	Carga	Carga
+VOLTAGE	Voltage	Tensão	Tensión	Tension
+RATE	Rate	Taxa	Tasa	Taux
+REVERSE	Reverse	Reverso	Inverso	Inverse
+CHANGED	Changed	Mudou	Cambió	Changé
+LAST_CHECK	Last check	Última verificação	Última comprobación	Dernière vérification
+CLOCK_NOT_SYNC	clock not synchronized	relógio não sincronizado	reloj no sincronizado	horloge non synchronisée
+NEVER	never	nunca	nunca	jamais
+AGO	{0} ago	há {0}	hace {0}	il y a {0}
+TOKEN_SET	Token set:	Token definido:	Token definido:	Jeton défini :
+TOKEN_NOT_SET	Token not set	Token não definido	Token no definido	Jeton non défini
+API_TOKEN	API Token	Token da API	Token de la API	Jeton d'API
+KEEP_BLANK	(leave blank to keep)	(deixe em branco para manter)	(deje en blanco para mantener)	(laisser vide pour conserver)
+NEW_TOKEN	New token	Novo token	Nuevo token	Nouveau jeton
+ZONE_ID	Zone ID	ID da zona	ID de la zona	ID de zone
+HOSTNAME_DISPLAY	Hostname (display)	Hostname (exibição)	Hostname (visualización)	Nom d'hôte (affichage)
+RECORD_ID	Record ID	ID do registro	ID del registro	ID de l'enregistrement
+CF_SET	Cloudflare set!	Cloudflare configurado!	¡Cloudflare configurado!	Cloudflare configuré !
+NTFY_TITLE	ntfy notifications	Notificações ntfy	Notificaciones ntfy	Notifications ntfy
+TOPIC	Topic:	Tópico:	Tema:	Sujet :
+TOPIC_NOT_SET	Topic not set - notifications off	Tópico não definido - notificações desligadas	Tema no definido - notificaciones desactivadas	Sujet non défini - notifications désactivées
+SHORT_TOPIC_WARN	Short command topic and no token: anyone who guesses the name controls the device	Tópico de comandos curto e sem token: quem adivinhar o nome controla o aparelho	Tema de comandos corto y sin token: quien adivine el nombre controla el dispositivo	Sujet des commandes court et sans jeton : qui devine le nom contrôle l'appareil
+NTFY_COMMANDS	Commands over ntfy	Comandos pelo ntfy	Comandos por ntfy	Commandes via ntfy
+NTFY_TOPIC	ntfy.sh topic	Tópico do ntfy.sh	Tema de ntfy.sh	Sujet ntfy.sh
+NTFY_TOPIC_HELP	Gets the IP at boot and when it changes, and the IoT readings and changes. Leave blank to turn it off.	Recebe o IP ao ligar e quando ele muda, e as leituras e mudanças de IoT. Deixe em branco para desligar.	Recibe la IP al arrancar y cuando cambia, y las lecturas y cambios de IoT. Deje en blanco para desactivarlo.	Reçoit l'IP au démarrage et à chaque changement, ainsi que les mesures et changements IoT. Laisser vide pour désactiver.
+COMMAND_TOPIC	Command topic	Tópico de comandos	Tema de comandos	Sujet des commandes
+GEN_RANDOM	Generate random name	Gerar nome aleatório	Generar nombre aleatorio	Générer un nom aléatoire
+CMD_TOPIC_HELP	Each message published to this topic becomes an actuator command (on, off, pulse 5, 50%, open, auto). Anyone who knows the name can control it: use a long random name, different from the topic above, or an access token. Blank turns it off.	Cada mensagem publicada neste tópico vira um comando do atuador (on, off, pulse 5, 50%, open, auto). Quem souber o nome pode controlá-lo: use um nome aleatório longo, diferente do tópico acima, ou um token de acesso. Em branco desliga.	Cada mensaje publicado en este tema se convierte en un comando del actuador (on, off, pulse 5, 50%, open, auto). Quien conozca el nombre puede controlarlo: use un nombre aleatorio largo, distinto del tema de arriba, o un token de acceso. En blanco lo desactiva.	Chaque message publié sur ce sujet devient une commande de l'actionneur (on, off, pulse 5, 50%, open, auto). Qui connaît le nom peut le contrôler : utilisez un nom aléatoire long, différent du sujet ci-dessus, ou un jeton d'accès. Vide le désactive.
+NTFY_TOKEN	ntfy access token	Token de acesso do ntfy	Token de acceso de ntfy	Jeton d'accès ntfy
+OPTIONAL_KEEPS	(optional; blank keeps it)	(opcional; em branco mantém)	(opcional; en blanco lo mantiene)	(facultatif ; vide le conserve)
+DELETE_TOKEN	Delete the saved token	Apagar o token salvo	Borrar el token guardado	Supprimer le jeton enregistré
+INVALID_TOPIC	Invalid topic (use letters, digits, _ or -)	Tópico inválido (use letras, dígitos, _ ou -)	Tema no válido (use letras, dígitos, _ o -)	Sujet invalide (lettres, chiffres, _ ou -)
+INVALID_CMD_TOPIC	Invalid command topic (use letters, digits, _ or -)	Tópico de comandos inválido (use letras, dígitos, _ ou -)	Tema de comandos no válido (use letras, dígitos, _ o -)	Sujet des commandes invalide (lettres, chiffres, _ ou -)
+SHORT_TOPIC	Short command topic: use Generate random name or a token	Tópico de comandos curto: use Gerar nome aleatório ou um token	Tema de comandos corto: use Generar nombre aleatorio o un token	Sujet des commandes trop court : utilisez Générer un nom aléatoire ou un jeton
+SAME_TOPIC	The command topic must be different	O tópico de comandos deve ser diferente	El tema de comandos debe ser distinto	Le sujet des commandes doit être différent
+INVALID_NTFY_TOKEN	Invalid ntfy token	Token do ntfy inválido	Token de ntfy no válido	Jeton ntfy invalide
+NTFY_SAVED	ntfy settings saved!	Configurações do ntfy salvas!	¡Configuración de ntfy guardada!	Paramètres ntfy enregistrés !
+CONNECTION	Connection	Conexão	Conexión	Connexion
+TOPICS	Topics	Tópicos	Temas	Sujets
+BROKER_HINT	(host or host:port)	(host ou host:porta)	(host o host:puerto)	(hôte ou hôte:port)
+BLANK_KEEPS	(blank keeps it)	(em branco mantém)	(en blanco lo mantiene)	(vide le conserve)
+DELETE_PASSWORD	Delete the saved password	Apagar a senha salva	Borrar la contraseña guardada	Supprimer le mot de passe enregistré
+MQTT_HELP	Home Assistant finds the device on its own (discovery). It publishes the state (the same JSON as the API) and takes commands (the same text as the panel). No TLS: use a broker on the local network, with a user and password; anyone who publishes to the broker controls the actuator. Use the broker's IP (.local names do not resolve). Blank turns it off.	O Home Assistant encontra o aparelho sozinho (discovery). Ele publica o estado (o mesmo JSON da API) e recebe comandos (o mesmo texto do painel). Sem TLS: use um broker na rede local, com usuário e senha; quem publica no broker controla o atuador. Use o IP do broker (nomes .local não resolvem). Em branco desliga.	Home Assistant encuentra el dispositivo por sí solo (discovery). Publica el estado (el mismo JSON que la API) y recibe comandos (el mismo texto que el panel). Sin TLS: use un broker en la red local, con usuario y contraseña; quien publica en el broker controla el actuador. Use la IP del broker (los nombres .local no se resuelven). En blanco lo desactiva.	Home Assistant trouve l'appareil tout seul (discovery). Il publie l'état (le même JSON que l'API) et reçoit des commandes (le même texte que le panneau). Sans TLS : utilisez un broker sur le réseau local, avec utilisateur et mot de passe ; qui publie sur le broker contrôle l'actionneur. Utilisez l'IP du broker (les noms .local ne sont pas résolus). Vide le désactive.
+INVALID_BROKER	Invalid broker (use host or host:port)	Broker inválido (use host ou host:porta)	Broker no válido (use host o host:puerto)	Broker invalide (hôte ou hôte:port)
+USER_PASS_LONG	User or password too long	Usuário ou senha longos demais	Usuario o contraseña demasiado largos	Utilisateur ou mot de passe trop long
+MQTT_SAVED	MQTT settings saved!	Configurações do MQTT salvas!	¡Configuración de MQTT guardada!	Paramètres MQTT enregistrés !
+PANEL_PASSWORD	Panel password	Senha do painel	Contraseña del panel	Mot de passe du panneau
+SET_PASSWORD	Set a password to unlock the panel	Defina uma senha para liberar o painel	Defina una contraseña para desbloquear el panel	Définissez un mot de passe pour déverrouiller le panneau
+NEW_PASS_MIN	New password (min. 8)	Nova senha (mín. 8)	Nueva contraseña (mín. 8)	Nouveau mot de passe (min. 8)
+PASSWORD_UPDATED	Password updated!	Senha atualizada!	¡Contraseña actualizada!	Mot de passe mis à jour !
+CURRENT_VERSION	Current version	Versão atual	Versión actual	Version actuelle
+AUTOMATIC_CAP	Automatic	Automática	Automática	Automatique
+ON	on	ligado	encendido	allumé
+OFF	off	desligado	apagado	éteint
+AVAILABLE	Available	Disponível	Disponible	Disponible
+AUTO_UPDATE	Automatic update	Atualização automática	Actualización automática	Mise à jour automatique
+CHECK_NOW	Check now	Verificar agora	Comprobar ahora	Vérifier maintenant
+INSTALL_VERSION	Install this version	Instalar esta versão	Instalar esta versión	Installer cette version
+AUTO_UPDATE_ON	Automatic update on	Atualização automática ligada	Actualización automática activada	Mise à jour automatique activée
+AUTO_UPDATE_OFF	Automatic update off	Atualização automática desligada	Actualización automática desactivada	Mise à jour automatique désactivée
+NO_NEW_VERSION	No new version to install	Nenhuma versão nova para instalar	No hay versión nueva para instalar	Aucune nouvelle version à installer
+CHOOSE	Choose	Escolha	Elija	Choisir
+TYPE	Type	Tipo	Tipo
+OPEN_BTN	Open	Abrir	Abrir	Ouvrir
+CLOSE_BTN	Close	Fechar	Cerrar	Fermer
+PULSE_S	Pulse (s)	Pulso (s)	Pulso (s)	Impulsion (s)
+PULSE	Pulse	Pulso	Pulso	Impulsion
+BACK_AUTO	Back to automatic	Voltar ao automático	Volver al automático	Retour en automatique
+LEVEL	Level	Nível	Nivel	Niveau
+BRIGHTNESS	Brightness	Brilho	Brillo	Luminosité
+ANGLE	Angle	Ângulo	Ángulo
+COLOR	Color	Cor		Couleur
+TYPE_UNKNOWN	Type unknown to this version: that part stays off	Tipo desconhecido nesta versão: essa parte fica desligada	Tipo desconocido en esta versión: esa parte queda apagada	Type inconnu de cette version : cette partie reste éteinte
+SET_NTFY_TOPIC	Set the ntfy topic to send the reading	Defina o tópico do ntfy para enviar a leitura	Defina el tema de ntfy para enviar la lectura	Définissez le sujet ntfy pour envoyer la mesure
+NOW	Now	Agora	Ahora	Maintenant
+SENSOR	Sensor			Capteur
+ACTUATOR	Actuator	Atuador	Actuador	Actionneur
+MODE	Mode	Modo	Modo
+MANUAL	manual			manuel
+AUTOMATIC	automatic	automático	automático	automatique
+AUTO_OUTSIDE	automatic, outside the window	automático, fora da janela	automático, fuera de la franja	automatique, hors de la plage
+PINOUT_ALT	ESP-01 pins, top view: GPIO0, RX (GPIO3), GPIO2, GND; VCC 3.3 V, RST, CH_PD, TX (GPIO1)	Pinos do ESP-01, vista de cima: GPIO0, RX (GPIO3), GPIO2, GND; VCC 3,3 V, RST, CH_PD, TX (GPIO1)	Pines del ESP-01, vista superior: GPIO0, RX (GPIO3), GPIO2, GND; VCC 3,3 V, RST, CH_PD, TX (GPIO1)	Broches de l'ESP-01, vue de dessus : GPIO0, RX (GPIO3), GPIO2, GND ; VCC 3,3 V, RST, CH_PD, TX (GPIO1)
+ROLE_QUESTION	What does this device do?	O que este aparelho faz?	¿Qué hace este dispositivo?	Que fait cet appareil ?
+ROLE_NONE	Nothing (IoT off)	Nada (IoT desligado)	Nada (IoT apagado)	Rien (IoT désactivé)
+ROLE_SENSOR	Sensor only: measures and reports	Só sensor: mede e informa	Solo sensor: mide e informa	Capteur seul : mesure et signale
+ROLE_ACTUATOR	Actuator only: obeys commands	Só atuador: obedece a comandos	Solo actuador: obedece comandos	Actionneur seul : obéit aux commandes
+ROLE_BOTH	Sensor and actuator	Sensor e atuador	Sensor y actuador	Capteur et actionneur
+PIN	Pin	Pino		Broche
+ACTIVE_WITH_PIN	Active with the pin	Ativo com o pino	Activo con el pin	Actif avec la broche
+LOW	Low	Baixo	Bajo	Bas
+HIGH	High	Alto	Alto	Haut
+ACTIVE_NAME	Active state name	Nome do estado ativo	Nombre del estado activo	Nom de l'état actif
+INACTIVE_NAME	Inactive state name	Nome do estado inativo	Nombre del estado inactivo	Nom de l'état inactif
+TYPE_DEFAULT	type default	padrão do tipo	predeterminado del tipo	valeur du type
+RULE_VALUE	Value used by the rule	Valor usado pela regra	Valor usado por la regla	Valeur utilisée par la règle
+HUMIDITY	Humidity	Umidade	Humedad	Humidité
+TEMPERATURE	Temperature	Temperatura	Temperatura	Température
+ON_WITH_PIN	On with the pin	Liga com o pino	Enciende con el pin	Allumé avec la broche
+LOW_RELAY	Low (common relay modules)	Baixo (módulos de relé comuns)	Bajo (módulos de relé comunes)	Bas (modules relais courants)
+LEVEL_ON	Level when on (%)	Nível ligado (%)	Nivel encendido (%)	Niveau allumé (%)
+LEVEL_OFF	Level when off (%)	Nível desligado (%)	Nivel apagado (%)	Niveau éteint (%)
+OPEN_ANGLE	Open angle	Ângulo aberto	Ángulo abierto	Angle ouvert
+CLOSED_ANGLE	Closed angle	Ângulo fechado	Ángulo cerrado	Angle fermé
+LED_COUNT	Number of LEDs	Número de LEDs	Número de LED	Nombre de LED
+MAX_ON	Turn off by itself after (min; 0 = never)	Desligar sozinho depois de (min; 0 = nunca)	Apagar solo después de (min; 0 = nunca)	Éteindre tout seul après (min ; 0 = jamais)
+POWER_UP	On power-up	Ao ligar	Al encender	À la mise sous tension
+OFF_CAP	Off	Desligado	Apagado	Éteint
+LAST_COMMAND	Last command	Último comando	Último comando	Dernière commande
+RULE	Rule	Regra	Regla	Règle
+RULE_SWITCH	The sensor drives the actuator (automatic mode)	O sensor comanda o atuador (modo automático)	El sensor controla el actuador (modo automático)	Le capteur pilote l'actionneur (mode automatique)
+WHEN_ACTIVE	When the sensor becomes active	Quando o sensor fica ativo	Cuando el sensor se activa	Quand le capteur devient actif
+ON_WHILE_ACTIVE	On while active	Ligado enquanto ativo	Encendido mientras está activo	Allumé tant qu'il est actif
+FLIP	Flip the actuator	Inverte o atuador	Invierte el actuador	Inverse l'actionneur
+ON_WHEN_VALUE	On when the value is	Liga quando o valor está	Enciende cuando el valor está	Allumé quand la valeur est
+BELOW_LIMIT	Below the limit	Abaixo do limite	Por debajo del límite	Sous la limite
+ABOVE_LIMIT	Above the limit	Acima do limite	Por encima del límite	Au-dessus de la limite
+LIMIT	Limit	Limite	Límite	Limite
+MARGIN	Margin to turn off	Margem para desligar	Margen para apagar	Marge pour éteindre
+ONOFF_AT_LIMIT	On and off at the limit	Liga e desliga no limite	Enciende y apaga en el límite	Allumé et éteint à la limite
+PROPORTIONAL	Proportional up to the high limit	Proporcional até o limite alto	Proporcional hasta el límite alto	Proportionnel jusqu'à la limite haute
+HIGH_LIMIT	High limit	Limite alto	Límite alto	Limite haute
+WINDOW_SWITCH	Only within a time window (local time)	Só dentro de uma janela de horário (hora local)	Solo dentro de una franja horaria (hora local)	Seulement dans une plage horaire (heure locale)
+FROM	From	De	Desde	De
+TO	To	Até	Hasta	À
+WINDOW_HELP	Outside the window, automatic mode keeps the actuator off; a manual command holds until auto. The time zone is in Settings.	Fora da janela, o modo automático mantém o atuador desligado; um comando manual vale até auto. O fuso horário fica em Configurações.	Fuera de la franja, el modo automático mantiene el actuador apagado; un comando manual vale hasta auto. La zona horaria está en Configuración.	Hors de la plage, le mode automatique garde l'actionneur éteint ; une commande manuelle tient jusqu'à auto. Le fuseau horaire est dans Paramètres.
+NOTIFY	Send readings and changes to ntfy	Enviar leituras e mudanças ao ntfy	Enviar lecturas y cambios a ntfy	Envoyer les mesures et changements à ntfy
+REMOVE_BOTH	Remove sensor and actuator	Remover sensor e atuador	Quitar sensor y actuador	Retirer le capteur et l'actionneur
+INVALID_VALUE	Invalid value	Valor inválido	Valor no válido	Valeur invalide
+INVALID_STATE_NAME	Invalid state name	Nome de estado inválido	Nombre de estado no válido	Nom d'état invalide
+CHOOSE_PIN	Choose the pin	Escolha o pino	Elija el pin	Choisissez la broche
+CHOOSE_ROLE	Choose what the device does	Escolha o que o aparelho faz	Elija qué hace el dispositivo	Choisissez ce que fait l'appareil
+INVALID_SENSOR	Invalid sensor type	Tipo de sensor inválido	Tipo de sensor no válido	Type de capteur invalide
+INVALID_ACTUATOR	Invalid actuator type	Tipo de atuador inválido	Tipo de actuador no válido	Type d'actionneur invalide
+SAME_PINS	Sensor and actuator need different pins	Sensor e atuador precisam de pinos diferentes	Sensor y actuador necesitan pines distintos	Le capteur et l'actionneur doivent être sur des broches différentes
+HIGH_ABOVE	The high limit must be above the limit	O limite alto deve ficar acima do limite	El límite alto debe estar por encima del límite	La limite haute doit être au-dessus de la limite
+INVALID_TIME	Invalid time	Horário inválido	Hora no válida	Heure invalide
+WINDOW_SAME	The window needs different start and end times	A janela precisa de início e fim diferentes	La franja necesita inicio y fin distintos	La plage doit avoir un début et une fin différents
+PIN_GAUGE	Pin used by the battery gauge	Pino usado pelo medidor de bateria	Pin usado por el medidor de batería	Broche utilisée par la jauge de batterie
+IOT_SET	IoT set	IoT configurado	IoT configurado	IoT configuré
+NEW_TOKEN_DONE	New token generated; the old one no longer works	Novo token gerado; o antigo não vale mais	Nuevo token generado; el anterior ya no funciona	Nouveau jeton généré ; l'ancien ne fonctionne plus
+REMOVE	Remove	Remover	Quitar	Retirer
+REMOVE_WARNING	The sensor and the actuator will be deleted with all settings and the rule. The actuator turns off, the local API stops answering and the token stops working.	O sensor e o atuador serão apagados com todas as configurações e a regra. O atuador desliga, a API local para de responder e o token deixa de valer.	El sensor y el actuador se borrarán con toda la configuración y la regla. El actuador se apaga, la API local deja de responder y el token deja de funcionar.	Le capteur et l'actionneur seront supprimés avec tous les paramètres et la règle. L'actionneur s'éteint, l'API locale ne répond plus et le jeton cesse de fonctionner.
+YES_REMOVE	Yes, remove	Sim, remover	Sí, quitar	Oui, retirer
+REMOVED	Sensor and actuator removed	Sensor e atuador removidos	Sensor y actuador quitados	Capteur et actionneur retirés
+LOCAL_API	Local API	API local	API local	API locale
+API_HELP	No internet, same network: GET /api/state and POST /api/cmd with the Authorization: Bearer header and the token.	Sem internet, na mesma rede: GET /api/state e POST /api/cmd com o cabeçalho Authorization: Bearer e o token.	Sin internet, en la misma red: GET /api/state y POST /api/cmd con la cabecera Authorization: Bearer y el token.	Sans internet, sur le même réseau : GET /api/state et POST /api/cmd avec l'en-tête Authorization: Bearer et le jeton.
+TOKEN	Token			Jeton
+GEN_NEW_TOKEN	Generate new token	Gerar novo token	Generar nuevo token	Générer un nouveau jeton
+GEN_TOKEN	Generate token	Gerar token	Generar token	Générer un jeton
+G_TEMP_HUM	Temperature and humidity	Temperatura e umidade	Temperatura y humedad	Température et humidité
+G_MOTION	Motion and contact	Movimento e contato	Movimiento y contacto	Mouvement et contact
+G_DISTANCE	Distance and flow	Distância e vazão	Distancia y caudal	Distance et débit
+G_ONOFF	On and off	Liga e desliga	Encendido y apagado	Marche et arrêt
+G_LEVEL	Level (PWM)	Nível (PWM)	Nivel (PWM)	Niveau (PWM)
+G_POSITION	Position	Posição	Posición
+S_DHT22	Temperature and humidity (DHT22)	Temperatura e umidade (DHT22)	Temperatura y humedad (DHT22)	Température et humidité (DHT22)
+S_DHT11	Temperature and humidity (DHT11)	Temperatura e umidade (DHT11)	Temperatura y humedad (DHT11)	Température et humidité (DHT11)
+S_DS18	Temperature (DS18B20)	Temperatura (DS18B20)	Temperatura (DS18B20)	Température (DS18B20)
+S_SHT3X	Temperature and humidity (SHT30/SHT31, I2C)	Temperatura e umidade (SHT30/SHT31, I2C)	Temperatura y humedad (SHT30/SHT31, I2C)	Température et humidité (SHT30/SHT31, I2C)
+S_PIR	Motion (PIR)	Movimento (PIR)	Movimiento (PIR)	Mouvement (PIR)
+S_DOOR	Door or window (reed)	Porta ou janela (reed)	Puerta o ventana (reed)	Porte ou fenêtre (reed)
+S_BUTTON	Button or switch	Botão ou interruptor	Botón o interruptor	Bouton ou interrupteur
+S_DIGITAL	Digital (rain, gas, flame, soil, float, sound)	Digital (chuva, gás, chama, solo, boia, som)	Digital (lluvia, gas, llama, suelo, flotador, sonido)	Numérique (pluie, gaz, flamme, sol, flotteur, son)
+S_RANGE	Distance (HC-SR04)	Distância (HC-SR04)	Distancia (HC-SR04)
+S_PULSE	Flow or pulses (YF-S201)	Vazão ou pulsos (YF-S201)	Caudal o pulsos (YF-S201)	Débit ou impulsions (YF-S201)
+A_RELAY	Relay	Relé	Relé	Relais
+A_PUMP	Pump	Bomba	Bomba	Pompe
+A_VALVE	Solenoid valve	Válvula solenoide	Válvula solenoide	Électrovanne
+A_LOCK	Solenoid lock	Fechadura solenoide	Cerradura solenoide	Serrure électrique
+A_BUZZER	Buzzer		Zumbador
+A_LED	Dimmable LED	LED dimerizável	LED regulable	LED à intensité variable
+A_FAN	Fan	Ventilador	Ventilador	Ventilateur
+A_MOTOR	DC motor	Motor DC	Motor DC	Moteur CC
+A_STRIP	LED strip (WS2812)	Fita de LED (WS2812)	Tira de LED (WS2812)	Ruban LED (WS2812)
+V_MOTION	motion	movimento	movimiento	mouvement
+V_CLEAR	clear	livre	libre	libre
+V_OPEN	open	aberto	abierto	ouvert
+V_CLOSED	closed	fechado	cerrado	fermé
+V_PRESSED	pressed	pressionado	presionado	appuyé
+V_RELEASED	released	solto	suelto	relâché
+V_ACTIVE	active	ativo	activo	actif
+V_IDLE	idle	inativo	inactivo	inactif
+V_WAITING	waiting	aguardando	esperando	en attente
+V_ERROR	error	erro		erreur
+V_CONNECTED	connected	conectado	conectado	connecté
+V_CONNECTING	connecting	conectando	conectando	connexion en cours
+V_PAUSED	paused	pausado	en pausa	en pause
+V_ON_SUPPLY	on supply	na fonte	con alimentación	sur secteur
+V_ON_BATTERY	on battery	na bateria	con batería	sur batterie
+V_CHARGING	charging	carregando	cargando	en charge
+V_GAUGE_SILENT	gauge not answering	o medidor não responde	el medidor no responde	la jauge ne répond pas
+V_INVALID_CMD	invalid command	comando inválido	comando no válido	commande invalide
+V_CMD_NOT_VALID	command not valid for this actuator	comando não vale para este atuador	comando no válido para este actuador	commande non valable pour cet actionneur
+V_NO_ACTUATOR	no actuator configured	nenhum atuador configurado	ningún actuador configurado	aucun actionneur configuré
+J_HINT_DIGITAL	Module with a digital output (D0); sensitivity is set on the trimpot.	Módulo com saída digital (D0); a sensibilidade se ajusta no trimpot.	Módulo con salida digital (D0); la sensibilidad se ajusta en el trimpot.	Module à sortie numérique (D0) ; la sensibilité se règle sur le trimmer.
+J_HINT_DHT11	DHT11: 4.7 to 10 kOhm pull-up between data and 3.3 V; one reading every 2 s.	DHT11: pull-up de 4,7 a 10 kOhm entre dados e 3,3 V; uma leitura a cada 2 s.	DHT11: pull-up de 4,7 a 10 kOhm entre datos y 3,3 V; una lectura cada 2 s.	DHT11 : pull-up de 4,7 à 10 kOhm entre données et 3,3 V ; une mesure toutes les 2 s.
+J_HINT_DHT22	DHT22: 4.7 to 10 kOhm pull-up between data and 3.3 V; one reading every 2 s.	DHT22: pull-up de 4,7 a 10 kOhm entre dados e 3,3 V; uma leitura a cada 2 s.	DHT22: pull-up de 4,7 a 10 kOhm entre datos y 3,3 V; una lectura cada 2 s.	DHT22 : pull-up de 4,7 à 10 kOhm entre données et 3,3 V ; une mesure toutes les 2 s.
+J_HINT_DS18	DS18B20: 4.7 kOhm pull-up between data and 3.3 V.	DS18B20: pull-up de 4,7 kOhm entre dados e 3,3 V.	DS18B20: pull-up de 4,7 kOhm entre datos y 3,3 V.	DS18B20 : pull-up de 4,7 kOhm entre données et 3,3 V.
+J_HINT_RANGE	HC-SR04: trig and echo together on one pin, with 1 kOhm on echo; up to 400 cm.	HC-SR04: trig e echo juntos num pino, com 1 kOhm no echo; até 400 cm.	HC-SR04: trig y echo juntos en un pin, con 1 kOhm en echo; hasta 400 cm.	HC-SR04 : trig et echo ensemble sur une broche, avec 1 kOhm sur echo ; jusqu'à 400 cm.
+J_HINT_PULSE	Counts pulses every 10 s (YF-S201: about 75 pulses per L/min).	Conta pulsos a cada 10 s (YF-S201: cerca de 75 pulsos por L/min).	Cuenta pulsos cada 10 s (YF-S201: unos 75 pulsos por L/min).	Compte les impulsions toutes les 10 s (YF-S201 : environ 75 impulsions par L/min).
+J_HINT_SHT3X	I2C: SDA on this pin and SCL on its pair (GPIO0 with GPIO2, RX with TX); 4.7 kOhm pull-ups on both and address 0x44 (ADDR to GND).	I2C: SDA neste pino e SCL no par (GPIO0 com GPIO2, RX com TX); pull-ups de 4,7 kOhm nos dois e endereço 0x44 (ADDR no GND).	I2C: SDA en este pin y SCL en su par (GPIO0 con GPIO2, RX con TX); pull-ups de 4,7 kOhm en ambos y dirección 0x44 (ADDR a GND).	I2C : SDA sur cette broche et SCL sur sa paire (GPIO0 avec GPIO2, RX avec TX) ; pull-ups de 4,7 kOhm sur les deux et adresse 0x44 (ADDR à GND).
+J_HINT_RELAY	Relay modules usually switch on low.	Módulos de relé costumam ligar no nível baixo.	Los módulos de relé suelen activarse en nivel bajo.	Les modules relais s'activent généralement au niveau bas.
+J_HINT_PWM	PWM on the pin: use a MOSFET or a motor driver, never the load straight on the pin.	PWM no pino: use um MOSFET ou um driver de motor, nunca a carga direto no pino.	PWM en el pin: use un MOSFET o un driver de motor, nunca la carga directamente en el pin.	PWM sur la broche : utilisez un MOSFET ou un driver de moteur, jamais la charge directement sur la broche.
+J_HINT_SERVO	Servo on a separate 5 V supply with GND shared with the ESP.	Servo numa fonte de 5 V separada, com GND comum ao ESP.	Servo con una fuente de 5 V aparte, con GND común con el ESP.	Servo sur une alimentation 5 V séparée, avec la masse commune à l'ESP.
+J_HINT_WS2812	WS2812 on 5 V: 330 Ohm resistor on the data line; up to 60 LEDs.	WS2812 em 5 V: resistor de 330 Ohm na linha de dados; até 60 LEDs.	WS2812 a 5 V: resistencia de 330 Ohm en la línea de datos; hasta 60 LED.	WS2812 en 5 V : résistance de 330 Ohm sur la ligne de données ; jusqu'à 60 LED.
+J_HINT_BOOT	GPIO0 and GPIO2 must be high at boot; TX and RX stop being serial.	GPIO0 e GPIO2 precisam estar em nível alto no boot; TX e RX deixam de ser serial.	GPIO0 y GPIO2 deben estar en alto al arrancar; TX y RX dejan de ser serie.	GPIO0 et GPIO2 doivent être au niveau haut au démarrage ; TX et RX ne servent plus de port série.
+J_PULSES	pulses	pulsos	pulsos	impulsions
+J_NO_RULE	No rule: the actuator only obeys commands.	Sem regra: o atuador só obedece a comandos.	Sin regla: el actuador solo obedece comandos.	Pas de règle : l'actionneur obéit seulement aux commandes.
+J_RULE_FLIP	Each time the sensor becomes {0}, the {1} flips.	Cada vez que o sensor fica {0}, {1} inverte.	Cada vez que el sensor pasa a {0}, {1} se invierte.	Chaque fois que le capteur devient {0}, {1} s'inverse.
+J_RULE_FOLLOW	Turns the {1} on while the sensor is {0}.	Liga {1} enquanto o sensor está {0}.	Enciende {1} mientras el sensor está {0}.	Allume {1} tant que le capteur est {0}.
+J_RULE_LINEAR	Level proportional from {0} to {1} {2}.	Nível proporcional de {0} a {1} {2}.	Nivel proporcional de {0} a {1} {2}.	Niveau proportionnel de {0} à {1} {2}.
+J_RULE_ABOVE	Turns the {0} on when the value goes above {1} {2} and off when it goes back below {3} {2}.	Liga {0} quando o valor passa de {1} {2} e desliga quando volta abaixo de {3} {2}.	Enciende {0} cuando el valor supera {1} {2} y lo apaga cuando vuelve por debajo de {3} {2}.	Allume {0} quand la valeur dépasse {1} {2} et l'éteint quand elle redescend sous {3} {2}.
+J_RULE_BELOW	Turns the {0} on when the value goes below {1} {2} and off when it goes back above {3} {2}.	Liga {0} quando o valor fica abaixo de {1} {2} e desliga quando volta acima de {3} {2}.	Enciende {0} cuando el valor baja de {1} {2} y lo apaga cuando vuelve por encima de {3} {2}.	Allume {0} quand la valeur passe sous {1} {2} et l'éteint quand elle remonte au-dessus de {3} {2}.
+J_RULE_WINDOW	Only between {0} and {1} (local time); off outside it.	Só entre {0} e {1} (hora local); desligado fora disso.	Solo entre {0} y {1} (hora local); apagado fuera de ese horario.	Seulement entre {0} et {1} (heure locale) ; éteint en dehors.
+J_NO_ANSWER	No answer from the device	O aparelho não respondeu	El dispositivo no respondió	L'appareil ne répond pas

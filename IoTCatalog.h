@@ -3,6 +3,7 @@
 
 #pragma once
 #include <Arduino.h>
+#include "I18n.h"
 
 // Catalog of sensors and actuators. The configuration stores the identifier
 // (slug), never the position in the table: the order and the display names
@@ -24,7 +25,7 @@ enum Cap : uint8_t { C_NONE, C_ONOFF, C_LEVEL, C_POSITION, C_COLOR };
 
 struct SensorDef {
     const char* slug;   // RAM: goes to JSON and comparisons
-    PGM_P       label;  // flash: only shown on the panel
+    PGM_P       label;  // flash: only shown on the panel (I18n.h marker)
     uint8_t     kind;
     uint8_t     group;  // group in the panel list
     PGM_P       on;     // digital: name of the active / inactive state
@@ -38,16 +39,16 @@ struct ActuatorDef {
     uint8_t     pulse;  // pulse length suggested on the panel (s)
 };
 
-static const char _S_DHT22[]  PROGMEM = "Temperature and humidity (DHT22)";
-static const char _S_DHT11[]  PROGMEM = "Temperature and humidity (DHT11)";
-static const char _S_DS18[]   PROGMEM = "Temperature (DS18B20)";
-static const char _S_SHT3X[]  PROGMEM = "Temperature and humidity (SHT30/SHT31, I2C)";
-static const char _S_PIR[]    PROGMEM = "Motion (PIR)";
-static const char _S_DOOR[]   PROGMEM = "Door or window (reed)";
-static const char _S_BTN[]    PROGMEM = "Button or switch";
-static const char _S_DIG[]    PROGMEM = "Digital (rain, gas, flame, soil, float, sound)";
-static const char _S_RANGE[]  PROGMEM = "Distance (HC-SR04)";
-static const char _S_PULSE[]  PROGMEM = "Flow or pulses (YF-S201)";
+static const char _S_DHT22[]  PROGMEM = L_S_DHT22;
+static const char _S_DHT11[]  PROGMEM = L_S_DHT11;
+static const char _S_DS18[]   PROGMEM = L_S_DS18;
+static const char _S_SHT3X[]  PROGMEM = L_S_SHT3X;
+static const char _S_PIR[]    PROGMEM = L_S_PIR;
+static const char _S_DOOR[]   PROGMEM = L_S_DOOR;
+static const char _S_BTN[]    PROGMEM = L_S_BUTTON;
+static const char _S_DIG[]    PROGMEM = L_S_DIGITAL;
+static const char _S_RANGE[]  PROGMEM = L_S_RANGE;
+static const char _S_PULSE[]  PROGMEM = L_S_PULSE;
 
 static const char _T_MOTION[] PROGMEM = "motion";
 static const char _T_CLEAR[]  PROGMEM = "clear";
@@ -58,16 +59,16 @@ static const char _T_REL[]    PROGMEM = "released";
 static const char _T_ACT[]    PROGMEM = "active";
 static const char _T_IDLE[]   PROGMEM = "idle";
 
-static const char _A_RELAY[]  PROGMEM = "Relay";
-static const char _A_PUMP[]   PROGMEM = "Pump";
-static const char _A_VALVE[]  PROGMEM = "Solenoid valve";
-static const char _A_LOCK[]   PROGMEM = "Solenoid lock";
-static const char _A_BUZZ[]   PROGMEM = "Buzzer";
-static const char _A_LED[]    PROGMEM = "Dimmable LED";
-static const char _A_FAN[]    PROGMEM = "Fan";
-static const char _A_MOTOR[]  PROGMEM = "DC motor";
+static const char _A_RELAY[]  PROGMEM = L_A_RELAY;
+static const char _A_PUMP[]   PROGMEM = L_A_PUMP;
+static const char _A_VALVE[]  PROGMEM = L_A_VALVE;
+static const char _A_LOCK[]   PROGMEM = L_A_LOCK;
+static const char _A_BUZZ[]   PROGMEM = L_A_BUZZER;
+static const char _A_LED[]    PROGMEM = L_A_LED;
+static const char _A_FAN[]    PROGMEM = L_A_FAN;
+static const char _A_MOTOR[]  PROGMEM = L_A_MOTOR;
 static const char _A_SERVO[]  PROGMEM = "Servo";
-static const char _A_STRIP[]  PROGMEM = "LED strip (WS2812)";
+static const char _A_STRIP[]  PROGMEM = L_A_STRIP;
 
 static const SensorDef SENSORS[] = {
     {"dht22",    _S_DHT22, K_DHT22,   0, nullptr,   nullptr},
@@ -99,13 +100,13 @@ static constexpr uint8_t SENSOR_COUNT   = sizeof(SENSORS) / sizeof(SENSORS[0]);
 static constexpr uint8_t ACTUATOR_COUNT = sizeof(ACTUATORS) / sizeof(ACTUATORS[0]);
 
 // Panel list groups (optgroup), in the order of the group/cap indexes
-static const char _G0[] PROGMEM = "Temperature and humidity";
-static const char _G1[] PROGMEM = "Motion and contact";
-static const char _G2[] PROGMEM = "Distance and flow";
-static const char _G3[] PROGMEM = "On and off";
-static const char _G4[] PROGMEM = "Level (PWM)";
-static const char _G5[] PROGMEM = "Position";
-static const char _G6[] PROGMEM = "Color";
+static const char _G0[] PROGMEM = L_G_TEMP_HUM;
+static const char _G1[] PROGMEM = L_G_MOTION;
+static const char _G2[] PROGMEM = L_G_DISTANCE;
+static const char _G3[] PROGMEM = L_G_ONOFF;
+static const char _G4[] PROGMEM = L_G_LEVEL;
+static const char _G5[] PROGMEM = L_G_POSITION;
+static const char _G6[] PROGMEM = L_COLOR;
 static const char* const SENSOR_GROUPS[]   = {_G0, _G1, _G2};
 static const char* const ACTUATOR_GROUPS[] = {_G3, _G4, _G5, _G6}; // by Cap - 1
 
