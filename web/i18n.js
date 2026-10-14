@@ -76,3 +76,10 @@ function IX(s) {
     document.documentElement.lang = IG[IL];
     document.documentElement.className = 'i';
 })();
+
+// A form with an authenticator code sends the browser's clock (seconds) in
+// t. The device uses it only while its own clock is not synchronized.
+document.addEventListener('submit', function (e) {
+    var t = e.target.querySelector('input[name=t]');
+    if (t) t.value = String(Date.now()).slice(0, -3);
+}, true);

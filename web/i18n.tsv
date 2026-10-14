@@ -38,7 +38,6 @@ LOCAL_IP	Local IP	IP local	IP local	IP locale
 PUBLIC_IP	Public IP	IP público	IP pública	IP publique
 LAST_UPDATE	Last update	Última atualização	Última actualización	Dernière mise à jour
 FW_MODULE	Firmware for the ESP-01 module	Firmware para o módulo ESP-01	Firmware para el módulo ESP-01	Firmware pour le module ESP-01
-PHOTO	Photo	Foto	Foto
 NAME	Name	Nome	Nombre	Nom
 NAME_HINT	(panel and Home Assistant)	(painel e Home Assistant)	(panel y Home Assistant)	(panneau et Home Assistant)
 HOSTNAME_HINT	(router; applies on the next connection)	(roteador; vale na próxima conexão)	(router; se aplica en la próxima conexión)	(routeur ; appliqué à la prochaine connexion)
@@ -294,3 +293,13 @@ J_RULE_ABOVE	Turns the {0} on when the value goes above {1} {2} and off when it 
 J_RULE_BELOW	Turns the {0} on when the value goes below {1} {2} and off when it goes back above {3} {2}.	Liga {0} quando o valor fica abaixo de {1} {2} e desliga quando volta acima de {3} {2}.	Enciende {0} cuando el valor baja de {1} {2} y lo apaga cuando vuelve por encima de {3} {2}.	Allume {0} quand la valeur passe sous {1} {2} et l'éteint quand elle remonte au-dessus de {3} {2}.
 J_RULE_WINDOW	Only between {0} and {1} (local time); off outside it.	Só entre {0} e {1} (hora local); desligado fora disso.	Solo entre {0} y {1} (hora local); apagado fuera de ese horario.	Seulement entre {0} et {1} (heure locale) ; éteint en dehors.
 J_NO_ANSWER	No answer from the device	O aparelho não respondeu	El dispositivo no respondió	L'appareil ne répond pas
+SIGN_IN	Sign in	Entrar	Entrar	Connexion
+SIGN_OUT	Sign out	Sair	Salir	Déconnexion
+AUTH_CODE	Authenticator code	Código do autenticador	Código del autenticador	Code d'authentification
+SIGN_IN_FAILED	Wrong user, password or code	Usuário, senha ou código incorretos	Usuario, contraseña o código incorrectos	Utilisateur, mot de passe ou code incorrect
+MFA_NEXT	Authenticator not set up yet. Sign in with the password.	Autenticador ainda não configurado. Entre com a senha.	Autenticador aún no configurado. Entre con la contraseña.	Authentificateur pas encore configuré. Connectez-vous avec le mot de passe.
+MFA_SETUP	Set up the authenticator	Configure o autenticador	Configure el autenticador	Configurez l'authentificateur
+MFA_HELP	Add this key to an authenticator app, then enter the code.	Adicione esta chave no aplicativo e informe o código.	Añada esta clave en la aplicación e introduzca el código.	Ajoutez cette clé dans l'application, puis saisissez le code.
+MFA_REPLACE	Replace authenticator	Trocar o autenticador	Reemplazar el autenticador	Remplacer l'authentificateur
+MFA_REPLACE_HELP	Current password and code. The panel then shows a new key.	Senha e código atuais. O painel mostra uma chave nova.	Contraseña y código actuales. El panel muestra una clave nueva.	Mot de passe et code actuels. Le panneau affiche une nouvelle clé.
+CURRENT_PASS	Current password	Senha atual	Contraseña actual	Mot de passe actuel

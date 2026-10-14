@@ -52,6 +52,25 @@ nav a {
     font-size: 14px;
 }
 nav a:hover { border-color: var(--ok); }
+nav form.out { display: contents; }
+nav form.out button {
+    display: inline;
+    width: auto;
+    margin: 0;
+    padding: 3px 10px;
+    border: 1px solid var(--ln);
+    border-radius: 6px;
+    background: none;
+    color: var(--fg);
+    font-weight: 400;
+    font-size: 14px;
+}
+.k {
+    font-family: ui-monospace, monospace;
+    font-size: 18px;
+    letter-spacing: .06em;
+    overflow-wrap: anywhere;
+}
 main, footer { max-width: 640px; margin: auto; padding: 16px; }
 footer, .m { color: var(--mu); font-size: 13px; }
 h1 { font-size: 20px; margin: 0 0 16px; }

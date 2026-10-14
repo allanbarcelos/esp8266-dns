@@ -9,6 +9,7 @@
 #include "Logger.h"
 #include "IoTCatalog.h"
 #include "IoTState.h"
+#include "Totp.h"
 
 // /config.json with a version ("v"). On load, an old version goes
 // through the migrations in order up to the current one, the original file
@@ -71,6 +72,8 @@ public:
 
         _cfg.webusr = doc["webusr"] | "admin";
         _cfg.webpss = doc["webpss"] | "";
+        Totp::fromHex(doc["totp"] | "", _cfg.totp);
+        _cfg.totpStep = doc["totp_step"] | 0UL;
         _cfg.ssid   = doc["ssid"]   | "";
         _cfg.pass   = doc["pass"]   | "";
 
@@ -118,6 +121,14 @@ public:
         doc["v"]          = VERSION;
         doc["webusr"]     = _cfg.webusr;
         doc["webpss"]     = _cfg.webpss;
+        char totpHex[Totp::KEY_LEN * 2 + 1];
+        if (Totp::blank(_cfg.totp)) {
+            doc["totp"] = "";
+        } else {
+            Totp::toHex(_cfg.totp, totpHex);
+            doc["totp"] = totpHex;
+        }
+        doc["totp_step"]  = (unsigned long)_cfg.totpStep;
         doc["ssid"]       = _cfg.ssid;
         doc["pass"]       = _cfg.pass;
         doc["ntfy_topic"] = _cfg.ntfy_topic;

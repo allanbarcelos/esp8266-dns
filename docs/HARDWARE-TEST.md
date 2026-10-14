@@ -37,11 +37,12 @@ Flash again **without** erasing: the AP password must stay the same. Then flash 
 ## 3. Panel and login
 
 1. Find the device's IP on the router and reserve it (DHCP reservation).
-2. Open the panel and log in with the user and password.
-3. Under **Status**, check the **AP password ESP_Config** row.
-4. Open a private window and get the password wrong 6 times in a row.
+2. Open the panel. The first time, sign in with the user and password only.
+3. The panel shows an authenticator key. Add it to an authenticator app and enter the 6-digit code.
+4. Under **Status**, check that the time is shown and the **AP password ESP_Config** row is there. Sign out, and sign in again with the user, the password and a current code.
+5. Open a private window and get the password or the code wrong 6 times in a row.
 
-**Expected:** from the sixth mistake on, "Too many attempts; please wait" shows for a few seconds, even with the right password. The log shows `Login: repeated failures, growing wait`. After the wait, the right password gets in and the count resets.
+**Expected:** from the sixth mistake on, "Too many attempts; please wait" shows for a few seconds, even with the right password and code. The log shows `Login: repeated failures, growing wait`. After the wait, the right password and code get in and the count resets. Signing in again with a code that was already used is refused. With the device on the setup access point (no internet, clock not synchronized), the sign-in still works with a current code: the browser sends its time.
 
 ## 4. Wi-Fi and resilience
 

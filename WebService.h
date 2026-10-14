@@ -4,8 +4,9 @@
 #pragma once
 #include "HttpServer.h"
 #include <LittleFS.h>
-#include <base64.h>
+#include "Clock.h"
 #include "Config.h"
+#include "Totp.h"
 #include "Logger.h"
 #include "Version.h"
 #include "ConfigStore.h"
@@ -41,10 +42,14 @@ static const char _HTML_HEAD_C[] PROGMEM =
     "<nav aria-label='" L_MENU "'><a href='/'>" L_HOME "</a><a href='/status'>" L_STATUS "</a>"
     "<a href='/log'>" L_LOGS "</a><a href='/cloudflare'>Cloudflare</a><a href='/ntfy'>Ntfy</a><a href='/mqtt'>MQTT</a>"
     "<a href='/iot'>IoT</a><a href='/config'>" L_SETTINGS "</a><a href='/update'>" L_UPDATE "</a>"
-    "<a href='/password'>" L_PASSWORD "</a>"
-    "</nav></header><main>";
+    "<a href='/password'>" L_PASSWORD "</a>";
 
 static const char _HTML_FOOT_A[] PROGMEM = "</main><footer>Firmware: ";
+
+// Attributes for the 6-digit authenticator field. Not a class member:
+// C++11 cannot define a non-integral static inside the class.
+static const char _CODE_FIELD[] PROGMEM =
+    "required inputmode='numeric' pattern='[0-9]{6}' minlength='6' maxlength='6' autocomplete='one-time-code'";
 
 // The panel language goes after the #: the browser does not send it, so
 // the cache keeps a single copy of i18n.js
@@ -117,6 +122,7 @@ public:
     static constexpr uint8_t       FREE_LOGIN_FAILS  = 5;
     static constexpr unsigned long LOGIN_WAIT_MS     = 2000UL;
     static constexpr unsigned long LOGIN_WAIT_MAX_MS = 300000UL;
+    static constexpr unsigned long SESSION_MS     = 12UL * 60UL * 60UL * 1000UL;
 
     WebService(Config& cfg, Logger& log, ConfigStore& store,
                WiFiService& wifi, OTAService& ota, IoTService& iot,
@@ -135,7 +141,10 @@ public:
 
     void tick() { _server.handleClient(); }
 
+    // Boot token (sign-in and first setup) and the token of the forms of
+    // the current session (the boot one while there is none)
     const char* csrfToken() const { return _csrfToken; }
+    const char* sessionCsrfToken() const { return _session ? _csrfSid : _csrfToken; }
 
     // Escapes text for safe use in HTML content and attributes
     static String escape(const String& s) {
@@ -210,8 +219,14 @@ private:
     PowerService*    _power;
     uint8_t          _loginFails = 0;
     unsigned long    _loginWaitUntil = 0;
+    uint8_t          _session = 0;   // 0 signed out, 1 authenticator setup, 2 signed in
+    char             _sid[33] = {};
+    unsigned long    _sidUntil = 0;
+    uint8_t          _pending[Totp::KEY_LEN] = {};
+    bool             _pendingSet = false;
 
     char _csrfToken[17]; // 16 hex + null
+    char _csrfSid[17] = {};  // the session's form token; empty with no session
 
     static void _dispatch(void* self) { static_cast<WebService*>(self)->_route(); }
 
@@ -226,23 +241,23 @@ private:
             if (!strcmp_P(p, PSTR("/ntfy")))       return _handleNtfy();
             if (!strcmp_P(p, PSTR("/mqtt")))       return _handleMqtt();
             if (!strcmp_P(p, PSTR("/password")))   return _handlePassword();
+            if (!strcmp_P(p, PSTR("/login")))      return _handleLogin();
+            if (!strcmp_P(p, PSTR("/mfa")))        return _handleMfa();
             if (!strcmp_P(p, PSTR("/iot")))        return _handleIot();
             if (!strcmp_P(p, PSTR("/config")))     return _handleConfig();
             if (!strcmp_P(p, PSTR("/iot/now")))    return _handleIotNow();
             // Local API: the same reading and commands, with a token instead of the login
             if (!strcmp_P(p, PSTR("/api/state")))  return _handleApiState();
             if (!strcmp_P(p, PSTR("/update")))     return _handleUpdate();
-            // Embedded images (Assets.h): public, with no device data
-            if (!strcmp_P(p, PSTR("/esp01.webp")))
-                return _asset("image/webp", ASSET_PHOTO, sizeof(ASSET_PHOTO), false);
+            // Embedded files (Assets.h, WebAssets.h): public, with no device data
             if (!strcmp_P(p, PSTR("/s.css")))
-                return _asset("text/css", WEB_CSS_GZ, sizeof(WEB_CSS_GZ), true, true);
+                return _asset("text/css", WEB_CSS_GZ, sizeof(WEB_CSS_GZ), true);
             if (!strcmp_P(p, PSTR("/iot.js")))
-                return _asset("text/javascript", WEB_IOT_GZ, sizeof(WEB_IOT_GZ), true, true);
+                return _asset("text/javascript", WEB_IOT_GZ, sizeof(WEB_IOT_GZ), true);
             if (!strcmp_P(p, PSTR("/i18n.js")))
-                return _asset("text/javascript", WEB_I18N_GZ, sizeof(WEB_I18N_GZ), true, true);
+                return _asset("text/javascript", WEB_I18N_GZ, sizeof(WEB_I18N_GZ), true);
             if (!strcmp_P(p, PSTR("/pinout.svg")))
-                return _asset("image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ), true);
+                return _asset("image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ));
         } else if (_server.method() == HttpServer::POST) {
             if (!strcmp_P(p, PSTR("/save")))            return _handleSave();
             if (!strcmp_P(p, PSTR("/config/save")))     return _handleConfigSave();
@@ -250,6 +265,10 @@ private:
             if (!strcmp_P(p, PSTR("/ntfy/save")))       return _handleNtfySave();
             if (!strcmp_P(p, PSTR("/mqtt/save")))       return _handleMqttSave();
             if (!strcmp_P(p, PSTR("/password/save")))   return _handlePasswordSave();
+            if (!strcmp_P(p, PSTR("/login")))           return _handleLoginPost();
+            if (!strcmp_P(p, PSTR("/logout")))          return _handleLogout();
+            if (!strcmp_P(p, PSTR("/mfa")))             return _handleMfaPost();
+            if (!strcmp_P(p, PSTR("/mfa/reset")))       return _handleMfaReset();
             if (!strcmp_P(p, PSTR("/iot/save")))        return _handleIotSave();
             if (!strcmp_P(p, PSTR("/iot/cmd")))         return _handleIotCmd();
             if (!strcmp_P(p, PSTR("/iot/token")))       return _handleIotToken();
@@ -264,37 +283,201 @@ private:
 
     // ── Security ──────────────────────────────────────────────────────────────
 
-    // Token from the hardware RNG on every boot and every password change
+    // Token from the hardware RNG on every boot and every password change.
+    // It guards the forms used before a session exists (sign-in, first
+    // setup), so the sign-in page shows it to anyone. Signed-in forms carry
+    // the session's own token instead (_csrfSid).
     void _generateCSRF() {
         snprintf(_csrfToken, sizeof(_csrfToken), "%08lx%08lx",
                  (unsigned long)ESP.random(), (unsigned long)ESP.random());
     }
 
-    // Authentication plus a required password.
-    // With no password set, the panel only allows AP mode (first setup) and
-    // the password page (allowSetup).
+    // Signed-in panel. With no password set, only AP mode (first setup) and the
+    // password page (allowSetup) are open. After that the browser must hold
+    // the session cookie, and the authenticator must already be enrolled.
     bool _guard(bool allowSetup = false) {
         if (_cfg.webpss.length() == 0) {
             if (allowSetup || _wifi.inConfigMode()) return true;
-            _server.sendHeader("Location", "/password");
-            _server.send(302, "text/plain", "");
+            _redirect("/password");
             return false;
         }
         // cppcheck-suppress knownConditionTrueFalse ; the counter changes between requests
         if (_loginBlocked()) return false;
-        // Basic only: the browser would use Digest only if the device asked for it
-        if (!_authIs("Basic ", base64::encode(_cfg.webusr + ':' + _cfg.webpss).c_str())) {
-            _loginFailed();
-            _server.sendHeader("WWW-Authenticate", "Basic realm=\"ESP8266\"");
-            _server.send(401, "text/plain", "");
+        if (!_sessionOk()) {
+            _redirect("/login");
             return false;
         }
-        _loginFails = 0;
+        if (_session != 2) {
+            _redirect("/mfa");
+            return false;
+        }
         return true;
     }
 
-    // Wrong password or token: the first mistakes pass; after that each one
-    // doubles the wait (2 s up to 5 min), and nothing is tried meanwhile
+    // Authenticator enrollment: password checked, code not confirmed yet.
+    bool _enrollGuard() {
+        if (_cfg.webpss.length() == 0) {
+            _redirect("/password");
+            return false;
+        }
+        // cppcheck-suppress knownConditionTrueFalse ; the counter changes between requests
+        if (_loginBlocked()) return false;
+        if (!_sessionOk() || _session != 1) {
+            _redirect(_sessionOk() ? "/" : "/login");
+            return false;
+        }
+        return true;
+    }
+
+    // Sign-in redirects. The update pages keep _go (303 after a POST).
+    void _redirect(const char* to) {
+        _noStore();
+        _server.sendHeader("Location", to);
+        _server.send(302, "text/plain", "");
+    }
+
+    // sid= plus 32 hex digits, as its own cookie. Compared in full.
+    bool _cookieMatches() const {
+        const char* c = _server.cookie().c_str();
+        while (*c) {
+            while (*c == ' ' || *c == ';') c++;
+            if (!*c) break;
+            if (strncmp(c, "sid=", 4) == 0) {
+                c += 4;
+                uint8_t d = 0;
+                for (int i = 0; i < 32; i++) {
+                    char g = c[i];
+                    if (!g || g == ';') return false;
+                    d |= (uint8_t)(g ^ _sid[i]);
+                }
+                if (c[32] && c[32] != ';') return false;
+                return d == 0;
+            }
+            while (*c && *c != ';') c++;
+        }
+        return false;
+    }
+
+    bool _sessionOk() {
+        if (_session == 0) return false;
+        if ((long)(millis() - _sidUntil) >= 0) {
+            _session = 0;
+            _sid[0] = '\0';
+            return false;
+        }
+        return _cookieMatches();
+    }
+
+    void _writeCookie(unsigned long maxAge) {
+        char buf[128];
+        snprintf_P(buf, sizeof(buf),
+                   PSTR("sid=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=%lu"),
+                   _session ? _sid : "", maxAge);
+        _server.sendHeader("Set-Cookie", buf);
+    }
+
+    // One session. A new sign-in replaces the previous cookie. Not marked
+    // Secure: the ESP-01 serves plain HTTP, and a Secure cookie would never
+    // be sent. 12 h, and gone on reboot (it lives only in RAM). Every change
+    // of level draws a new cookie and a new form token, so one seen before
+    // the authenticator code was checked is worth nothing after.
+    void _startSession(uint8_t level) {
+        snprintf(_sid, sizeof(_sid), "%08lx%08lx%08lx%08lx",
+                 (unsigned long)ESP.random(), (unsigned long)ESP.random(),
+                 (unsigned long)ESP.random(), (unsigned long)ESP.random());
+        snprintf(_csrfSid, sizeof(_csrfSid), "%08lx%08lx",
+                 (unsigned long)ESP.random(), (unsigned long)ESP.random());
+        _session = level;
+        _sidUntil = millis() + SESSION_MS;
+        _writeCookie(SESSION_MS / 1000);
+    }
+
+    void _clearSession() {
+        _session = 0;
+        _sid[0] = '\0';
+        _csrfSid[0] = '\0';
+        _pendingSet = false;
+        _writeCookie(0);
+    }
+
+    // Fixed-length compare so a shorter guess is not faster. cap is the
+    // longest value the panel will store (32 for the user, 64 for the password).
+    static bool _spanEq(const char* a, size_t na, const char* b, size_t nb, size_t cap) {
+        uint8_t d = (na > cap || nb > cap || na != nb) ? 1 : 0;
+        for (size_t i = 0; i < cap; i++) {
+            unsigned char ca = i < na ? (unsigned char)a[i] : 0;
+            unsigned char cb = i < nb ? (unsigned char)b[i] : 0;
+            d |= (uint8_t)(ca ^ cb);
+        }
+        return d == 0;
+    }
+
+    bool _credentialOk(const String& user, const String& pass) const {
+        bool u = _spanEq(user.c_str(), user.length(), _cfg.webusr.c_str(), _cfg.webusr.length(), 32);
+        bool p = _spanEq(pass.c_str(), pass.length(), _cfg.webpss.c_str(), _cfg.webpss.length(), 64);
+        return u && p;
+    }
+
+    bool _mfaOn() const { return !Totp::blank(_cfg.totp); }
+
+    // Time to check a code against: the device clock once SNTP has set it.
+    // Until then (setup access point, no internet, a reboot without RAM
+    // clock) the browser's, which i18n.js puts in t when the form is sent.
+    // A time the browser makes up does not bring an old code back: every
+    // step at or before the last one accepted (totpStep, kept in flash) is
+    // refused, so it only opens a code nobody has seen, which would still
+    // have to be guessed under the same wait. 0: no usable time.
+    time_t _codeTime() const {
+        time_t now = _iot.unixTime();
+        if (now) return now;
+        String t = _server.arg("t");
+        const char* s = t.c_str();
+        char* end;
+        if (t.length() > 10 || *s < '0' || *s > '9') return 0;
+        unsigned long v = strtoul(s, &end, 10);
+        if (*end) return 0;
+        return v > (unsigned long)Clock::MIN_VALID_EPOCH && v < 4000000000UL ? (time_t)v : 0;
+    }
+
+    // Code from the form against key; step starts at the last accepted one
+    // and gets the step that matched. The caller stores it in totpStep only
+    // when the whole check passed. A blank key never matches: its codes are
+    // public.
+    bool _codeOk(const uint8_t* key, time_t now, uint32_t& step) const {
+        if (Totp::blank(key)) return false;
+        return Totp::verify(key, now, _server.arg("code").c_str(), &step);
+    }
+
+    // A signed-in action that asks again for the current password and a
+    // code (new password, new authenticator): the cookie alone, readable on
+    // plain HTTP, is not enough. A wrong one is a counted mistake. On
+    // success the code is spent in RAM; the caller saves the config.
+    bool _confirmed() {
+        time_t now = _codeTime();
+        if (!now) {
+            _errorPage(PSTR(L_CLOCK_NOT_SYNC), PSTR("/password"));
+            return false;
+        }
+        uint32_t step = _cfg.totpStep;
+        bool passOk = _credentialOk(_cfg.webusr, _server.arg("pass"));
+        bool codeOk = _codeOk(_cfg.totp, now, step);
+        if (!passOk || !codeOk) {
+            _loginFailed(true);
+            _errorPage(PSTR(L_SIGN_IN_FAILED), PSTR("/password"));
+            return false;
+        }
+        _cfg.totpStep = step;
+        return true;
+    }
+
+    void _ensurePending() {
+        if (_pendingSet) return;
+        Totp::randomKey(_pending);
+        _pendingSet = true;
+    }
+
+    // Wrong password, code or token: the first mistakes pass; after that each
+    // one doubles the wait (2 s up to 5 min), and nothing is tried meanwhile
     // (429). Getting it right resets the count. The count is per device, not
     // per address: there is no memory for a table, and from outside the home
     // the panel sits behind a tunnel with its own login (docs/REMOTE-ACCESS.md).
@@ -304,9 +487,9 @@ private:
         return true;
     }
 
-    void _loginFailed() {
-        // The browser's first request comes without credentials: not a mistake
-        if (_server.authorization().length() == 0) return;
+    // attempt is false when the caller sent no credential (an API probe).
+    void _loginFailed(bool attempt) {
+        if (!attempt) return;
         if (_loginFails < 255) _loginFails++;
         if (_loginFails < FREE_LOGIN_FAILS) return;
         uint8_t doubling = _loginFails - FREE_LOGIN_FAILS;
@@ -315,8 +498,16 @@ private:
         if (_loginFails == FREE_LOGIN_FAILS) _log.log(PSTR("Login: repeated failures, growing wait"));
     }
 
-    bool _checkCSRF() {
-        if (_server.arg("_csrf") != _csrfToken) {
+    // The session's token for a browser holding the cookie, otherwise the
+    // boot one. signIn: the sign-in form, which always carries the boot one.
+    const char* _formToken(bool signIn = false) {
+        return !signIn && _sessionOk() ? _csrfSid : _csrfToken;
+    }
+
+    bool _checkCSRF(bool signIn = false) {
+        String got = _server.arg("_csrf");
+        const char* want = _formToken(signIn);
+        if (!*want || !_spanEq(got.c_str(), got.length(), want, strlen(want), sizeof(_csrfToken) - 1)) {
             _server.send(403, "text/plain", "Invalid CSRF token");
             return false;
         }
@@ -351,6 +542,14 @@ private:
         _p(PSTR("</b>"));
         _powerMark();
         _p(_HTML_HEAD_C);
+        // Also while the authenticator is being set up: signing out there
+        // drops a replacement and keeps the current key
+        if (_sessionOk()) {
+            _p(PSTR("<form class='out' action='/logout' method='POST'>"));
+            _csrfField();
+            _p(PSTR("<button type='submit'>" L_SIGN_OUT "</button></form>"));
+        }
+        _p(PSTR("</nav></header><main>"));
     }
 
     // Top right corner: on supply, on battery (%) or charging
@@ -428,10 +627,17 @@ private:
         _p(PSTR("</b></div>"));
     }
 
-    void _csrfField() {
+    void _csrfField(bool signIn = false) {
         _p(PSTR("<input type='hidden' name='_csrf' value='"));
-        _s(_csrfToken);
+        _s(_formToken(signIn));
         _p(PSTR("'>"));
+    }
+
+    // Authenticator code, plus the browser's clock (t, filled in by i18n.js
+    // when the form is sent; see _codeTime)
+    void _codeInput() {
+        _input(PSTR(L_AUTH_CODE), PSTR("code"), String(), _CODE_FIELD);
+        _p(PSTR("<input type='hidden' name='t'>"));
     }
 
     void _alertOpen(PGM_P cls) {
@@ -471,9 +677,11 @@ private:
         _p(PSTR("></label>"));
     }
 
-    void _passwordInput(PGM_P label, PGM_P name, PGM_P extra) {
+    void _passwordInput(PGM_P label, PGM_P name, PGM_P extra, PGM_P complete = nullptr) {
         _labelOpen(label);
-        _p(PSTR("<input type='password' autocomplete='new-password' name='"));
+        _p(PSTR("<input type='password' "));
+        _p(complete ? complete : PSTR("autocomplete='new-password' "));
+        _p(PSTR("name='"));
         _p(name);
         _p(PSTR("' "));
         _p(extra);
@@ -1026,20 +1234,205 @@ private:
                PSTR("required maxlength='32'"));
         _passwordInput(PSTR(L_NEW_PASS_MIN), PSTR("pass1"), PSTR("required minlength='8' maxlength='64'"));
         _passwordInput(PSTR(L_CONFIRM_PASS), PSTR("pass2"), PSTR("required minlength='8' maxlength='64'"));
+        if (_cfg.webpss.length()) {
+            _passwordInput(PSTR(L_CURRENT_PASS), PSTR("pass"), PSTR("required maxlength='64'"),
+                           PSTR("autocomplete='current-password' "));
+            _codeInput();
+        }
         _button(PSTR(L_SAVE));
+        if (_cfg.webpss.length()) {
+            _p(PSTR("<h2>" L_MFA_REPLACE "</h2><p class='m'>" L_MFA_REPLACE_HELP "</p>"));
+            _p(PSTR("<form action='/mfa/reset' method='POST'>"));
+            _csrfField();
+            _passwordInput(PSTR(L_CURRENT_PASS), PSTR("pass"), PSTR("required maxlength='64'"),
+                           PSTR("autocomplete='current-password' "));
+            _codeInput();
+            _button(PSTR(L_MFA_REPLACE));
+        }
         _pageEnd();
     }
 
+    // Changing a password that exists asks for it and for a code (_confirmed)
     void _handlePasswordSave() {
         if (!_guard(true)) return;
         if (!_checkCSRF()) return;
+        if (_cfg.webpss.length() && !_confirmed()) return;
         if (!_readPanelCredentials("/password")) return;
         if (!_store.save()) {
             _errorPage(PSTR(L_SAVE_FAILED), PSTR("/password"));
             return;
         }
         _generateCSRF(); // rotates CSRF after a credentials change
-        _savedPage(PSTR(L_PASSWORD_UPDATED), PSTR("/"));
+        _clearSession(); // the old cookie must not survive a new password
+        _savedPage(PSTR(L_PASSWORD_UPDATED), PSTR("/login"));
+    }
+
+    // ── Sign-in and authenticator ────────────────────────────────────────────
+
+    void _loginPage(PGM_P err, bool warn) {
+        _pageBegin(0, err && !warn ? 401 : 200);
+        _title(PSTR(L_SIGN_IN));
+        if (err) _alertP(warn ? PSTR("warning") : PSTR("danger"), err);
+        else if (!_mfaOn()) _alertP(PSTR("warning"), PSTR(L_MFA_NEXT));
+        _p(PSTR("<form action='/login' method='POST'>"));
+        _csrfField(true);
+        _input(PSTR(L_USER), PSTR("user"), _cfg.webusr,
+               PSTR("required maxlength='32' autocomplete='username'"));
+        _passwordInput(PSTR(L_PASSWORD), PSTR("pass"), PSTR("required maxlength='64'"),
+                       PSTR("autocomplete='current-password' "));
+        if (_mfaOn()) _codeInput();
+        _button(PSTR(L_SIGN_IN));
+        _pageEnd();
+    }
+
+    void _showKey() {
+        char b32[33], grp[40];
+        Totp::toBase32(_pending, b32);
+        int n = 0;
+        for (int i = 0; i < 32; i++) {
+            if (i && (i & 3) == 0) grp[n++] = ' ';
+            grp[n++] = b32[i];
+        }
+        grp[n] = '\0';
+        _p(PSTR("<p class='k'>"));
+        _s(grp);
+        _p(PSTR("</p>"));
+    }
+
+    void _mfaPage(PGM_P err, bool warn) {
+        _ensurePending();
+        _pageBegin(0, err && !warn ? 401 : 200);
+        _title(PSTR(L_MFA_SETUP));
+        if (err) _alertP(warn ? PSTR("warning") : PSTR("danger"), err);
+        _p(PSTR("<p class='m'>" L_MFA_HELP "</p>"));
+        _showKey();
+        _p(PSTR("<form action='/mfa' method='POST'>"));
+        _csrfField();
+        _codeInput();
+        _button(PSTR(L_SAVE));
+        _pageEnd();
+    }
+
+    void _handleLogin() {
+        if (_cfg.webpss.length() == 0) {
+            _redirect("/password");
+            return;
+        }
+        // cppcheck-suppress knownConditionTrueFalse ; the counter changes between requests
+        if (_loginBlocked()) return;
+        if (_sessionOk()) {
+            _redirect(_session == 2 ? "/" : "/mfa");
+            return;
+        }
+        _loginPage(nullptr, false);
+    }
+
+    void _handleLoginPost() {
+        if (_cfg.webpss.length() == 0) {
+            _redirect("/password");
+            return;
+        }
+        // cppcheck-suppress knownConditionTrueFalse ; the counter changes between requests
+        if (_loginBlocked()) return;
+        if (!_checkCSRF(true)) return;
+        bool mfa = _mfaOn();
+        time_t now = mfa ? _codeTime() : 0;
+        // No time at all (no clock and no browser time): every attempt looks
+        // the same, and it does not count. Otherwise a wrong password could
+        // be told apart from a code that cannot be checked.
+        if (mfa && !now) {
+            _loginPage(PSTR(L_CLOCK_NOT_SYNC), true);
+            return;
+        }
+        String user = _server.arg("user");
+        user.trim();
+        String pass = _server.arg("pass");
+        bool passOk = _credentialOk(user, pass);
+        uint32_t step = _cfg.totpStep;
+        bool codeOk = !mfa || _codeOk(_cfg.totp, now, step);
+        if (!passOk || !codeOk) {
+            _loginFailed(true);
+            _loginPage(PSTR(L_SIGN_IN_FAILED), false);
+            return;
+        }
+        _loginFails = 0;
+        if (mfa) {
+            // The code is spent, also after a reboot. A failed save keeps it
+            // in RAM until the next one.
+            _cfg.totpStep = step;
+            _store.save();
+        }
+        // A key shown to an earlier session is not offered again
+        _pendingSet = false;
+        _startSession(mfa ? 2 : 1);
+        _log.log(PSTR("Panel: signed in"));
+        _redirect(mfa ? "/" : "/mfa");
+    }
+
+    // Without the session there is nothing to close, so another device on
+    // the network cannot sign the owner out with the public sign-in token.
+    void _handleLogout() {
+        if (_sessionOk()) {
+            if (!_checkCSRF()) return;
+            _clearSession();
+        }
+        _redirect("/login");
+    }
+
+    void _handleMfa() {
+        if (!_enrollGuard()) return;
+        _mfaPage(nullptr, false);
+    }
+
+    // Enrollment, or the second half of a replacement: the new key goes into
+    // the config only after one of its codes, so the current key (if any)
+    // keeps working until then.
+    void _handleMfaPost() {
+        if (!_enrollGuard()) return;
+        if (!_checkCSRF()) return;
+        time_t now = _codeTime();
+        if (!now) {
+            _mfaPage(PSTR(L_CLOCK_NOT_SYNC), true);
+            return;
+        }
+        uint32_t step = _cfg.totpStep;
+        if (!_pendingSet || !_codeOk(_pending, now, step)) {
+            _loginFailed(true);
+            _mfaPage(PSTR(L_SIGN_IN_FAILED), false);
+            return;
+        }
+        uint8_t prev[Totp::KEY_LEN];
+        uint32_t prevStep = _cfg.totpStep;
+        memcpy(prev, _cfg.totp, Totp::KEY_LEN);
+        memcpy(_cfg.totp, _pending, Totp::KEY_LEN);
+        _cfg.totpStep = step;
+        if (!_store.save()) {
+            memcpy(_cfg.totp, prev, Totp::KEY_LEN);
+            _cfg.totpStep = prevStep;
+            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/mfa"));
+            return;
+        }
+        _pendingSet = false;
+        _startSession(2);
+        _loginFails = 0;
+        _log.log(PSTR("Panel: authenticator on"));
+        _redirect("/");
+    }
+
+    // Current password and code, then a new key to confirm on /mfa. Nothing
+    // is changed in the config here: leaving /mfa (signing out, the session
+    // ending, a reboot) keeps the current key.
+    void _handleMfaReset() {
+        if (!_guard()) return;
+        if (!_checkCSRF()) return;
+        if (!_confirmed()) return;
+        _store.save();   // the code is spent; a failed save keeps it in RAM
+        _pendingSet = false;
+        _ensurePending();
+        _startSession(1);
+        _loginFails = 0;
+        _log.log(PSTR("Panel: authenticator reset"));
+        _redirect("/mfa");
     }
 
     // Served straight from flash; the cache avoids resending on every page.
@@ -1047,9 +1440,9 @@ private:
     // another URL, so the browser keeps them for a year without asking again.
     // The type is in RAM: it goes into the header's %s, which does not read
     // from flash.
-    void _asset(const char* type, const uint8_t* data, size_t len, bool gz, bool hashed = false) {
+    void _asset(const char* type, const uint8_t* data, size_t len, bool hashed = false) {
         _server.sendHeader("Cache-Control", hashed ? "max-age=31536000, immutable" : "max-age=604800");
-        if (gz) _server.sendHeader("Content-Encoding", "gzip");
+        _server.sendHeader("Content-Encoding", "gzip");
         _server.send_P(200, type, reinterpret_cast<PGM_P>(data), len);
     }
 
@@ -1184,10 +1577,10 @@ private:
         _go("/update");
     }
 
+    // The module photo is not in the sketch: it does not fit next to the
+    // authenticator under the 500,000-byte cap. The pin drawing stays.
     void _deviceMark() {
-        _p(PSTR("<figure><img src='/esp01.webp' alt='ESP-01' width='220' height='209'>"
-                "<figcaption class='m'>" L_FW_MODULE "<br>"
-                L_PHOTO ": SparkFun, CC BY 2.0</figcaption></figure>"));
+        _p(PSTR("<p class='m'>" L_FW_MODULE "</p>"));
     }
 
     // ── IoT ──────────────────────────────────────────────────────────────────
@@ -1489,7 +1882,7 @@ private:
             _s(buf);
         }
         _p(PSTR("},T='"));
-        _s(_csrfToken);
+        _s(_formToken());
         _p(PSTR("';</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
     }
 
@@ -1710,7 +2103,7 @@ private:
         // cppcheck-suppress knownConditionTrueFalse ; the counter changes between requests
         if (_loginBlocked()) return false;
         if (!_bearerOk()) {
-            _loginFailed();
+            _loginFailed(_server.authorization().length() != 0);
             _server.sendHeader("WWW-Authenticate", "Bearer");
             _jsonError(401, "invalid token");
             return false;

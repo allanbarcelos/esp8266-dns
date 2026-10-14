@@ -100,14 +100,16 @@ void test_decoding_and_similar_names() {
 void test_headers() {
     Probe p;
     std::string longAuth(HttpServer::MAX_AUTH + 100, 'k');
-    p.b.send("GET / HTTP/1.1\r\nlixo\r\nAuthorization:   Basic abc\r\nX-Outro: 1\r\n\r\n");
+    p.b.send("GET / HTTP/1.1\r\nlixo\r\nAuthorization:   Basic abc\r\nCookie:   sid=abc\r\nX-Outro: 1\r\n\r\n");
     TEST_ASSERT_EQUAL_STRING("Basic abc", p.auth.c_str());
+    TEST_ASSERT_EQUAL_STRING("sid=abc", p.srv.cookie().c_str());
     p.b.send("GET / HTTP/1.1\nAuthorization: " + longAuth + "\n\n");   // \n alone also works
     TEST_ASSERT_EQUAL(2, p.calls);
     TEST_ASSERT_TRUE(p.auth.size() > HttpServer::MAX_AUTH);
     TEST_ASSERT_TRUE(p.auth.size() < longAuth.size());
     p.b.send("GET / HTTP/1.1\r\n\r\n");                                 // does not leak between requests
     TEST_ASSERT_EQUAL_STRING("", p.auth.c_str());
+    TEST_ASSERT_EQUAL_STRING("", p.srv.cookie().c_str());
 }
 
 void test_unknown_method_reaches_handler() {
