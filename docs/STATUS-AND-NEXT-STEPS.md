@@ -1,85 +1,81 @@
 # Firmware status and next steps
 
-Status on 2026-10-13, after the round of work from commit `93d7bd9` to `3e95259`. What was implemented afterwards, and in which commit, is in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+Status on 2026-10-14, at commit `389e60e`. What went in, and in which commit, is in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Where we are
 
-A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and drives an actuator, and can be controlled from the web panel, a local API, ntfy and MQTT, with Home Assistant finding the device on its own. It updates itself through signed OTA and installs from the browser.
+A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and drives an actuator. It can be controlled from the web panel (in four languages, behind a password and an authenticator), a local API, ntfy and MQTT, and Home Assistant finds the device on its own. It updates itself through signed OTA and installs from the browser.
 
 | | |
 | --- | --- |
-| Firmware | 498,720 of 500,000 bytes (1,280 to spare) |
-| Signed OTA package | ~358 KB of 400 KB |
-| Static RAM | 37,808 bytes |
-| Native tests | 370, with 100 % of lines, functions and branches |
+| Firmware | 499,936 of 500,000 bytes (64 to spare) |
+| Signed OTA package | ~363 KB of 400 KB |
+| Static RAM | 37,728 bytes |
+| Native tests | 448, with 100 % of lines, functions and branches |
 | In CI | no compiler warnings, ASan and UBSan, cppcheck, fuzzing of 5 inputs |
 
-## What changed in this round
+## Since the previous status (2026-10-13)
+
+### Space
+
+- **Lean web server** instead of `ESP8266WebServer`: −12.3 KB (`f173944`). That room went to the time window, the SHT3x, the battery gauge, the device name and the panel in four languages.
+- **No `sscanf`:** a hand parser for the OTA recovery file, −3.2 KB (`bd2cc11`).
+- **LittleFS without its debug asserts** (`LFS_NO_ASSERT`, in PlatformIO and CI): −3.4 KB (`32c7779`). Errors still come back as return codes; only the checks for misuse of its API go.
 
 ### Security
 
-- **ntfy:** sending notifications now validates the certificate. Before, it went unvalidated, and the token and the command topic could be read by anyone on the path (`93d7bd9`).
-- **SECURITY.md** fixed: the OTA download does not validate GitHub's certificate. The protection there is the image's RSA signature (`0a1c054`).
-- **Setup AP password** drawn per device on first boot, instead of the same `esp8266dns` for everyone. It shows on the serial port, the panel and the web installer (`4d219b1`).
-- **Panel and API:** growing wait after 5 wrong logins; ntfy command topic of at least 20 characters without a token; headers against caching and clickjacking; the log says where each command came from (`3e95259`).
+- **Panel sign-in with a mandatory authenticator** (`1d89fda`). HTTP Basic is gone. The panel uses a form, a session cookie (12 h, RAM only) and an RFC 6238 code. Each code works only once, also after a reboot or with the clock pushed back. Without SNTP (setup access point) the browser's time is used. Changing the password or the authenticator asks again for the current password and a code. Signed-in forms carry a CSRF token per session. Details in [SECURITY.md](../SECURITY.md).
 
 ### Features
 
-- **Web installer** on GitHub Pages, with ESP Web Tools: flashes the ESP-01 from the browser, without PlatformIO (`b54b4d0`).
-- **MQTT on the local network:** state, commands and availability with a last will, in an own client without a library (`14444f7`).
-- **Home Assistant discovery:** the device shows up on its own, with the right entities for each sensor and actuator type, and the old ones go away when the module changes (`29047ab`).
+- **Panel in English, Portuguese, Spanish and French**, from one compressed table that the browser decodes (`bd2cc11`).
+- **Settings page**, time zone and time window, SHT3x, MAX17048 battery gauge, device name and hostname, MQTT TelePeriod: see [IMPLEMENTATION.md](IMPLEMENTATION.md).
+- **ESP-01 photo back** on the panel (`389e60e`): AVIF, 3.2 KB, transparent background (it suits the dark theme). An own codec decoded by the browser was tried first (`32c7779`). It beat WebP below 2 KB, but AVIF needs no decoder in the firmware. In the same room it gives a much better picture (SSIM 0.963 against 0.886), so the own codec was removed.
 
-### Flash space
+### Name
 
-MQTT and discovery did not fit. To make them fit without removing anything the user sees:
-
-- a single JSON reader, everything parsed in place as `char*` (−4.7 KB, `4272ca1`);
-- TLS roots in DER, generated from `ca/roots.pem` (−1.5 KB, `2c31926`);
-- panel photo in WebP quality 40 and discovery without fields HA does not use (−0.7 KB, `4ed23fc`).
-
-### Quality
-
-- `-Wall -Wextra -Werror` in the tests (`dd34b8b`).
-- The whole suite again with AddressSanitizer and UndefinedBehaviorSanitizer (`9bdef25`).
-- cppcheck in the `check` job (`abfb58f`).
-- libFuzzer fuzzing of everything that comes from outside: MQTT packets, commands, the Cloudflare response, the ntfy stream and `config.json` (`458cefb`).
-
-### Documentation
-
-- [On-device test](HARDWARE-TEST.md): checklist to run on an ESP-01 before calling a version stable (`34f2e2a`).
-- [Remote access](REMOTE-ACCESS.md): how to use it away from home without opening a router port (`88c2bb4`).
+- The project is **esp8266-iot**. The repository is renamed from `esp8266-dns`. See "Before renaming the repository" below.
 
 ## How it was verified
 
 - Native tests, sanitizers, cppcheck and fuzzing on every change, as in CI.
-- MQTT ran against a real Mosquitto: authentication, wrong password, commands, last will on a drop and a retained command on reconnect.
-- Discovery ran against a real Home Assistant, with five sensor and actuator combinations, round trips through HA's services and no warning in its log. This test was done by hand, in an environment set up for it; it is not in CI.
-- The web installer and the button that reads the AP password were tested in Chrome and Edge, with the serial port simulated.
+- MQTT ran against a real Mosquitto, and discovery against a real Home Assistant. That test was done by hand, in an environment set up for it; it is not in CI.
+- The web installer was tested in Chrome and Edge, with the serial port simulated. The AVIF photo was checked in Edge.
 
-**Not verified yet:** nothing in this round ran on a real ESP-01. The first step is the [on-device checklist](HARDWARE-TEST.md).
+**Not verified yet:** none of the work since 2026-10-13 ran on a real ESP-01. That covers the lean server, the time window, the SHT3x, the battery, the move to English, the four languages, the authenticator and the photo. The first step is the [on-device checklist](HARDWARE-TEST.md).
 
 ## Decisions worth remembering
 
-- **500,000-byte limit.** A project rule, checked in CI. Every change fits inside it.
-- **The ESP-01 photo stays.** If space runs out, it is not the first thing to go.
+- **500,000-byte limit.** A project rule, checked in CI. Every change fits inside it. **Only 64 bytes are left:** any new firmware feature first needs room taken from somewhere else.
+- **The ESP-01 photo stays.** If space runs out, it is not the first thing to go. Its size is set by `PHOTO_BYTES` in `tools/embed_assets.py` (3,250 today): a smaller photo is the quickest room.
+- **Images in formats the browser decodes.** A decoder of our own costs flash; AVIF and SVG cost none.
 - **Never open a port to the device.** The ESP-01 does not serve HTTPS; access from outside goes through a tunnel with its own login.
 - **Login failures counted per device, not per address.** Someone on the network can delay the owner's login for a few minutes, but not guess the password. A per-address table does not fit in memory.
 - **MQTT without TLS.** The only TLS session that fits is already shared by DNS, ntfy and OTA.
 
+## Before renaming the repository
+
+The firmware asks `api.github.com/repos/allanbarcelos/esp8266-dns/releases/latest` for the latest version and accepts only HTTP 200. After a rename, GitHub answers that address with a **301**. Every device with today's firmware would show "GitHub HTTP 301" and **stop updating**. The download itself already follows redirects. The web installer's address (`allanbarcelos.github.io/esp8266-dns`) does not redirect either.
+
+Safe order:
+
+1. Release a firmware that asks for the version by the repository's number (`/repositories/<id>/releases/latest`). That address survives any rename.
+2. Wait for the devices to take that update.
+3. Rename the repository, and update the old name where it is left: `OTAService.h`, the MQTT discovery (`mf` and `o.name`), the sketch name `esp8266-dns.ino` (CI copies `build/esp8266-dns.ino.bin` and reads its `.map`), the matching tests, and the installer links in the README, [HARDWARE-TEST.md](HARDWARE-TEST.md) and `install/index.html`.
+
 ## Next steps
 
-In order, with an effort estimate.
+In order, with an effort estimate. Items that change the firmware need room first (see above).
 
 1. **Run the on-device test** and fix what comes up. 2 to 4 hours of testing, plus whatever needs fixing.
-2. **Stable release channel.** Automatic OTA installs only versions marked as stable; the others stay as beta, for whoever wants them. It matters more now that the device can be controlled from afar. About 1 day; ~0.2 KB of flash.
-3. **Measure main-loop stalls.** TLS connections and the MQTT one hold the loop for a few seconds, and meanwhile the panel does not answer and the actuator pulse can run past what was asked. Measure first (a log warning when a cycle goes past, say, 200 ms), then decide. Half a day to measure.
-4. **Lean web server.** Replacing the core's server with one made for the panel's few routes should free 5 to 8 KB. It unlocks items 5 and 6, and gives room back for fixes. 3 to 5 days; the panel tests cover the swap.
-5. **MQTT with TLS to a cloud broker** (optional, depends on item 4). Control over the internet without a tunnel. It would be one or the other with the ntfy command stream, because only one TLS session fits. About 2 days; ~1.5 KB.
-6. **Validate GitHub's certificate on OTA** (depends on item 4). Today the signature protects the image, but someone in the middle of the connection can block updates. Half a day; ~1.5 KB.
-7. **Field diagnostics.** Keep the last crash (address and stack) and show it on the panel; publish heap, Wi-Fi signal and uptime over MQTT. About 1 day; the size depends on how much goes in.
-8. **End-to-end test in CI.** Bring the Mosquitto and Home Assistant test, manual today, into CI. About 1 day; does not change the firmware.
-9. **Name and language.** Choose between `esp8266-dns` and `esp8266-iot` (both show up today) and offer English identifiers in the API and MQTT, keeping the current ones as synonyms. Half a day to 1 day.
+2. **Version check that survives the rename** (see above), then the rename itself. Half a day; about the same flash.
+3. **Measure main-loop stalls.** TLS connections and the MQTT one hold the loop for a few seconds; meanwhile the panel does not answer and the actuator pulse can run past what was asked. Measure first (a log warning when a cycle goes past, say, 200 ms), then decide. Half a day.
+4. **Stable release channel.** Automatic OTA installs only versions marked as stable; the others stay as beta, for whoever wants them. About 1 day; ~0.2 KB.
+5. **End-to-end test in CI.** Bring the Mosquitto and Home Assistant test, manual today, into CI. About 1 day; does not change the firmware.
+6. **Field diagnostics.** Keep the last crash (address and stack) and show it on the panel; publish heap, Wi-Fi signal and uptime over MQTT. About 1 day; the size depends on how much goes in.
+7. **Battery in the API and MQTT**, and the INA219 ([BATTERY-AND-SOLAR.md](BATTERY-AND-SOLAR.md)). Small.
+8. **Validate GitHub's certificate on OTA.** Today the signature protects the image, but someone in the middle of the connection can block updates. Half a day; ~1.5 KB.
+9. **MQTT with TLS to a cloud broker** (optional). Control over the internet without a tunnel. It would be one or the other with the ntfy command stream, because only one TLS session fits. About 2 days; ~1.5 KB.
+10. **Smaller pieces:** a physical button, a backup second Wi-Fi, a remote log through ntfy ([PORTING-FROM-TASMOTA.md](PORTING-FROM-TASMOTA.md)).
 
-What is worth bringing over from Tasmota to this device, and what is not: [PORTING-FROM-TASMOTA.md](PORTING-FROM-TASMOTA.md). Items 1 to 3 there (time zone and window, button, SHT3x) compete with items 5 and 6 of this list for the room item 4 frees.
-
-Battery and solar panel, with or without a charge reading: [BATTERY-AND-SOLAR.md](BATTERY-AND-SOLAR.md). Powering it does not change the firmware. The charge reading competes with the Tasmota document's button for the two free pins.
+Battery and solar panel, with or without a charge reading: [BATTERY-AND-SOLAR.md](BATTERY-AND-SOLAR.md). Powering it does not change the firmware. The charge reading competes with the button for the two free pins.
