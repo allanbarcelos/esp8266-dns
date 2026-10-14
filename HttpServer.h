@@ -9,8 +9,9 @@
 // the connection (no keep-alive, no chunked encoding). No upload, no Digest,
 // no route table (WebService decides by path) and no std::function.
 //
-// Same semantics as the core where it matters: arguments from the query and
-// the urlencoded body (the first one with the name wins), and the raw body
+// The Cookie header is kept for the panel session. Same semantics as the
+// core where it matters: arguments from the query and the urlencoded body
+// (the first one with the name wins), and the raw body
 // in "plain" (curl -d on). A connection with no request waits up to
 // WAIT_MS; if another one arrives with data, the idle one yields after
 // YIELD_MS (browser preconnect).
@@ -55,6 +56,7 @@ public:
     uint8_t       method() const        { return _method; }
     const char*   path() const          { return _path; }
     const String& authorization() const { return _auth; }
+    const String& cookie() const         { return _cookie; }
 
     // Argument value (query, then urlencoded body); "plain" is the body
     String arg(const char* name) const {
@@ -100,7 +102,7 @@ private:
 
     uint8_t _method = OTHER;
     char    _path[24] = {};
-    String  _query, _body, _auth, _headers;
+    String  _query, _body, _auth, _cookie, _headers;
     bool    _form   = false;
     size_t  _length = 0;
 
@@ -112,6 +114,7 @@ private:
         _query = String();
         _body = String();
         _auth = String();
+        _cookie = String();
         _headers = String();
         _form = false;
         _length = 0;
@@ -152,6 +155,7 @@ private:
             *v++ = '\0';
             while (*v == ' ') v++;
             if (strcasecmp(line, "Authorization") == 0) _auth = v;
+            else if (strcasecmp(line, "Cookie") == 0) _cookie = v;
             else if (strcasecmp(line, "Content-Length") == 0) length = atol(v);
             else if (strcasecmp(line, "Content-Type") == 0)
                 _form = strstr(v, "x-www-form-urlencoded") != nullptr;

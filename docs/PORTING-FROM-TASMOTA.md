@@ -2,7 +2,7 @@
 
 Notes from 2026-10-13. Tasmota is the most proven firmware on the ESP8266. This device is a different product: a 1 MB ESP-01, one sensor and one actuator, Cloudflare DNS, ntfy, MQTT and signed OTA. What is worth bringing over is the small piece that solves a real case on this hardware. The rules engine, the driver list and OTA from a URL do not fit, and OTA from a URL would also weaken what this firmware already does better.
 
-The current room is 1,280 bytes under the 500,000 cap. Nothing on the list below goes in before the lean web server, which should free 5 to 8 KB (see [STATUS-AND-NEXT-STEPS.md](STATUS-AND-NEXT-STEPS.md)). Name, hostname and teleperiod are the only ones that might fit before, if the new panel text is minimal.
+**Update 2026-10-14:** the lean web server freed 12.3 KB, and items 1, 3, 5 and 6 went in (see [IMPLEMENTATION.md](IMPLEMENTATION.md)). Items 2 (button) and 4 (second Wi-Fi) are left. The firmware is 64 bytes under the 500,000 cap, so either one first needs room taken from somewhere else (see [STATUS-AND-NEXT-STEPS.md](STATUS-AND-NEXT-STEPS.md)).
 
 ## What to port
 
@@ -47,6 +47,6 @@ Tasmota republishes the state from time to time, even without a change. Here MQT
 
 ## Order relative to the current roadmap
 
-Items 5 and 6 of [STATUS-AND-NEXT-STEPS.md](STATUS-AND-NEXT-STEPS.md) (MQTT with TLS and the GitHub certificate, about 1.5 KB each) compete for the same bytes. Cloud TLS and the GitHub certificate do not increase what the device can automate. The signature already stops a fake image. Someone on the path can only delay the update.
+MQTT with TLS and the GitHub certificate (items 8 and 9 of [STATUS-AND-NEXT-STEPS.md](STATUS-AND-NEXT-STEPS.md), about 1.5 KB each) compete for the same bytes. Cloud TLS and the GitHub certificate do not increase what the device can automate. The signature already stops a fake image. Someone on the path can only delay the update.
 
-If the goal is what Tasmota does and this device does not do yet, the order is: on-device test, lean web server, time zone and window, button, SHT3x. Name, second Wi-Fi and teleperiod go into whatever is left. The GitHub certificate comes back when there is room.
+If the goal is what Tasmota does and this device does not do yet, the order was: on-device test, lean web server, time zone and window, button, SHT3x. All of it is done except the on-device test and the button. The second Wi-Fi goes into whatever is left. The GitHub certificate comes back when there is room.

@@ -4,7 +4,7 @@ How to use the device away from home without exposing it to the internet.
 
 ## The rule: never open a port to the device
 
-The ESP-01 has no memory to serve HTTPS. The panel and the API speak plain HTTP, with the password in Basic Auth. If the router's port 80 points at it, anyone on the path reads the password, and any bot scanning the internet finds the panel within hours. The login attempt limit slows down password guessing, but does not solve this.
+The ESP-01 has no memory to serve HTTPS. The panel and the API speak plain HTTP. The panel signs in with a form and then keeps a session cookie; the API uses a Bearer token. If the router's port 80 points at it, anyone on the path can steal that cookie or token, and any bot scanning the internet finds the panel within hours. The authenticator stops a stolen password from being enough, and the login attempt limit slows guessing. An open port remains unsafe.
 
 So the design is different: the device only makes outgoing connections. It already does that with ntfy (commands from the phone) and MQTT (Home Assistant). To reach the panel, put a tunnel with HTTPS and its own login in front of it.
 
@@ -82,12 +82,12 @@ Use a subdomain different from the records the device itself updates through DDN
 
 ### 2. Login in front (required)
 
-Without this part, the panel is public with only the device's Basic Auth. In **Zero Trust → Access → Applications → Add an application → Self-hosted**:
+Without this part, the panel is public with only the device's password and authenticator. In **Zero Trust → Access → Applications → Add an application → Self-hosted**:
 
 - **Application domain:** `esp.yourdomain.com`
 - **Policy:** action **Allow**, rule **Emails** with your e-mail (Access sends a code by e-mail on each login).
 
-After that, opening `https://esp.yourdomain.com` first asks for the Access code and only then for the panel password.
+After that, opening `https://esp.yourdomain.com` first asks for the Access code and only then for the panel user, password and authenticator code.
 
 ### Notes
 

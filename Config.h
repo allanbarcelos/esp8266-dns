@@ -52,6 +52,8 @@ struct IoTConfig {
 struct Config {
     String  webusr;
     String  webpss;
+    uint8_t totp[20] = {};   // authenticator secret; all zeros = not enrolled
+    uint32_t totpStep = 0;   // last authenticator step accepted (a code works once)
     String  ssid;
     String  pass;
 

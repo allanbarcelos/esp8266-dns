@@ -5,7 +5,6 @@
 #include <functional>
 #include <map>
 #include <string>
-#include <base64.h>
 #include "HttpServer.h"
 #include "i18n_en.h"
 
@@ -16,8 +15,8 @@ constexpr int HTTP_POST = HttpServer::POST;
 // server tick and reads the raw response (status, headers and body). An
 // HTML body is read in English, as i18n.js writes it: out has the text and
 // raw keeps the markers.
-// Without an explicit Authorization, sends the panel login (basicUser/basicPass)
-// if authOk. Arguments go in the query (GET) or the urlencoded body (POST);
+// Without an explicit Cookie, sends the panel session (cookie) if authOk.
+// Arguments go in the query (GET) or the urlencoded body (POST);
 // "plain" becomes the raw body, like curl -d.
 struct MockBrowser {
     using Map = std::map<std::string, std::string>;
@@ -25,8 +24,8 @@ struct MockBrowser {
     explicit MockBrowser(std::function<void()> t) : tick(std::move(t)) {}
 
     std::function<void()> tick;
-    bool        authOk    = true;
-    std::string basicUser = "admin", basicPass = "strong-pass";
+    bool        authOk = true;
+    std::string cookie;   // "sid=<32 hex>", sent when authOk
 
     int         code = 0;
     std::string out, contentType, raw;
@@ -75,9 +74,7 @@ struct MockBrowser {
         if (method == HTTP_GET && !body.empty()) target += "?" + body;
         std::string r = std::string(method == HTTP_GET ? "GET " : "POST ") + target +
                         " HTTP/1.1\r\nHost: esp\r\n";
-        if (!h.count("Authorization") && authOk)
-            h["Authorization"] = std::string("Basic ") +
-                base64::encode(String((basicUser + ":" + basicPass).c_str())).c_str();
+        if (!h.count("Cookie") && authOk && !cookie.empty()) h["Cookie"] = cookie;
         for (auto& kv : h) r += kv.first + ": " + kv.second + "\r\n";
         if (method == HTTP_POST) {
             r += "Content-Type: application/x-www-form-urlencoded\r\n";

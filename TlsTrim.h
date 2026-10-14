@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 #pragma once
-// Removes from the firmware the part of BearSSL the device never uses (~27 KB).
+// Removes from the firmware the part of BearSSL the device never uses (~29 KB).
 //
 // The core's WiFiClientSecure installs every cipher and curve, and the linker
 // pulls all of it in. Here the sketch defines the same functions, empty; the
@@ -15,8 +15,16 @@
 //   - CBC, CCM, 3DES and ChaCha20: those ciphers go; AES-GCM stays.
 //   - X25519: key exchange uses P-256; P-384/P-521 stay to validate
 //     certificates (ECDSA chains such as Let's Encrypt's use P-384).
+//   - MD5 and the TLS 1.0/1.1 PRF: AES-GCM only exists in TLS 1.2, and
+//     BearSSL rejects a TLS 1.2 suite on an older version as soon as the
+//     ServerHello arrives. In TLS 1.2 the handshake and Finished use SHA-256
+//     or SHA-384, and the client never offers MD5 for signatures. An MD5
+//     certificate gets a hash of size 0: it fails, closed.
 //   - Client certificate (RSA/ECDSA signing): the device does not use it.
+// Everything that stays runs as before: P-256 keeps the fast implementation,
+// and SHA-224 and SHA-512 share their objects with SHA-256 and SHA-384.
 #include <bearssl/bearssl.h>
+#include <cstring>
 
 extern "C" {
 
@@ -32,6 +40,24 @@ void br_ssl_client_set_single_ec(br_ssl_client_context*, const br_x509_certifica
                                  const br_ec_impl*, br_ecdsa_sign) {}
 br_rsa_pkcs1_sign br_rsa_pkcs1_sign_get_default() { return nullptr; }
 br_ecdsa_sign br_ecdsa_sign_asn1_get_default() { return nullptr; }
+
+// Registered by WiFiClientSecure as the MD5 implementation. Its output size
+// is 0, so any use of it fails.
+static void _md5Init(const br_hash_class**) {}
+static void _md5Update(const br_hash_class**, const void*, size_t) {}
+static void _md5Out(const br_hash_class* const*, void*) {}
+static uint64_t _md5State(const br_hash_class* const*, void*) { return 0; }
+static void _md5Set(const br_hash_class**, const void*, uint64_t) {}
+const br_hash_class br_md5_vtable = {
+    sizeof(br_hash_class*), 0, _md5Init, _md5Update, _md5Out, _md5State, _md5Set,
+};
+
+// TLS 1.0/1.1 only (see above); a call would fill zeros and the Finished
+// check would fail.
+void br_tls10_prf(void* dst, size_t len, const void*, size_t, const char*, size_t,
+                  const br_tls_prf_seed_chunk*) {
+    if (dst && len) memset(dst, 0, len);
+}
 
 // BearSSL's br_ec_all_m15 without Curve25519: P-256 on the fast
 // implementation, P-384 and P-521 on the generic one. It is what

@@ -2,7 +2,7 @@
 
 Status on 2026-10-13. The list came from the documents of the same day: [Status and next steps](STATUS-AND-NEXT-STEPS.md), [What to port from Tasmota](PORTING-FROM-TASMOTA.md) and [Battery and solar panel](BATTERY-AND-SOLAR.md), plus the README's remote log. The round implemented items 5, 6, 7, 8, 10 and 11, one commit per item. Item 7 came first because it freed the room for the others.
 
-After the round, the adjustments and the move to English at the end of this page, the firmware is **498,800 bytes**, under the 500,000 cap (1,200 to spare). Before the lean server it was 499,312. There are 423 native tests, with 100 % of functions and branches.
+After the round and the adjustments at the end of this page (English, four languages, the authenticator, the photo), the firmware is **499,024 bytes**, under the 500,000 cap (976 to spare). Before the lean server it was 499,312. There are 448 native tests, with 100 % of lines, functions and branches. What is left, in order: [STATUS-AND-NEXT-STEPS.md](STATUS-AND-NEXT-STEPS.md).
 
 ## Do not change the firmware
 
@@ -39,7 +39,7 @@ After the round, the adjustments and the move to English at the end of this page
 
 | # | Item | Effort | Implemented | Commit |
 |---|---|---|---|---|
-| 17 | Project name (`esp8266-dns` or `esp8266-iot`) and English identifiers in the API and MQTT, with the current ones as synonyms | ½–1 day | Partly: everything moved to English, with no Portuguese synonyms; the name is still open | `e2319b4`, `39d0393` |
+| 17 | Project name (`esp8266-dns` or `esp8266-iot`) and English identifiers in the API and MQTT, with the current ones as synonyms | ½–1 day | Yes: everything moved to English, with no Portuguese synonyms; the name is **esp8266-iot**. The repository rename waits for a version check that survives it ([STATUS](STATUS-AND-NEXT-STEPS.md#before-renaming-the-repository)) | `e2319b4`, `39d0393` |
 
 ## Notes on what went in
 
@@ -60,4 +60,7 @@ After the round, the adjustments and the move to English at the end of this page
 | `39d0393` | Tooling, CI and the web installer in English; the installer still reads the AP password from firmware that prints `senha:` | 494,416 |
 | `3d65b57` | Pin drawing on the IoT page in English | 494,384 |
 | `bd2cc11` | Panel in English, Portuguese, Spanish and French (Settings, or the browser's language), from one compressed table decoded by the browser; `sscanf` replaced by a hand parser (−3,152 bytes) to make room | 497,936 |
-| Pin drawing translated | The pin drawing in the panel language too: i18n.js translates its labels from the same table; its URL now carries a content hash, so the browser fetches a new drawing after an update instead of keeping the old one for 7 days | 498,800 |
+| `1d89fda` | Panel sign-in with a mandatory authenticator (RFC 6238) instead of HTTP Basic: session cookie, each code once, the browser's time while SNTP is not set, password and code again to change either, CSRF token per session. The ESP-01 photo left the sketch to make room | 499,952 |
+| `32c7779` | ESP-01 photo back through an own codec decoded by the browser (wavelet, 1.3 KB + 1.8 KB of script); LittleFS without its debug asserts (`LFS_NO_ASSERT`, −3.4 KB) | 499,968 |
+| `389e60e` | Photo as AVIF instead (3.2 KB, transparent background, no decoder in the firmware): SSIM 0.963 against the codec's 0.886 in the same room; the codec removed | 499,936 |
+| Pin drawing translated | The pin drawing in the panel language too: i18n.js translates its labels from the same table; its URL now carries a content hash, so the browser fetches a new drawing after an update instead of keeping the old one for 7 days. To fit after the merge with the authenticator and the photo, `TlsTrim.h` also leaves MD5 and the TLS 1.0 PRF out (−1.8 KB; neither is reachable with AES-GCM suites); the fast P-256 stays | 499,024 |

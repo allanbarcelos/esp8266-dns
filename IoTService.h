@@ -171,6 +171,12 @@ public:
     bool hasRule()     const { return _r.rule && hasSensor() && hasActuator(); }
     bool manual()      const { return _manual; }
 
+    // Unix time, or 0 until SNTP has moved the clock out of 1970. The panel
+    // authenticator refuses codes until this is set.
+    time_t unixTime() const {
+        return _clock && _clock->synced() ? _clock->now() : 0;
+    }
+
     // Minute of the day in local time; false without a clock or with it in 1970
     bool localMinute(uint16_t& m) const {
         if (!_clock || !_clock->synced()) return false;

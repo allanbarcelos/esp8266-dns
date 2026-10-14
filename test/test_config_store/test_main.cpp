@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
+#include <cstring>
 #include <unity.h>
 #include "../test_support.h"
 #include "Config.h"
 #include "ConfigStore.h"
+#include "Totp.h"
 
 static Logger      logger;
 static Config      config;
@@ -324,6 +326,11 @@ void test_full_round_trip() {
     config.iot.window = true;
     config.iot.winStart = 22 * 60;
     config.iot.winEnd = 6 * 60;
+    static const uint8_t key[Totp::KEY_LEN] = {
+        '1','2','3','4','5','6','7','8','9','0','1','2','3','4','5','6','7','8','9','0'
+    };
+    std::memcpy(config.totp, key, sizeof(key));
+    config.totpStep = 56670000;
 
     TEST_ASSERT_TRUE(store.save());
     config = Config{};
@@ -347,6 +354,10 @@ void test_full_round_trip() {
     TEST_ASSERT_EQUAL_STRING("topic",           config.ntfy_topic);
     TEST_ASSERT_EQUAL_STRING("abc123",           config.api_token);
     TEST_ASSERT_EQUAL_STRING("rec_aaa",          config.cf_record);
+    TEST_ASSERT_EQUAL_MEMORY(key, config.totp, Totp::KEY_LEN);
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"],
+                              "3132333435363738393031323334353637383930"));
+    TEST_ASSERT_EQUAL_UINT32(56670000u, config.totpStep);
 }
 
 // Every field at its maximum size must fit in the JSON document
@@ -372,6 +383,8 @@ void test_save_worst_case_fits() {
     std::memset(config.iot.actuator, 'a', sizeof(config.iot.actuator) - 1);
     std::memset(config.iot.onText,   'o', sizeof(config.iot.onText) - 1);
     std::memset(config.iot.offText,  'f', sizeof(config.iot.offText) - 1);
+    std::memset(config.totp, 0xA5, sizeof(config.totp));
+    config.totpStep = 0xFFFFFFFFu;
 
     TEST_ASSERT_TRUE(store.save());
     // The largest possible file stays below the read limit
@@ -384,6 +397,46 @@ void test_save_worst_case_fits() {
     TEST_ASSERT_EQUAL(63, (int)std::strlen(config.mqtt_host));
     TEST_ASSERT_EQUAL(31, (int)std::strlen(config.mqtt_user));
     TEST_ASSERT_EQUAL(63, (int)std::strlen(config.mqtt_pass));
+    TEST_ASSERT_EQUAL_UINT8(0xA5, config.totp[0]);
+    TEST_ASSERT_EQUAL_UINT8(0xA5, config.totp[Totp::KEY_LEN - 1]);
+    TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, config.totpStep);
+}
+
+// A config from before the step was kept: 0, so any code is new
+void test_totp_step_missing_is_zero() {
+    config.totpStep = 123;
+    MockFS::put("/config.json", R"({"v":2,"ssid":"Home"})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_UINT32(0u, config.totpStep);
+    MockFS::put("/config.json", R"({"v":2,"totp_step":"x"})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_UINT32(0u, config.totpStep);
+}
+
+// Missing, short, all-zero or non-text: not enrolled. Uppercase hex is kept.
+void test_totp_secret_rejected() {
+    uint8_t mark[Totp::KEY_LEN];
+    std::memset(mark, 0x5A, sizeof(mark));
+    const char* bad[] = {
+        R"({"v":2,"totp":"zz"})",
+        R"({"v":2,"totp":"0000000000000000000000000000000000000000"})",
+        R"({"v":2,"totp":1})",
+        R"({"v":2,"ssid":"Home"})",
+    };
+    for (const char* json : bad) {
+        std::memcpy(config.totp, mark, sizeof(mark));
+        MockFS::put("/config.json", json);
+        TEST_ASSERT_TRUE(store.load());
+        TEST_ASSERT_TRUE(Totp::blank(config.totp));
+    }
+    TEST_ASSERT_EQUAL_STRING("Home", config.ssid.c_str());
+
+    MockFS::put("/config.json",
+                R"({"v":2,"totp":"AB00000000000000000000000000000000000001"})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_UINT8(0xAB, config.totp[0]);
+    TEST_ASSERT_EQUAL_UINT8(0x01, config.totp[19]);
+    TEST_ASSERT_EQUAL_UINT8(0x00, config.totp[1]);
 }
 
 void test_save_overflow_does_not_write() {
@@ -437,6 +490,8 @@ int main() {
     RUN_TEST(test_load_record_from_old_list);
     RUN_TEST(test_load_non_text_record_becomes_empty);
     RUN_TEST(test_full_round_trip);
+    RUN_TEST(test_totp_secret_rejected);
+    RUN_TEST(test_totp_step_missing_is_zero);
     RUN_TEST(test_save_worst_case_fits);
     RUN_TEST(test_save_overflow_does_not_write);
     RUN_TEST(test_save_open_fails);

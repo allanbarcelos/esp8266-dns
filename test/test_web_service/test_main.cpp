@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
+#include <cstring>
 #include <unity.h>
 #include "../test_support.h"
 #include "Config.h"
@@ -8,6 +9,7 @@
 #include "WiFiService.h"
 #include "OTAService.h"
 #include "WebService.h"
+#include "Totp.h"
 #include "../web_browser.h"
 #include "../i2c_sim.h"
 
@@ -17,6 +19,13 @@ static Logger logger;
 static Config cfg;
 static time_t webNow = 0;
 static time_t webTime() { return webNow; }
+static time_t nextSignIn = 0;
+
+// RFC 4226/6238 secret. setUp copies it in, so the panel starts enrolled.
+static const uint8_t PANEL_TOTP[Totp::KEY_LEN] = {
+    '1','2','3','4','5','6','7','8','9','0','1','2','3','4','5','6','7','8','9','0'
+};
+static constexpr time_t PANEL_TIME = 1700100000;   // the fixture signs in before it
 
 struct Fixture {
     ConfigStore store{cfg, logger};
@@ -33,11 +42,53 @@ struct Fixture {
 
     explicit Fixture(bool withNtfy = true, bool withMqtt = true, bool withPower = true)
         : web(cfg, logger, store, wifi, ota, iot, withNtfy ? &ntfy : nullptr,
-              withMqtt ? &mqtt : nullptr, withPower ? &power : nullptr) { web.begin(); }
+              withMqtt ? &mqtt : nullptr, withPower ? &power : nullptr) {
+        web.begin();
+        // The sign-in stores the spent code in /config.json; the tests start
+        // from the file system they set up
+        auto before = MockFS::files;
+        if (cfg.webpss.length() && !Totp::blank(cfg.totp)) signIn();
+        MockFS::files = before;
+    }
+
+    void keepCookie() {
+        auto it = srv.headers.find("Set-Cookie");
+        if (it == srv.headers.end()) return;
+        const std::string& v = it->second;
+        auto p = v.find("sid=");
+        if (p == std::string::npos) return;
+        auto e = v.find(';', p);
+        srv.cookie = v.substr(p, e == std::string::npos ? std::string::npos : e - p);
+    }
+
+    // Signs in against the current totp secret. The wall clock is restored.
+    // A code works once, so with the clock in 1970 each sign-in takes the
+    // next step of a run that ends well before PANEL_TIME (nextSignIn): the
+    // tests keep PANEL_TIME's codes for themselves.
+    void signIn() {
+        time_t saved = webNow;
+        if (webNow <= Clock::MIN_VALID_EPOCH) {
+            webNow = nextSignIn;
+            nextSignIn += 30;
+        }
+        char code[8];
+        Totp::codeAt(cfg.totp, webNow, code);
+        bool was = srv.authOk;
+        srv.authOk = false;
+        srv.request(HTTP_POST, "/login", {
+            {"user", std::string(cfg.webusr.c_str())},
+            {"pass", std::string(cfg.webpss.c_str())},
+            {"code", code},
+            {"_csrf", web.csrfToken()},
+        });
+        keepCookie();
+        srv.authOk = was;
+        webNow = saved;
+    }
 
     bool get(const char* path)              { return srv.request(HTTP_GET, path); }
     bool post(const char* path, Args a = {}) {
-        a["_csrf"] = web.csrfToken();
+        a["_csrf"] = web.sessionCsrfToken();
         return srv.request(HTTP_POST, path, a);
     }
     const std::string& out() { return srv.out; }
@@ -55,14 +106,31 @@ struct Fixture {
     }
 };
 
+static const char* otherCode(const char* code) {
+    return std::strcmp(code, "111111") == 0 ? "222222" : "111111";
+}
+
+// The password form also asks for the current password and a code. The
+// clock is in 1970, so the code goes with the browser's time (t).
+static Args confirmed(Args a, time_t at = PANEL_TIME) {
+    char code[8];
+    Totp::codeAt(cfg.totp, at, code);
+    a["pass"] = cfg.webpss.c_str();
+    a["code"] = code;
+    a["t"]    = std::to_string((long long)at);
+    return a;
+}
+
 void setUp() {
     resetMocks();
     logger = Logger();
     cfg = Config{};
     cfg.webusr = "admin";
     cfg.webpss = "strong-pass";
+    std::memcpy(cfg.totp, PANEL_TOTP, sizeof(cfg.totp));
     cfg.ssid   = "Home";
     webNow = 0;
+    nextSignIn = PANEL_TIME - 30 * 200;
 }
 void tearDown() {}
 
@@ -143,57 +211,94 @@ void test_without_password_redirects_to_set_password() {
 void test_authentication_required() {
     Fixture f;
     f.srv.authOk = false;
-    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/mqtt", "/password", "/update", "/iot", "/config"};
+    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/mqtt", "/password",
+                           "/update", "/iot", "/config", "/mfa"};
     for (const char* p : paths) {
         f.get(p);
-        TEST_ASSERT_EQUAL(401, f.srv.code);
-        TEST_ASSERT_EQUAL_STRING("Basic realm=\"ESP8266\"", f.srv.headers["WWW-Authenticate"].c_str());
+        TEST_ASSERT_EQUAL(302, f.srv.code);
+        TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
+        TEST_ASSERT_EQUAL(0u, f.srv.headers.count("WWW-Authenticate"));
     }
     const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/mqtt/save", "/password/save",
-                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token", "/iot/clear", "/config/save"};
+                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd",
+                           "/iot/token", "/iot/clear", "/config/save", "/mfa", "/mfa/reset"};
     for (const char* p : posts) {
         f.post(p);
-        TEST_ASSERT_EQUAL(401, f.srv.code);
+        TEST_ASSERT_EQUAL(302, f.srv.code);
+        TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
     }
+    f.get("/login");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Sign in"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='code'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "autocomplete='one-time-code'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "Sign out"));
 }
 
-// Basic only, with the panel user and password, compared in full
-void test_basic_authentication() {
+// The old Basic header does not open the panel. The cookie does, in full.
+void test_session_authentication() {
     Fixture f;
     f.get("/status");
     TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Sign out"));
+    f.get("/login");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/", f.srv.headers["Location"].c_str());
 
-    f.srv.basicPass = "senha-errada";
-    f.get("/status");
-    TEST_ASSERT_EQUAL(401, f.srv.code);
-    f.srv.basicPass = "strong-pass";
-    f.srv.basicUser = "other";
-    f.get("/status");
-    TEST_ASSERT_EQUAL(401, f.srv.code);
+    f.srv.authOk = false;
+    f.srv.request(HTTP_GET, "/status", {}, {{"Authorization", "Basic YWRtaW46c3Ryb25nLXBhc3M="}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
 
-    // admin:strong-pass
-    const char* ok = "Basic YWRtaW46c3Ryb25nLXBhc3M=";
+    std::string good = f.srv.cookie;
     const char* bad[] = {
-        "Basic YWRtaW46c3Ryb25nLXBhc3M",              // cut
-        "Basic YWRtaW46c3Ryb25nLXBhc3M==",            // extra
-        "basic YWRtaW46c3Ryb25nLXBhc3M=",             // another scheme
-        "Digest username=\"admin\", realm=\"ESP8266\"",
-        "Bearer YWRtaW46c3Ryb25nLXBhc3M=",
+        "sid=0123456789abcdef0123456789abcde",          // 31
+        "sid=abcd;",                                        // cut at the semicolon
+        "sid=0123456789abcdef0123456789abcdef0",        // 33
+        "sid=0123456789abcdef0123456789abcdef",         // other value
+        "other=1",
+        "a=1;   ",
+        "   ",
         "",
     };
-    f.srv.request(HTTP_GET, "/status", {}, {{"Authorization", ok}});
-    TEST_ASSERT_EQUAL(200, f.srv.code);
-    for (const char* auth : bad) {
-        f.srv.request(HTTP_GET, "/status", {}, {{"Authorization", auth}});
-        TEST_ASSERT_EQUAL(401, f.srv.code);
-        f.srv.request(HTTP_GET, "/status", {}, {{"Authorization", ok}});   // resets the failure count
+    for (const char* c : bad) {
+        f.srv.request(HTTP_GET, "/status", {}, {{"Cookie", c}});
+        TEST_ASSERT_EQUAL(302, f.srv.code);
     }
+    f.srv.request(HTTP_GET, "/status", {}, {{"Cookie", "a=1; " + good + "; b=2"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    f.srv.request(HTTP_GET, "/status", {}, {{"Cookie", good}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+
+    // Already signed in: the authenticator page is not the enrollment page,
+    // and a bad CSRF is not even looked at
+    f.srv.authOk = true;
+    f.srv.request(HTTP_POST, "/mfa", {{"_csrf", "00000000deadbeef"}, {"code", "000000"}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/", f.srv.headers["Location"].c_str());
+    f.srv.authOk = false;
+
+    // A failed sign-in from a browser that does not send the cookie leaves it
+    std::string before = good;
+    webNow = PANEL_TIME;
+    char goodCode[8];
+    Totp::codeAt(cfg.totp, webNow, goodCode);
+    f.srv.request(HTTP_POST, "/login", {
+        {"user", "admin"}, {"pass", "wrong-pass!"}, {"code", goodCode}, {"_csrf", f.web.csrfToken()}
+    });
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    TEST_ASSERT_EQUAL(0u, f.srv.headers.count("WWW-Authenticate"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Wrong user, password or code"));
+    TEST_ASSERT_FALSE(contains(f.out(), "Sign out"));
+    f.srv.request(HTTP_GET, "/status", {}, {{"Cookie", before}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
 }
 
 void test_invalid_csrf_rejected_on_every_post() {
     Fixture f;
     const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/mqtt/save", "/password/save",
-                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd", "/iot/token", "/iot/clear", "/config/save"};
+                           "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd",
+                           "/iot/token", "/iot/clear", "/config/save", "/login", "/logout", "/mfa/reset"};
     for (const char* p : posts) {
         f.srv.request(HTTP_POST, p, {{"_csrf", "00000000deadbeef"}});
         TEST_ASSERT_EQUAL(403, f.srv.code);
@@ -212,9 +317,11 @@ void test_root_station_mode() {
     TEST_ASSERT_TRUE(contains(f.out(), "never"));
     TEST_ASSERT_TRUE(contains(f.out(), "Firmware: dev"));
     TEST_ASSERT_FALSE(contains(f.out(), "OTA in progress"));
-    TEST_ASSERT_TRUE(contains(f.out(), "/esp01.webp"));
-    TEST_ASSERT_TRUE(contains(f.out(), "alt='ESP-01'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "/esp01.webp"));
     TEST_ASSERT_TRUE(contains(f.out(), "Firmware for the ESP-01 module"));
+    // The photo, with the credit
+    TEST_ASSERT_TRUE(contains(f.out(), "<img src='/esp01.avif' alt='ESP-01' width='220' height='209'>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Photo: SparkFun, CC BY 2.0"));
 }
 
 void test_root_with_ip_and_last_update() {
@@ -245,7 +352,7 @@ void test_root_setup_mode_first_access() {
     f.enterConfigMode();
     f.get("/");
     TEST_ASSERT_EQUAL(200, f.srv.code);
-    TEST_ASSERT_TRUE(contains(f.out(), "/esp01.webp"));
+    TEST_ASSERT_FALSE(contains(f.out(), "/esp01.webp"));
     TEST_ASSERT_TRUE(contains(f.out(), "Firmware for the ESP-01 module"));
     TEST_ASSERT_TRUE(contains(f.out(), "Setup mode"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='pass1'"));      // sets the panel password
@@ -353,19 +460,6 @@ void test_save_wifi_write_fails() {
 
 // ── Embedded images ──────────────────────────────────────────────────────────
 
-void test_embedded_device_image() {
-    cfg.webpss = "";   // public: loads before there is a password
-    Fixture f;
-    TEST_ASSERT_TRUE(f.get("/esp01.webp"));
-    TEST_ASSERT_EQUAL(200, f.srv.code);
-    TEST_ASSERT_EQUAL_STRING("image/webp", f.srv.contentType.c_str());
-    TEST_ASSERT_EQUAL(sizeof(ASSET_PHOTO), f.out().size());
-    TEST_ASSERT_EQUAL(0, f.out().compare(0, 4, "RIFF"));
-    TEST_ASSERT_EQUAL(0, f.out().compare(8, 4, "WEBP"));
-    TEST_ASSERT_EQUAL_STRING("max-age=604800", f.srv.headers["Cache-Control"].c_str());
-    TEST_ASSERT_EQUAL(0u, f.srv.headers.count("Content-Encoding"));
-}
-
 // Panel CSS and JS: gzipped, public (the first setup page uses them) and,
 // with the content hash in the URL, cached for a year
 static void assetGz(const char* path, const char* type, size_t len) {
@@ -388,6 +482,22 @@ void test_gzipped_css_and_js() {
     TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_CSS_TAG));
     TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_IOT_TAG));
     TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_I18N_TAG));
+}
+
+// The photo: AVIF, public (the first setup page shows it), already
+// compressed (no gzip), cached for a week (no hash in the URL)
+void test_device_photo_is_avif() {
+    cfg.webpss = "";
+    Fixture f;
+    TEST_ASSERT_FALSE(f.get("/esp01.webp"));
+    TEST_ASSERT_EQUAL(404, f.srv.code);
+    TEST_ASSERT_TRUE(f.get("/esp01.avif"));
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("image/avif", f.srv.contentType.c_str());
+    TEST_ASSERT_EQUAL(0u, f.srv.headers.count("Content-Encoding"));
+    TEST_ASSERT_EQUAL_STRING("max-age=604800", f.srv.headers["Cache-Control"].c_str());
+    TEST_ASSERT_EQUAL(sizeof(ASSET_PHOTO), f.out().size());
+    TEST_ASSERT_EQUAL_STRING("ftypavif", f.out().substr(4, 8).c_str());   // ISO BMFF brand
 }
 
 void test_embedded_gzipped_svg_pinout() {
@@ -565,7 +675,7 @@ void test_settings_refuse_invalid_name_or_hostname() {
     TEST_ASSERT_EQUAL(403, f.srv.code);
     f.srv.authOk = false;
     f.post("/config/save", {{"name", "x"}});
-    TEST_ASSERT_EQUAL(401, f.srv.code);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
 }
 
 void test_time_zone() {
@@ -987,6 +1097,7 @@ void test_password_page_first_access_without_auth() {
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "Set a password"));
     TEST_ASSERT_TRUE(contains(f.out(), "value='admin'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "Replace authenticator"));
 }
 
 void test_password_page_with_password() {
@@ -994,26 +1105,80 @@ void test_password_page_with_password() {
     f.get("/password");
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_FALSE(contains(f.out(), "Set a password"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Replace authenticator"));
 }
 
 void test_password_save_rotates_csrf() {
     Fixture f;
     std::string old = f.web.csrfToken();
-    f.post("/password/save", {{"user", "new"}, {"pass1", "secret123"}, {"pass2", "secret123"}});
+    f.post("/password/save", confirmed({{"user", "new"}, {"pass1", "secret123"}, {"pass2", "secret123"}}));
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL_STRING("new",       cfg.webusr.c_str());
     TEST_ASSERT_EQUAL_STRING("secret123", cfg.webpss.c_str());
     TEST_ASSERT_TRUE(old != f.web.csrfToken());
+    TEST_ASSERT_TRUE(contains(f.out(), "url=/login"));
+    f.get("/status");
+    TEST_ASSERT_EQUAL(302, f.srv.code);   // the old cookie was cleared
+}
+
+// The session cookie alone (readable on plain HTTP) does not change the
+// password: the current one and a code, each wrong one a counted mistake
+void test_password_save_needs_current_password_and_code() {
+    Fixture f;
+    f.get("/password");
+    TEST_ASSERT_TRUE(contains(f.out(), "Current password"));
+    TEST_ASSERT_TRUE(contains(f.out(), "autocomplete='one-time-code'"));
+    Args np{{"user", "admin"}, {"pass1", "secret123"}, {"pass2", "secret123"}};
+
+    f.post("/password/save", np);                          // nothing: no time
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "clock not synchronized"));
+    Args a = confirmed(np);
+    a["pass"] = "wrong-pass!";
+    f.post("/password/save", a);
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Wrong user, password or code"));
+    a = confirmed(np);
+    a["code"] = otherCode(a["code"].c_str());
+    f.post("/password/save", a);
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    a = confirmed(np);
+    a.erase("code");
+    f.post("/password/save", a);
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("strong-pass", cfg.webpss.c_str());
+    for (int i = 3; i < WebService::FREE_LOGIN_FAILS; i++) {
+        a = confirmed(np);
+        a["pass"] = "wrong-pass!";
+        f.post("/password/save", a);
+    }
+    f.post("/password/save", confirmed(np));
+    TEST_ASSERT_EQUAL(429, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("strong-pass", cfg.webpss.c_str());
+
+    setMillis(WebService::LOGIN_WAIT_MAX_MS);
+    f.post("/password/save", confirmed(np));
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("secret123", cfg.webpss.c_str());
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)(PANEL_TIME / 30), cfg.totpStep);
+    TEST_ASSERT_EQUAL_MEMORY(PANEL_TOTP, cfg.totp, sizeof(PANEL_TOTP));   // the key stays
 }
 
 void test_password_save_invalid() {
     Fixture f;
-    f.post("/password/save", {{"user", "u"}, {"pass1", "secret123"}});
+    // Each with its own code: a confirmed code is spent even when the new
+    // password is then refused
+    f.post("/password/save", confirmed({{"user", "u"}, {"pass1", "secret123"}}));
     TEST_ASSERT_EQUAL(400, f.srv.code);
-    f.post("/password/save", {{"user", std::string(33, 'u')}, {"pass1", "secret123"}, {"pass2", "secret123"}});
+    TEST_ASSERT_TRUE(contains(f.out(), "do not match"));
+    f.post("/password/save", confirmed({{"user", std::string(33, 'u')}, {"pass1", "secret123"}, {"pass2", "secret123"}},
+                                       PANEL_TIME + 30));
     TEST_ASSERT_EQUAL(400, f.srv.code);
-    f.post("/password/save", {{"user", "u"}, {"pass1", std::string(65, 'p')}, {"pass2", std::string(65, 'p')}});
+    TEST_ASSERT_TRUE(contains(f.out(), "Invalid user"));
+    f.post("/password/save", confirmed({{"user", "u"}, {"pass1", std::string(65, 'p')}, {"pass2", std::string(65, 'p')}},
+                                       PANEL_TIME + 60));
     TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "8 to 64"));
     TEST_ASSERT_EQUAL_STRING("strong-pass", cfg.webpss.c_str());
 }
 
@@ -1113,7 +1278,7 @@ void test_password_save_write_fails() {
     Fixture f;
     std::string old = f.web.csrfToken();
     MockFS::failWriteOpen = true;
-    f.post("/password/save", {{"user", "u"}, {"pass1", "secret123"}, {"pass2", "secret123"}});
+    f.post("/password/save", confirmed({{"user", "u"}, {"pass1", "secret123"}, {"pass2", "secret123"}}));
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(old == f.web.csrfToken());
 }
@@ -1143,7 +1308,9 @@ void test_iot_page_with_nothing_set() {
     TEST_ASSERT_TRUE(contains(f.out(), "<option value='-1' selected>Choose</option>"));
     TEST_ASSERT_TRUE(contains(f.out(), "var SK={dht22:3,dht11:2"));
     TEST_ASSERT_TRUE(contains(f.out(), "strip:4},T='"));
-    TEST_ASSERT_TRUE(contains(f.out(), f.web.csrfToken()));
+    // Signed in: the session's token, not the one the sign-in page shows
+    TEST_ASSERT_TRUE(contains(f.out(), f.web.sessionCsrfToken()));
+    TEST_ASSERT_FALSE(contains(f.out(), f.web.csrfToken()));
     TEST_ASSERT_TRUE(contains(f.out(), "';</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
     // i18n.js before iot.js: the form script uses L() and the translated names
     TEST_ASSERT_TRUE(f.out().find("/i18n.js?v=") < f.out().find("var SK={"));
@@ -1275,7 +1442,7 @@ void test_iot_now_as_json() {
 
     f.srv.authOk = false;   // reading the device needs the login
     f.get("/iot/now");
-    TEST_ASSERT_EQUAL(401, f.srv.code);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
 }
 
 void test_iot_cmd_from_panel() {
@@ -1750,60 +1917,103 @@ void test_status_shows_ap_password() {
     TEST_ASSERT_TRUE(contains(f.out(), "abcd2345wxyz"));
     f.srv.authOk = false;                                     // only with the login
     f.get("/status");
-    TEST_ASSERT_EQUAL(401, f.srv.code);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
 }
 
 // ── Hardening for remote access ──────────────────────────────────────────────
 
-static const char* OK_BASIC  = "Basic YWRtaW46c3Ryb25nLXBhc3M=";   // admin:strong-pass
-static const char* BAD_BASIC = "Basic YWRtaW46d3Jvbmc=";           // admin:wrong
-
-static int statusWith(Fixture& f, const char* auth) {
-    f.srv.request(HTTP_GET, "/status", {}, {{"Authorization", auth}});
-    return f.srv.code;
+static bool postLogin(Fixture& f, const char* user, const char* pass, const char* code) {
+    bool was = f.srv.authOk;
+    f.srv.authOk = false;
+    Args a{{"user", user}, {"pass", pass}, {"_csrf", f.web.csrfToken()}};
+    if (code) a["code"] = code;
+    bool ok = f.srv.request(HTTP_POST, "/login", a);
+    f.srv.authOk = was;
+    return ok;
 }
 
 void test_login_repeated_failures_wait_longer() {
     Fixture f;
     f.srv.authOk = false;
-    for (int i = 0; i < WebService::FREE_LOGIN_FAILS; i++) TEST_ASSERT_EQUAL(401, statusWith(f, BAD_BASIC));
+    webNow = PANEL_TIME;
+    char good[8];
+    Totp::codeAt(PANEL_TOTP, webNow, good);
+    const char* bad = std::strcmp(good, "000000") == 0 ? "000001" : "000000";
+    for (int i = 0; i < WebService::FREE_LOGIN_FAILS; i++) {
+        postLogin(f, "admin", "strong-pass", bad);
+        TEST_ASSERT_EQUAL(401, f.srv.code);
+    }
     TEST_ASSERT_TRUE(logHas(logger, "Login: repeated failures"));
 
-    // While waiting, not even the right password is tried
-    TEST_ASSERT_EQUAL(429, statusWith(f, OK_BASIC));
+    // While waiting, not even the right code is tried
+    postLogin(f, "admin", "strong-pass", good);
+    TEST_ASSERT_EQUAL(429, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "Too many attempts"));
+    f.get("/status");
+    TEST_ASSERT_EQUAL(429, f.srv.code);
     setMillis(WebService::LOGIN_WAIT_MS - 1);
-    TEST_ASSERT_EQUAL(429, statusWith(f, BAD_BASIC));
+    postLogin(f, "admin", "strong-pass", bad);
+    TEST_ASSERT_EQUAL(429, f.srv.code);
     setMillis(WebService::LOGIN_WAIT_MS);
-    TEST_ASSERT_EQUAL(401, statusWith(f, BAD_BASIC));          // 6th failure: the wait doubles
+    postLogin(f, "admin", "nope-nope", bad);          // 6th failure: the wait doubles
+    TEST_ASSERT_EQUAL(401, f.srv.code);
     unsigned long t = WebService::LOGIN_WAIT_MS;
     setMillis(t + 2 * WebService::LOGIN_WAIT_MS - 1);
-    TEST_ASSERT_EQUAL(429, statusWith(f, OK_BASIC));
+    postLogin(f, "admin", "strong-pass", good);
+    TEST_ASSERT_EQUAL(429, f.srv.code);
     setMillis(t + 2 * WebService::LOGIN_WAIT_MS);
-    TEST_ASSERT_EQUAL(200, statusWith(f, OK_BASIC));           // getting it right resets the count
+    postLogin(f, "admin", "strong-pass", good);
+    TEST_ASSERT_EQUAL(302, f.srv.code);               // getting it right resets the count
+    TEST_ASSERT_EQUAL_STRING("/", f.srv.headers["Location"].c_str());
 
-    for (int i = 0; i < WebService::FREE_LOGIN_FAILS - 1; i++) TEST_ASSERT_EQUAL(401, statusWith(f, BAD_BASIC));
-    TEST_ASSERT_EQUAL(200, statusWith(f, OK_BASIC));
+    // good is spent now; the next step's code signs in again
+    webNow += 30;
+    Totp::codeAt(PANEL_TOTP, webNow, good);
+    for (int i = 0; i < WebService::FREE_LOGIN_FAILS - 1; i++) {
+        postLogin(f, "other", "strong-pass", good);
+        TEST_ASSERT_EQUAL(401, f.srv.code);
+    }
+    postLogin(f, "admin", "strong-pass", good);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
 }
 
 void test_login_wait_has_cap_and_request_without_credentials_does_not_count() {
     Fixture f;
     f.srv.authOk = false;
-    // The browser's first request comes without credentials: it does not count
-    for (int i = 0; i < 20; i++) TEST_ASSERT_EQUAL(401, statusWith(f, ""));
+    webNow = PANEL_TIME;
+    char good[8];
+    Totp::codeAt(PANEL_TOTP, webNow, good);
+    // Opening a page without a cookie is not a mistake
+    for (int i = 0; i < 20; i++) {
+        f.get("/status");
+        TEST_ASSERT_EQUAL(302, f.srv.code);
+    }
     TEST_ASSERT_FALSE(logHas(logger, "Login: repeated failures"));
+
+    // While the clock is in 1970 the form explains that, and it does not count
+    webNow = 0;
+    for (int i = 0; i < 20; i++) {
+        postLogin(f, "admin", "wrong-pass!", "000000");
+        TEST_ASSERT_EQUAL(200, f.srv.code);
+        TEST_ASSERT_TRUE(contains(f.out(), "clock not synchronized"));
+    }
+    TEST_ASSERT_FALSE(logHas(logger, "Login: repeated failures"));
+    webNow = PANEL_TIME;
 
     unsigned long t = 0;
     for (int i = 0; i < 260; i++) {                           // until the counter stops at 255
-        statusWith(f, BAD_BASIC);
-        t += WebService::LOGIN_WAIT_MAX_MS;                       // always after the wait
+        postLogin(f, "admin", "nope-nope!", good);
+        t += WebService::LOGIN_WAIT_MAX_MS;                   // always after the wait
         setMillis(t);
     }
-    statusWith(f, BAD_BASIC);
+    postLogin(f, "admin", "nope-nope!", good);
     setMillis(t + WebService::LOGIN_WAIT_MAX_MS - 1);
-    TEST_ASSERT_EQUAL(429, statusWith(f, OK_BASIC));
+    postLogin(f, "admin", "strong-pass", good);
+    TEST_ASSERT_EQUAL(429, f.srv.code);
     setMillis(t + WebService::LOGIN_WAIT_MAX_MS);
-    TEST_ASSERT_EQUAL(200, statusWith(f, OK_BASIC));           // never more than 5 min
+    postLogin(f, "admin", "strong-pass", good);
+    TEST_ASSERT_EQUAL(302, f.srv.code);                       // never more than 5 min
 }
 
 void test_wrong_api_token_counts_as_failure() {
@@ -1883,6 +2093,585 @@ void test_log_says_where_the_command_came_from() {
     TEST_ASSERT_TRUE(logHas(logger, "API: command \"off\""));
 }
 
+static bool secretFrom(const std::string& html, uint8_t key[Totp::KEY_LEN]) {
+    const char* mark = "class='k'>";
+    auto p = html.find(mark);
+    if (p == std::string::npos) return false;
+    p += std::strlen(mark);
+    auto e = html.find('<', p);
+    return Totp::fromBase32(html.substr(p, e == std::string::npos ? std::string::npos : e - p).c_str(), key);
+}
+
+// No authenticator yet: the password opens only the enrollment page, and the
+// key is stored after a code the clock can check.
+void test_authenticator_is_required() {
+    std::memset(cfg.totp, 0, sizeof(cfg.totp));
+    Fixture f;
+    f.srv.authOk = false;
+    f.get("/login");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "not set up yet"));
+    TEST_ASSERT_FALSE(contains(f.out(), "name='code'"));
+
+    postLogin(f, "admin", "wrong-pass!", nullptr);
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Wrong user, password or code"));
+
+    postLogin(f, "admin", "strong-pass", nullptr);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/mfa", f.srv.headers["Location"].c_str());
+    TEST_ASSERT_TRUE(contains(f.srv.headers["Set-Cookie"], "HttpOnly"));
+    TEST_ASSERT_TRUE(contains(f.srv.headers["Set-Cookie"], "SameSite=Strict"));
+    TEST_ASSERT_TRUE(contains(f.srv.headers["Set-Cookie"], "Max-Age=43200"));
+    TEST_ASSERT_FALSE(contains(f.srv.headers["Set-Cookie"], "Secure"));
+    TEST_ASSERT_TRUE(logHas(logger, "Panel: signed in"));
+    f.keepCookie();
+    f.srv.authOk = true;
+
+    f.get("/status");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/mfa", f.srv.headers["Location"].c_str());
+    f.get("/login");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/mfa", f.srv.headers["Location"].c_str());
+
+    // The key does not exist until the page is drawn, so a code cannot match
+    webNow = PANEL_TIME;
+    f.post("/mfa", {{"code", "000000"}});
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    TEST_ASSERT_TRUE(Totp::blank(cfg.totp));
+    uint8_t key[Totp::KEY_LEN];
+    TEST_ASSERT_TRUE(secretFrom(f.out(), key));
+    TEST_ASSERT_TRUE(contains(f.out(), "class='k'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "otpauth://"));
+
+    f.get("/mfa");
+    uint8_t again[Totp::KEY_LEN];
+    TEST_ASSERT_TRUE(secretFrom(f.out(), again));
+    TEST_ASSERT_EQUAL_MEMORY(key, again, Totp::KEY_LEN);
+
+    webNow = 0;
+    f.post("/mfa", {{"code", "123456"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "clock not synchronized"));
+    TEST_ASSERT_TRUE(Totp::blank(cfg.totp));
+    TEST_ASSERT_FALSE(logHas(logger, "Login: repeated failures"));
+
+    webNow = PANEL_TIME;
+    char code[8];
+    Totp::codeAt(key, webNow, code);
+    f.post("/mfa", {{"code", otherCode(code)}});
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    TEST_ASSERT_TRUE(Totp::blank(cfg.totp));
+
+    MockFS::failWriteOpen = true;
+    f.post("/mfa", {{"code", code}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Could not save"));
+    TEST_ASSERT_TRUE(Totp::blank(cfg.totp));
+    MockFS::failWriteOpen = false;
+
+    std::string setupCookie = f.srv.cookie;
+    f.post("/mfa", {{"code", code}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/", f.srv.headers["Location"].c_str());
+    TEST_ASSERT_EQUAL_MEMORY(key, cfg.totp, Totp::KEY_LEN);
+    TEST_ASSERT_TRUE(logHas(logger, "Panel: authenticator on"));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"totp_step\":"));
+
+    // The signed-in session is a new cookie: one seen during setup is worth nothing
+    f.keepCookie();
+    TEST_ASSERT_TRUE(setupCookie != f.srv.cookie);
+    f.srv.request(HTTP_GET, "/status", {}, {{"Cookie", setupCookie}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    f.get("/status");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_FALSE(contains(f.out(), "secret="));
+    f.get("/mfa");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/", f.srv.headers["Location"].c_str());
+    f.post("/mfa", {{"code", code}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/", f.srv.headers["Location"].c_str());
+    TEST_ASSERT_EQUAL_MEMORY(key, cfg.totp, Totp::KEY_LEN);
+}
+
+void test_login_pages_without_password_go_to_setup() {
+    cfg.webpss = "";
+    Fixture f;
+    f.get("/login");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/password", f.srv.headers["Location"].c_str());
+    f.post("/login", {{"user", "admin"}, {"pass", "secret123"}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/password", f.srv.headers["Location"].c_str());
+    f.get("/mfa");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/password", f.srv.headers["Location"].c_str());
+}
+
+void test_enroll_lockout() {
+    std::memset(cfg.totp, 0, sizeof(cfg.totp));
+    Fixture f;
+    f.srv.authOk = false;
+    webNow = PANEL_TIME;
+    postLogin(f, "admin", "strong-pass", nullptr);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    f.keepCookie();
+    f.srv.authOk = true;
+    f.get("/mfa");
+    uint8_t key[Totp::KEY_LEN];
+    TEST_ASSERT_TRUE(secretFrom(f.out(), key));
+    char code[8];
+    Totp::codeAt(key, webNow, code);
+    for (int i = 0; i < WebService::FREE_LOGIN_FAILS; i++) {
+        f.post("/mfa", {{"code", otherCode(code)}});
+        TEST_ASSERT_EQUAL(401, f.srv.code);
+    }
+    f.get("/mfa");
+    TEST_ASSERT_EQUAL(429, f.srv.code);
+    f.get("/login");
+    TEST_ASSERT_EQUAL(429, f.srv.code);
+    TEST_ASSERT_TRUE(Totp::blank(cfg.totp));
+}
+
+void test_code_window() {
+    Fixture f;
+    f.srv.authOk = false;
+    webNow = PANEL_TIME;
+    char cur[8], prev[8], next[8], old[8];
+    Totp::codeAt(cfg.totp, webNow, cur);
+    Totp::codeAt(cfg.totp, webNow - 30, prev);
+    Totp::codeAt(cfg.totp, webNow + 30, next);
+    Totp::codeAt(cfg.totp, webNow - 60, old);
+    TEST_ASSERT_TRUE(std::strcmp(old, cur) != 0);
+    TEST_ASSERT_TRUE(std::strcmp(old, prev) != 0);
+    TEST_ASSERT_TRUE(std::strcmp(old, next) != 0);
+    postLogin(f, "admin", "strong-pass", old);
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    // One step either side; each code once, so in the order of the steps
+    postLogin(f, "admin", "strong-pass", prev);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    postLogin(f, "admin", "strong-pass", cur);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/", f.srv.headers["Location"].c_str());
+    postLogin(f, "admin", "strong-pass", next);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+}
+
+// A code that signed in is refused after that: a second time, after the
+// clock is pushed back (SNTP has no authentication), and after a reboot.
+void test_code_works_once() {
+    Fixture f;
+    f.srv.authOk = false;
+    webNow = PANEL_TIME;
+    char cur[8], prev[8];
+    Totp::codeAt(cfg.totp, webNow, cur);
+    Totp::codeAt(cfg.totp, webNow - 30, prev);
+    postLogin(f, "admin", "strong-pass", cur);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    uint32_t spent = cfg.totpStep;
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)(PANEL_TIME / 30), spent);
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"],
+                              ("\"totp_step\":" + std::to_string(spent)).c_str()));
+
+    postLogin(f, "admin", "strong-pass", cur);
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    postLogin(f, "admin", "strong-pass", prev);        // older than the last one
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    webNow = PANEL_TIME - 3600;                         // the clock moved back
+    char back[8];
+    Totp::codeAt(cfg.totp, webNow, back);
+    postLogin(f, "admin", "strong-pass", back);
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    TEST_ASSERT_EQUAL_UINT32(spent, cfg.totpStep);
+
+    // Reboot: the step comes back from /config.json
+    webNow = PANEL_TIME;
+    cfg.totpStep = 0;
+    TEST_ASSERT_TRUE(f.store.load());
+    TEST_ASSERT_EQUAL_UINT32(spent, cfg.totpStep);
+    Fixture g;
+    g.srv.authOk = false;
+    postLogin(g, "admin", "strong-pass", cur);
+    TEST_ASSERT_EQUAL(401, g.srv.code);
+
+    // A wrong password with the right code does not spend it
+    webNow = PANEL_TIME + 30;
+    char next[8];
+    Totp::codeAt(cfg.totp, webNow, next);
+    postLogin(g, "admin", "wrong-pass!", next);
+    TEST_ASSERT_EQUAL(401, g.srv.code);
+    TEST_ASSERT_EQUAL_UINT32(spent, cfg.totpStep);
+    postLogin(g, "admin", "strong-pass", next);
+    TEST_ASSERT_EQUAL(302, g.srv.code);
+    TEST_ASSERT_EQUAL_UINT32(spent + 1, cfg.totpStep);
+
+    // The save failing does not stop the sign-in; the step stays in RAM
+    webNow = PANEL_TIME + 60;
+    Totp::codeAt(cfg.totp, webNow, next);
+    MockFS::failWriteOpen = true;
+    postLogin(g, "admin", "strong-pass", next);
+    TEST_ASSERT_EQUAL(302, g.srv.code);
+    TEST_ASSERT_EQUAL_UINT32(spent + 2, cfg.totpStep);
+    MockFS::failWriteOpen = false;
+    postLogin(g, "admin", "strong-pass", next);
+    TEST_ASSERT_EQUAL(401, g.srv.code);
+}
+
+// No clock (setup access point, no internet): the browser's time, sent by
+// i18n.js, checks the code. It cannot bring back a spent code, and the
+// device clock wins once it is synchronized.
+void test_browser_time_while_clock_not_synced() {
+    Fixture f;
+    f.srv.authOk = false;
+    webNow = 0;
+    char code[8];
+    Totp::codeAt(cfg.totp, PANEL_TIME, code);
+    std::string at = std::to_string((long long)PANEL_TIME);
+
+    f.get("/login");
+    TEST_ASSERT_TRUE(contains(f.out(), "<input type='hidden' name='t'>"));
+
+    auto login = [&](const char* c, const std::string& t) {
+        f.srv.request(HTTP_POST, "/login", {{"user", "admin"}, {"pass", "strong-pass"}, {"code", c},
+                                            {"t", t}, {"_csrf", f.web.csrfToken()}});
+    };
+    // Not a time: the form explains the clock, and nothing counts
+    const char* bad[] = {"", "abc", "1700100000x", "-1700100000", "1699999999", "4000000000",
+                         "17001000000", " 1700100000"};
+    for (const char* t : bad) {
+        login(code, t);
+        TEST_ASSERT_EQUAL(200, f.srv.code);
+        TEST_ASSERT_TRUE(contains(f.out(), "clock not synchronized"));
+    }
+    TEST_ASSERT_FALSE(logHas(logger, "Login: repeated failures"));
+
+    login(otherCode(code), at);
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    login(code, at);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/", f.srv.headers["Location"].c_str());
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)(PANEL_TIME / 30), cfg.totpStep);
+    login(code, at);                                   // spent
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    char old[8];
+    Totp::codeAt(cfg.totp, PANEL_TIME - 600, old);     // an older code with its time
+    login(old, std::to_string((long long)(PANEL_TIME - 600)));
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+
+    // With the clock set, t is ignored: a code for t but not for the clock fails
+    webNow = PANEL_TIME + 3000;
+    char later[8];
+    Totp::codeAt(cfg.totp, PANEL_TIME + 600, later);
+    login(later, std::to_string((long long)(PANEL_TIME + 600)));
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    Totp::codeAt(cfg.totp, webNow, later);
+    login(later, "1");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+}
+
+// In setup mode with a password, the panel can still be reached to change
+// the Wi-Fi: signing in with the browser's time
+void test_setup_mode_sign_in_without_clock() {
+    Fixture f;
+    f.enterConfigMode();
+    f.srv.authOk = false;
+    f.get("/");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
+    char code[8];
+    Totp::codeAt(cfg.totp, PANEL_TIME, code);
+    f.srv.request(HTTP_POST, "/login", {{"user", "admin"}, {"pass", "strong-pass"}, {"code", code},
+                                        {"t", std::to_string((long long)PANEL_TIME)},
+                                        {"_csrf", f.web.csrfToken()}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    f.keepCookie();
+    f.srv.authOk = true;
+    f.get("/");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Setup mode"));
+}
+
+void test_session_expires_and_a_new_login_replaces_it() {
+    Fixture f;
+    std::string first = f.srv.cookie;
+    setMillis(WebService::SESSION_MS - 1);
+    f.get("/status");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    setMillis(WebService::SESSION_MS);
+    f.get("/status");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
+    f.get("/status");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+
+    f.signIn();
+    f.get("/status");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    std::string second = f.srv.cookie;
+    TEST_ASSERT_TRUE(first != second);
+
+    f.signIn();
+    f.srv.request(HTTP_GET, "/status", {}, {{"Cookie", first}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    f.srv.request(HTTP_GET, "/status", {}, {{"Cookie", second}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    f.get("/status");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+}
+
+// Forms of the signed-in panel carry the session's token, not the one the
+// sign-in page shows to anyone. Each sign-in draws a new one.
+void test_csrf_token_is_per_session() {
+    Fixture f;
+    std::string boot = f.web.csrfToken();
+    std::string mine = f.web.sessionCsrfToken();
+    TEST_ASSERT_EQUAL(16, (int)mine.size());
+    TEST_ASSERT_TRUE(boot != mine);
+
+    f.srv.authOk = false;
+    f.get("/login");
+    TEST_ASSERT_TRUE(contains(f.out(), boot.c_str()));
+    TEST_ASSERT_FALSE(contains(f.out(), mine.c_str()));
+    f.srv.authOk = true;
+    f.get("/password");
+    TEST_ASSERT_TRUE(contains(f.out(), mine.c_str()));
+    TEST_ASSERT_FALSE(contains(f.out(), boot.c_str()));
+
+    f.srv.request(HTTP_POST, "/config/save", {{"name", "x"}, {"hostname", ""}, {"_csrf", boot}});
+    TEST_ASSERT_EQUAL(403, f.srv.code);
+    f.srv.request(HTTP_POST, "/iot/token", {{"_csrf", boot}});
+    TEST_ASSERT_EQUAL(403, f.srv.code);
+    f.srv.request(HTTP_POST, "/config/save", {{"name", "x"}, {"hostname", ""}, {"_csrf", mine + "0"}});
+    TEST_ASSERT_EQUAL(403, f.srv.code);
+    f.srv.request(HTTP_POST, "/config/save", {{"name", "x"}, {"hostname", ""}, {"_csrf", mine.substr(0, 15)}});
+    TEST_ASSERT_EQUAL(403, f.srv.code);
+    f.srv.request(HTTP_POST, "/config/save", {{"name", "x"}, {"hostname", ""}, {"_csrf", mine}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+
+    // The sign-in form takes the boot token only
+    webNow = PANEL_TIME;
+    char code[8];
+    Totp::codeAt(cfg.totp, webNow, code);
+    f.srv.request(HTTP_POST, "/login", {{"user", "admin"}, {"pass", "strong-pass"}, {"code", code},
+                                        {"_csrf", mine}});
+    TEST_ASSERT_EQUAL(403, f.srv.code);
+    f.signIn();
+    TEST_ASSERT_TRUE(mine != f.web.sessionCsrfToken());
+    f.srv.request(HTTP_POST, "/config/save", {{"name", "x"}, {"hostname", ""}, {"_csrf", mine}});
+    TEST_ASSERT_EQUAL(403, f.srv.code);
+}
+
+// Another device on the network sees the sign-in token, but without the
+// session it cannot sign the owner out
+void test_logout_without_session_changes_nothing() {
+    Fixture f;
+    f.srv.authOk = false;
+    f.srv.request(HTTP_POST, "/logout", {{"_csrf", f.web.csrfToken()}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
+    TEST_ASSERT_EQUAL(0u, f.srv.headers.count("Set-Cookie"));
+    f.srv.authOk = true;
+    f.get("/status");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+}
+
+void test_logout() {
+    Fixture f;
+    std::string cookie = f.srv.cookie;
+    f.srv.request(HTTP_POST, "/logout", {{"_csrf", "00000000deadbeef"}});
+    TEST_ASSERT_EQUAL(403, f.srv.code);
+    f.get("/status");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+
+    f.post("/logout");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
+    TEST_ASSERT_TRUE(contains(f.srv.headers["Set-Cookie"], "Max-Age=0"));
+    f.srv.request(HTTP_GET, "/status", {}, {{"Cookie", cookie}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
+}
+
+void test_replace_authenticator() {
+    Fixture f;
+    for (int i = 0; i < 6; i++) {
+        webNow = 0;
+        f.post("/mfa/reset", {{"pass", "nope-nope!"}, {"code", "000000"}});
+        TEST_ASSERT_EQUAL(400, f.srv.code);
+        TEST_ASSERT_TRUE(contains(f.out(), "clock not synchronized"));
+    }
+    TEST_ASSERT_EQUAL_MEMORY(PANEL_TOTP, cfg.totp, sizeof(PANEL_TOTP));
+    TEST_ASSERT_FALSE(logHas(logger, "Login: repeated failures"));
+
+    webNow = PANEL_TIME;
+    char good[8];
+    Totp::codeAt(PANEL_TOTP, webNow, good);
+    f.post("/mfa/reset", {{"pass", "wrong-pass!"}, {"code", good}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    f.post("/mfa/reset", {{"pass", "strong-pass"}, {"code", otherCode(good)}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_EQUAL_MEMORY(PANEL_TOTP, cfg.totp, sizeof(PANEL_TOTP));
+
+    std::string fullCookie = f.srv.cookie;
+    f.post("/mfa/reset", {{"pass", "strong-pass"}, {"code", good}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/mfa", f.srv.headers["Location"].c_str());
+    TEST_ASSERT_TRUE(logHas(logger, "Panel: authenticator reset"));
+    // Nothing changes until a code from the new key: the current one stays
+    TEST_ASSERT_EQUAL_MEMORY(PANEL_TOTP, cfg.totp, sizeof(PANEL_TOTP));
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)(PANEL_TIME / 30), cfg.totpStep);
+    // A new cookie for the setup level; the signed-in one is gone
+    f.keepCookie();
+    TEST_ASSERT_TRUE(fullCookie != f.srv.cookie);
+    f.srv.request(HTTP_GET, "/status", {}, {{"Cookie", fullCookie}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
+
+    f.post("/mfa/reset", {{"pass", "strong-pass"}, {"code", good}});   // spent, and not signed in
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/mfa", f.srv.headers["Location"].c_str());
+    f.get("/status");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/mfa", f.srv.headers["Location"].c_str());
+    f.get("/login");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/mfa", f.srv.headers["Location"].c_str());
+    f.get("/mfa");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Sign out"));          // a way to give up
+    uint8_t key[Totp::KEY_LEN];
+    TEST_ASSERT_TRUE(secretFrom(f.out(), key));
+    TEST_ASSERT_TRUE(std::memcmp(key, PANEL_TOTP, Totp::KEY_LEN) != 0);
+
+    char code[8];
+    webNow = PANEL_TIME + 30;
+    Totp::codeAt(key, webNow, code);
+    MockFS::failWriteOpen = true;
+    f.post("/mfa", {{"code", code}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Could not save"));
+    TEST_ASSERT_EQUAL_MEMORY(PANEL_TOTP, cfg.totp, sizeof(PANEL_TOTP));   // not zeros
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)(PANEL_TIME / 30), cfg.totpStep);
+    MockFS::failWriteOpen = false;
+
+    f.post("/mfa", {{"code", code}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/", f.srv.headers["Location"].c_str());
+    TEST_ASSERT_EQUAL_MEMORY(key, cfg.totp, Totp::KEY_LEN);
+    f.keepCookie();
+    f.get("/status");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+
+    // The old key no longer signs in; the new one does
+    f.srv.authOk = false;
+    char oldCode[8];
+    webNow = PANEL_TIME + 90;
+    Totp::codeAt(PANEL_TOTP, webNow, oldCode);
+    postLogin(f, "admin", "strong-pass", oldCode);
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    Totp::codeAt(key, webNow, code);
+    postLogin(f, "admin", "strong-pass", code);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+}
+
+// Giving up a replacement (signing out, the session ending, a reboot) keeps
+// the current key: the password alone never opens enrollment again.
+void test_replacement_given_up_keeps_key() {
+    Fixture f;
+    webNow = PANEL_TIME;
+    char good[8];
+    Totp::codeAt(PANEL_TOTP, webNow, good);
+    f.post("/mfa/reset", {{"pass", "strong-pass"}, {"code", good}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    f.keepCookie();
+    f.post("/logout");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_MEMORY(PANEL_TOTP, cfg.totp, sizeof(PANEL_TOTP));
+
+    f.srv.authOk = false;
+    f.get("/login");
+    TEST_ASSERT_TRUE(contains(f.out(), "name='code'"));
+    postLogin(f, "admin", "strong-pass", nullptr);
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    webNow = PANEL_TIME + 30;
+    Totp::codeAt(PANEL_TOTP, webNow, good);
+    postLogin(f, "admin", "strong-pass", good);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/", f.srv.headers["Location"].c_str());
+
+    // Session ending in the middle of a replacement
+    f.keepCookie();
+    f.srv.authOk = true;
+    webNow = PANEL_TIME + 60;
+    Totp::codeAt(PANEL_TOTP, webNow, good);
+    f.post("/mfa/reset", {{"pass", "strong-pass"}, {"code", good}});
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    f.keepCookie();
+    setMillis(WebService::SESSION_MS);
+    f.get("/mfa");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
+    TEST_ASSERT_EQUAL_MEMORY(PANEL_TOTP, cfg.totp, sizeof(PANEL_TOTP));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "31323334353637383930"));
+}
+
+void test_login_compares_full_length() {
+    Fixture f;
+    f.srv.authOk = false;
+    webNow = PANEL_TIME;
+    char good[8];
+    Totp::codeAt(PANEL_TOTP, webNow, good);
+    postLogin(f, "admin", "strong-pass", "12345a");
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    postLogin(f, "admin", "strong-pass", "1234567");
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    std::string longUser(33, 'u');
+    postLogin(f, longUser.c_str(), "strong-pass", good);
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    postLogin(f, "admin", "strong-paxs", good);
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    postLogin(f, " admin ", "strong-pass", good);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+
+    std::string tooLong(65, 'p');
+    postLogin(f, "admin", tooLong.c_str(), good);
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    std::string atCap(64, 'p');
+    postLogin(f, "admin", atCap.c_str(), good);
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+
+    cfg.webusr = std::string(33, 'A').c_str();
+    postLogin(f, "admin", "strong-pass", good);
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+}
+
+void test_enroll_post_rejects_bad_csrf() {
+    std::memset(cfg.totp, 0, sizeof(cfg.totp));
+    Fixture f;
+    f.srv.authOk = false;
+    webNow = PANEL_TIME;
+    postLogin(f, "admin", "strong-pass", nullptr);
+    f.keepCookie();
+    f.srv.authOk = true;
+    f.srv.request(HTTP_POST, "/mfa", {{"_csrf", "00000000deadbeef"}, {"code", "000000"}});
+    TEST_ASSERT_EQUAL(403, f.srv.code);
+    TEST_ASSERT_TRUE(Totp::blank(cfg.totp));
+    TEST_ASSERT_FALSE(logHas(logger, "Panel: authenticator on"));
+}
+
+void test_unix_time() {
+    IoTService bare{cfg, logger};
+    TEST_ASSERT_EQUAL_INT(0, (int)bare.unixTime());
+    Clock clock{webTime};
+    IoTService timed{cfg, logger, &clock};
+    webNow = 0;
+    TEST_ASSERT_EQUAL_INT(0, (int)timed.unixTime());
+    webNow = Clock::MIN_VALID_EPOCH + 5;
+    TEST_ASSERT_EQUAL_INT((int)(Clock::MIN_VALID_EPOCH + 5), (int)timed.unixTime());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_escape);
@@ -1894,7 +2683,24 @@ int main() {
     RUN_TEST(test_unknown_route);
     RUN_TEST(test_without_password_redirects_to_set_password);
     RUN_TEST(test_authentication_required);
-    RUN_TEST(test_basic_authentication);
+    RUN_TEST(test_session_authentication);
+    RUN_TEST(test_code_works_once);
+    RUN_TEST(test_browser_time_while_clock_not_synced);
+    RUN_TEST(test_setup_mode_sign_in_without_clock);
+    RUN_TEST(test_replacement_given_up_keeps_key);
+    RUN_TEST(test_password_save_needs_current_password_and_code);
+    RUN_TEST(test_csrf_token_is_per_session);
+    RUN_TEST(test_logout_without_session_changes_nothing);
+    RUN_TEST(test_authenticator_is_required);
+    RUN_TEST(test_login_pages_without_password_go_to_setup);
+    RUN_TEST(test_enroll_lockout);
+    RUN_TEST(test_code_window);
+    RUN_TEST(test_session_expires_and_a_new_login_replaces_it);
+    RUN_TEST(test_logout);
+    RUN_TEST(test_replace_authenticator);
+    RUN_TEST(test_login_compares_full_length);
+    RUN_TEST(test_enroll_post_rejects_bad_csrf);
+    RUN_TEST(test_unix_time);
     RUN_TEST(test_invalid_csrf_rejected_on_every_post);
     RUN_TEST(test_root_station_mode);
     RUN_TEST(test_root_with_ip_and_last_update);
@@ -1907,7 +2713,7 @@ int main() {
     RUN_TEST(test_save_wifi_validation);
     RUN_TEST(test_save_wifi_first_access_needs_panel_password);
     RUN_TEST(test_save_wifi_write_fails);
-    RUN_TEST(test_embedded_device_image);
+    RUN_TEST(test_device_photo_is_avif);
     RUN_TEST(test_gzipped_css_and_js);
     RUN_TEST(test_embedded_gzipped_svg_pinout);
     RUN_TEST(test_log_escapes_content);
