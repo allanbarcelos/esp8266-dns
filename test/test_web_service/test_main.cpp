@@ -319,10 +319,9 @@ void test_root_station_mode() {
     TEST_ASSERT_FALSE(contains(f.out(), "OTA in progress"));
     TEST_ASSERT_FALSE(contains(f.out(), "/esp01.webp"));
     TEST_ASSERT_TRUE(contains(f.out(), "Firmware for the ESP-01 module"));
-    // The photo: a canvas that /photo.js fills, with the credit
-    TEST_ASSERT_TRUE(contains(f.out(), "<canvas id='ph' width='220' height='209' role='img' aria-label='ESP-01'>"));
+    // The photo, with the credit
+    TEST_ASSERT_TRUE(contains(f.out(), "<img src='/esp01.avif' alt='ESP-01' width='220' height='209'>"));
     TEST_ASSERT_TRUE(contains(f.out(), "Photo: SparkFun, CC BY 2.0"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<script src='/photo.js?v=" WEB_PHOTO_TAG "'></script>"));
 }
 
 void test_root_with_ip_and_last_update() {
@@ -485,14 +484,20 @@ void test_gzipped_css_and_js() {
     TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_I18N_TAG));
 }
 
-// The photo is no image file: /photo.js rebuilds it (tools/photo_codec.py)
-void test_device_photo_is_a_script() {
+// The photo: AVIF, public (the first setup page shows it), already
+// compressed (no gzip), cached for a week (no hash in the URL)
+void test_device_photo_is_avif() {
     cfg.webpss = "";
     Fixture f;
     TEST_ASSERT_FALSE(f.get("/esp01.webp"));
     TEST_ASSERT_EQUAL(404, f.srv.code);
-    assetGz("/photo.js", "text/javascript", sizeof(WEB_PHOTO_GZ));
-    TEST_ASSERT_EQUAL(8, (int)std::strlen(WEB_PHOTO_TAG));
+    TEST_ASSERT_TRUE(f.get("/esp01.avif"));
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("image/avif", f.srv.contentType.c_str());
+    TEST_ASSERT_EQUAL(0u, f.srv.headers.count("Content-Encoding"));
+    TEST_ASSERT_EQUAL_STRING("max-age=604800", f.srv.headers["Cache-Control"].c_str());
+    TEST_ASSERT_EQUAL(sizeof(ASSET_PHOTO), f.out().size());
+    TEST_ASSERT_EQUAL_STRING("ftypavif", f.out().substr(4, 8).c_str());   // ISO BMFF brand
 }
 
 void test_embedded_gzipped_svg_pinout() {
@@ -2708,7 +2713,7 @@ int main() {
     RUN_TEST(test_save_wifi_validation);
     RUN_TEST(test_save_wifi_first_access_needs_panel_password);
     RUN_TEST(test_save_wifi_write_fails);
-    RUN_TEST(test_device_photo_is_a_script);
+    RUN_TEST(test_device_photo_is_avif);
     RUN_TEST(test_gzipped_css_and_js);
     RUN_TEST(test_embedded_gzipped_svg_pinout);
     RUN_TEST(test_log_escapes_content);

@@ -254,12 +254,12 @@ private:
                 return _asset("text/css", WEB_CSS_GZ, sizeof(WEB_CSS_GZ), true);
             if (!strcmp_P(p, PSTR("/iot.js")))
                 return _asset("text/javascript", WEB_IOT_GZ, sizeof(WEB_IOT_GZ), true);
-            if (!strcmp_P(p, PSTR("/photo.js")))
-                return _asset("text/javascript", WEB_PHOTO_GZ, sizeof(WEB_PHOTO_GZ), true);
             if (!strcmp_P(p, PSTR("/i18n.js")))
                 return _asset("text/javascript", WEB_I18N_GZ, sizeof(WEB_I18N_GZ), true);
             if (!strcmp_P(p, PSTR("/pinout.svg")))
                 return _asset("image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ));
+            if (!strcmp_P(p, PSTR("/esp01.avif")))
+                return _asset("image/avif", ASSET_PHOTO, sizeof(ASSET_PHOTO), false, false);
         } else if (_server.method() == HttpServer::POST) {
             if (!strcmp_P(p, PSTR("/save")))            return _handleSave();
             if (!strcmp_P(p, PSTR("/config/save")))     return _handleConfigSave();
@@ -1441,10 +1441,10 @@ private:
     // CSS and JS carry the content hash in the URL (hashed): a new version is
     // another URL, so the browser keeps them for a year without asking again.
     // The type is in RAM: it goes into the header's %s, which does not read
-    // from flash.
-    void _asset(const char* type, const uint8_t* data, size_t len, bool hashed = false) {
+    // from flash. The photo is AVIF, already compressed: no gzip.
+    void _asset(const char* type, const uint8_t* data, size_t len, bool hashed = false, bool gz = true) {
         _server.sendHeader("Cache-Control", hashed ? "max-age=31536000, immutable" : "max-age=604800");
-        _server.sendHeader("Content-Encoding", "gzip");
+        if (gz) _server.sendHeader("Content-Encoding", "gzip");
         _server.send_P(200, type, reinterpret_cast<PGM_P>(data), len);
     }
 
@@ -1579,13 +1579,10 @@ private:
         _go("/update");
     }
 
-    // The module photo is not an image file: /photo.js rebuilds it in the
-    // canvas from a few KB of shape, smooth surface and corrections
-    // (tools/photo_codec.py), the background transparent.
+    // The module photo: AVIF with a transparent background (Assets.h)
     void _deviceMark() {
-        _p(PSTR("<figure><canvas id='ph' width='220' height='209' role='img' aria-label='ESP-01'></canvas>"
-                "<figcaption class='m'>" L_FW_MODULE "<br>" L_PHOTO ": SparkFun, CC BY 2.0</figcaption>"
-                "</figure><script src='/photo.js?v=" WEB_PHOTO_TAG "'></script>"));
+        _p(PSTR("<figure><img src='/esp01.avif' alt='ESP-01' width='220' height='209'>"
+                "<figcaption class='m'>" L_FW_MODULE "<br>" L_PHOTO ": SparkFun, CC BY 2.0</figcaption></figure>"));
     }
 
     // ── IoT ──────────────────────────────────────────────────────────────────

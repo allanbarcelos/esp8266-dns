@@ -51,7 +51,7 @@ jobs:
           # Everything that changes the binary or the published package: sketch,
           # panel CSS/JS, key, linker, core/library versions, compile options
           # and OTA packaging
-          FIRMWARE_PATHS: '^([^/]+\.(ino|h)|web/|public\.key|ld/|tools/(ota_flash_ld|embed_web|photo_codec)\.py|\.github/(actions/(setup-arduino|compile)/|scripts/package_ota\.py))'
+          FIRMWARE_PATHS: '^([^/]+\.(ino|h)|web/|public\.key|ld/|tools/(ota_flash_ld|embed_web)\.py|\.github/(actions/(setup-arduino|compile)/|scripts/package_ota\.py))'
           # Tests only: runs test, without build or release
           TEST_PATHS: '^(test/|platformio\.ini|requirements\.txt)'
           # Web installer: the page and the site generator
@@ -224,11 +224,6 @@ jobs:
 
       - name: Install PlatformIO and gcovr
         run: pip install -r requirements.txt
-
-      # The panel photo: the browser decoder (web/photo.js, as served) and
-      # the reference one (tools/photo_codec.py) give the same pixels
-      - name: Photo decoder matches the reference
-        run: python3 tools/photo_codec.py --check
 
       - name: Tests + coverage (100% lines/functions/branches)
         run: ./test/coverage.sh
