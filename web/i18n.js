@@ -139,6 +139,15 @@ function QR(s) {
         k.insertAdjacentHTML('afterend', QR('otpauth://totp/' + (l.length > 40 ? 'ESP8266' : l) +
             '?secret=' + k.textContent.split(' ').join('')));
     });
+    // The menu, where the device sends <nav id='mn'>, and the footer's
+    // credit and repository link (the version is already there)
+    var mn = document.getElementById('mn'), ft = document.querySelector('footer'), h = '', i,
+        ln = ['/', 'Home', '/status', 'Status', '/log', 'Logs', '/cloudflare', 'Cloudflare', '/ntfy', 'Ntfy',
+              '/mqtt', 'MQTT', '/iot', 'IoT', '/config', 'Settings', '/update', 'Update', '/password', 'Password'];
+    for (i = 0; i < ln.length; i += 2) h += '<a href=' + ln[i] + '>' + L(ln[i + 1]) + '</a>';
+    if (mn) { mn.setAttribute('aria-label', L('Menu')); mn.insertAdjacentHTML('afterbegin', h); }
+    if (ft) ft.insertAdjacentHTML('beforeend', '<span>Created by Barcelos.Dev</span>' +
+        '<a class=gh href=https://github.com/allanbarcelos/esp8266-dns aria-label=GitHub></a>');
     // Values in the rows (states and statuses from the device)
     document.querySelectorAll('.r b').forEach(function (b) {
         b.textContent = b.id == 'ns' || b.id == 'na' ? LV(b.textContent) : L(b.textContent);

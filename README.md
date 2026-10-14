@@ -21,7 +21,7 @@ Each service is a header with dependencies injected by reference, composed in la
 | `ConfigStore.h`      | `/config.json` (LittleFS) with **atomic writes**, a version number and migrations |
 | `Logger.h`           | Ring buffer of log lines (Serial + panel)                                        |
 | `Clock.h`            | SNTP wall clock (required to validate TLS certificates)                          |
-| `Totp.h`             | Authenticator codes (RFC 6238): HMAC-SHA1, 30 s, 6 digits                        |
+| `Totp.h`             | Authenticator codes (RFC 6238): HMAC-SHA1 from BearSSL, 30 s, 6 digits           |
 | `TlsTrim.h`          | Leaves unused BearSSL ciphers and curves out of the firmware (sketch only)       |
 | `WiFiService.h`      | Connection, configuration mode (AP), reconnection and watchdogs                  |
 | `PublicIPResolver.h` | Public IPv4 over HTTPS every 5 min (CA bundle in `CloudflareCA.h`)               |
@@ -301,7 +301,7 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 499,952 of 500,000 bytes (48 to spare) |
+| Firmware | 499,712 of 500,000 bytes (288 to spare) |
 | Panel text, 4 languages | 313 texts (the pin drawing included), 34 KB as text, 12 KB in flash |
 | Signed OTA package | ~358 KB of 400 KB (about 42 KB free) |
 | Embedded images | 1.1 KB pinout (gzipped SVG), 3.2 KB ESP-01 photo (AVIF, transparent background) |

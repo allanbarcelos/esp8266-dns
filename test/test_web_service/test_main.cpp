@@ -315,7 +315,7 @@ void test_root_station_mode() {
     TEST_ASSERT_TRUE(contains(f.out(), "Test&lt;SSID&gt;"));   // escaped SSID
     TEST_ASSERT_TRUE(contains(f.out(), "Public IP"));
     TEST_ASSERT_TRUE(contains(f.out(), "never"));
-    TEST_ASSERT_TRUE(contains(f.out(), "Firmware: dev"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<footer><span>dev</span></footer>"));
     TEST_ASSERT_FALSE(contains(f.out(), "OTA in progress"));
     TEST_ASSERT_FALSE(contains(f.out(), "/esp01.webp"));
     TEST_ASSERT_TRUE(contains(f.out(), "Firmware for the ESP-01 module"));
@@ -618,7 +618,6 @@ void test_name_in_title_and_header() {
     TEST_ASSERT_FALSE(contains(f.out(), "action='/config/save'"));
     TEST_ASSERT_TRUE(f.get("/config"));
     TEST_ASSERT_TRUE(contains(f.out(), "<h1>Settings</h1>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<a href='/config'>Settings</a>"));
     TEST_ASSERT_TRUE(contains(f.out(), "action='/config/save'"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='name' value='Sala &lt;1&gt;'"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='hostname' value=''"));
@@ -1011,7 +1010,6 @@ void test_mqtt_page() {
     TEST_ASSERT_TRUE(contains(f.out(), "<b>off</b>"));
     TEST_ASSERT_TRUE(contains(f.out(), "esp8266iot/00dead/state, /cmd, /avail"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='host' value=''"));
-    TEST_ASSERT_TRUE(contains(f.out(), "href='/mqtt'"));
 
     strlcpy(cfg.mqtt_host, "10.0.0.2:1884", sizeof(cfg.mqtt_host));
     strlcpy(cfg.mqtt_user, "casa", sizeof(cfg.mqtt_user));
@@ -1184,6 +1182,40 @@ void test_blank_key_code_never_matches() {
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "Wrong user, password or code"));
     TEST_ASSERT_EQUAL_STRING("strong-pass", cfg.webpss.c_str());
+}
+
+// The menu only where its pages open: signed in with the authenticator, or
+// the first setup on the access point. Its links come from /i18n.js.
+void test_menu_only_where_it_opens() {
+    Fixture f;
+    f.get("/");
+    TEST_ASSERT_TRUE(contains(f.out(), "<nav id='mn'><form class='out'"));
+
+    f.srv.authOk = false;                                // the sign-in page
+    f.srv.cookie.clear();
+    f.get("/login");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_FALSE(contains(f.out(), "<nav"));
+    TEST_ASSERT_TRUE(contains(f.out(), "</header><main>"));
+
+    std::memset(cfg.totp, 0, sizeof(cfg.totp));          // authenticator not set up yet
+    f.signIn();
+    f.srv.authOk = true;
+    f.get("/mfa");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "<nav><form class='out'"));   // sign-out only
+    TEST_ASSERT_FALSE(contains(f.out(), "id='mn'"));
+}
+
+void test_menu_on_first_setup() {
+    cfg.webpss = "";
+    cfg.webusr = "";
+    Fixture f;
+    f.get("/password");                                  // station mode: only this page opens
+    TEST_ASSERT_FALSE(contains(f.out(), "<nav"));
+    f.enterConfigMode();                                 // access point: every page opens
+    f.get("/");
+    TEST_ASSERT_TRUE(contains(f.out(), "<nav id='mn'></nav>"));
 }
 
 void test_password_save_invalid() {
@@ -2768,6 +2800,8 @@ int main() {
     RUN_TEST(test_password_save_rotates_csrf);
     RUN_TEST(test_password_save_first_password);
     RUN_TEST(test_blank_key_code_never_matches);
+    RUN_TEST(test_menu_only_where_it_opens);
+    RUN_TEST(test_menu_on_first_setup);
     RUN_TEST(test_password_save_invalid);
     RUN_TEST(test_password_save_write_fails);
     RUN_TEST(test_update_initial_page);

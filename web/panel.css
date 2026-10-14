@@ -25,6 +25,9 @@
 * { box-sizing: border-box; }
 body {
     margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
     background: var(--bg);
     color: var(--fg);
     font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -72,8 +75,20 @@ nav form.out button {
     overflow-wrap: anywhere;
 }
 .q { display: block; width: 200px; max-width: 100%; margin: 8px 0; }
-main, footer { max-width: 640px; margin: auto; padding: 16px; }
+main { width: 100%; max-width: 640px; margin: 0 auto; padding: 16px; flex: 1; }
 footer, .m { color: var(--mu); font-size: 13px; }
+/* Footer held at the bottom of the window: version, credit, repository */
+footer {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--cd);
+    border-top: 1px solid var(--ln);
+}
 h1 { font-size: 20px; margin: 0 0 16px; }
 h2 { font-size: 16px; margin: 20px 0 0; }
 
@@ -178,3 +193,6 @@ input[type=color] { height: 40px; padding: 2px; }
    shows up. If the script fails, it shows after 2 s anyway. */
 html:not(.i) body { visibility: hidden; animation: v 0s 2s forwards; }
 @keyframes v { to { visibility: visible; } }
+/* GitHub mark in a gray that reads on the light and the dark theme */
+/* GitHub mark in a gray that reads on the light and the dark theme */
+.gh { width: 20px; height: 20px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%238b949e'%3E%3Cpath d='M8 0c-4.4 0-8 3.6-8 8c0 3.5 2.3 6.5 5.5 7.6c.4.1.5-.2.5-.4c0-.2 0-.8 0-1.5c-2 .4-2.5-.5-2.7-.9c-.1-.3-.5-1-.8-1.2c-.3-.1-.7-.5 0-.5c.6 0 1.1.6 1.2.8c.7 1.3 1.9.9 2.4.7c0-.5.2-.9.5-1.1c-1.8-.2-3.7-.9-3.7-3.9c0-.9.3-1.6.8-2.2c0-.2-.3-1 .1-2.1c0 0 .7-.2 2.2.8c.7-.1 1.3-.2 2-.2c.7 0 1.4.1 2 .2c1.5-1 2.2-.8 2.2-.8c.5 1.1.2 1.9.1 2.1c.5.6.8 1.3.8 2.2c0 3-1.9 3.7-3.6 3.9c.3.3.5.8.5 1.5c0 1.1 0 1.9 0 2.2c0 .2.1.5.5.4a8 8 0 0 0 5.5-7.6c0-4.4-3.6-8-8-8z'/%3E%3C/svg%3E") center/contain no-repeat; }

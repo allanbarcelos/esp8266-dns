@@ -8,10 +8,10 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 | | |
 | --- | --- |
-| Firmware | 499,952 of 500,000 bytes (48 to spare) |
+| Firmware | 499,712 of 500,000 bytes (288 to spare) |
 | Signed OTA package | ~363 KB of 400 KB |
 | Static RAM | 37,728 bytes |
-| Native tests | 450, with 100 % of lines, functions and branches |
+| Native tests | 452, with 100 % of lines, functions and branches |
 | In CI | no compiler warnings, ASan and UBSan, cppcheck, fuzzing of 5 inputs |
 
 ## Since the previous status (2026-10-13)
@@ -21,6 +21,7 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 - **Lean web server** instead of `ESP8266WebServer`: −12.3 KB (`f173944`). That room went to the time window, the SHT3x, the battery gauge, the device name and the panel in four languages.
 - **No `sscanf`:** a hand parser for the OTA recovery file, −3.2 KB (`bd2cc11`).
 - **MD5 and the TLS 1.0 PRF out of the link** (`TlsTrim.h`): −1.8 KB. Every suite the device offers is AES-GCM, which exists only in TLS 1.2, and there BearSSL uses neither. The fast P-256 stays: the generic one would free about 10 KB more, but every handshake would get slower.
+- **HMAC-SHA1 from BearSSL** in `Totp.h` instead of its own SHA-1: −736 bytes. The TLS stack keeps both anyway (SHA-1 for certificate chains, HMAC for the TLS 1.2 PRF). The native tests run the old SHA-1 as a stub (`test/stubs/bearssl/bearssl.h`), checked by the RFC vectors.
 - **LittleFS without its debug asserts** (`LFS_NO_ASSERT`, in PlatformIO and CI): −3.4 KB (`32c7779`). Errors still come back as return codes; only the checks for misuse of its API go.
 
 ### Security
@@ -47,7 +48,7 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 ## Decisions worth remembering
 
-- **500,000-byte limit.** A project rule, checked in CI. Every change fits inside it. **Only 48 bytes are left:** any new firmware feature first needs room taken from somewhere else.
+- **500,000-byte limit.** A project rule, checked in CI. Every change fits inside it. **Only 288 bytes are left:** any new firmware feature first needs room taken from somewhere else.
 - **The fast P-256 stays.** Dropping it frees about 10 KB, but ECDHE and ECDSA on P-256 (every handshake) would use the slower generic code. Not a trade worth making while other room exists.
 - **The ESP-01 photo stays.** If space runs out, it is not the first thing to go. Its size is set by `PHOTO_BYTES` in `tools/embed_assets.py` (3,250 today): a smaller photo is the quickest room.
 - **Images in formats the browser decodes.** A decoder of our own costs flash; AVIF and SVG cost none.

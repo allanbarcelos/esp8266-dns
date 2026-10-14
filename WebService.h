@@ -38,13 +38,9 @@ static const char _HTML_HEAD_B[] PROGMEM =
     "<link rel='stylesheet' href='/s.css?v=" WEB_CSS_TAG "'>"
     "</head><body><header><b>&#9679; ";
 
-static const char _HTML_HEAD_C[] PROGMEM =
-    "<nav aria-label='" L_MENU "'><a href='/'>" L_HOME "</a><a href='/status'>" L_STATUS "</a>"
-    "<a href='/log'>" L_LOGS "</a><a href='/cloudflare'>Cloudflare</a><a href='/ntfy'>Ntfy</a><a href='/mqtt'>MQTT</a>"
-    "<a href='/iot'>IoT</a><a href='/config'>" L_SETTINGS "</a><a href='/update'>" L_UPDATE "</a>"
-    "<a href='/password'>" L_PASSWORD "</a>";
-
-static const char _HTML_FOOT_A[] PROGMEM = "</main><footer>Firmware: ";
+// The menu's links and the footer's credit come from /i18n.js (gzipped and
+// cached): <nav id='mn'> gets the links, the footer the rest after the version.
+static const char _HTML_FOOT_A[] PROGMEM = "</main><footer><span>";
 
 // Attributes for the 6-digit authenticator field. Not a class member:
 // C++11 cannot define a non-integral static inside the class.
@@ -54,7 +50,7 @@ static const char _CODE_FIELD[] PROGMEM =
 // The panel language goes after the #: the browser does not send it, so
 // the cache keeps a single copy of i18n.js
 static const char _HTML_FOOT_B[] PROGMEM =
-    "</footer><script src='/i18n.js?v=" WEB_I18N_TAG "#";
+    "</span></footer><script src='/i18n.js?v=" WEB_I18N_TAG "#";
 
 // Panel languages (Settings), in their own names; "" = the browser's
 static const char* const _LANG_CODES[] = {"en", "pt", "es", "fr"};
@@ -546,15 +542,21 @@ private:
         _name();
         _p(PSTR("</b>"));
         _powerMark();
-        _p(_HTML_HEAD_C);
-        // Also while the authenticator is being set up: signing out there
-        // drops a replacement and keeps the current key
-        if (_sessionOk()) {
+        // The menu only where its pages open: signed in with the
+        // authenticator, or the first setup (no password, access point).
+        // Sign-out also while the authenticator is being set up: leaving
+        // there drops a replacement and keeps the current key.
+        bool session = _sessionOk();
+        bool menu = _cfg.webpss.length() ? session && _session == 2 : _wifi.inConfigMode();
+        if (menu) _p(PSTR("<nav id='mn'>"));
+        else if (session) _p(PSTR("<nav>"));
+        if (session) {
             _p(PSTR("<form class='out' action='/logout' method='POST'>"));
             _csrfField();
             _p(PSTR("<button type='submit'>" L_SIGN_OUT "</button></form>"));
         }
-        _p(PSTR("</nav></header><main>"));
+        if (menu || session) _p(PSTR("</nav>"));
+        _p(PSTR("</header><main>"));
     }
 
     // Top right corner: on supply, on battery (%) or charging
