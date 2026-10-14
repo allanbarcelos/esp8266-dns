@@ -301,10 +301,10 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 499,712 of 500,000 bytes (288 to spare) |
+| Firmware | 499,680 of 500,000 bytes (320 to spare) |
 | Panel text, 4 languages | 313 texts (the pin drawing included), 34 KB as text, 12 KB in flash |
 | Signed OTA package | ~358 KB of 400 KB (about 42 KB free) |
-| Embedded images | 1.1 KB pinout (gzipped SVG), 3.2 KB ESP-01 photo (AVIF, transparent background) |
+| Embedded images | 1.1 KB pinout (gzipped SVG), 3.2 KB ESP-01 photo (AVIF, white background) |
 | Configuration filesystem | 64 KB, unchanged |
 
 Kept small on purpose: page text in flash (`PSTR`) as 3-byte markers, with the text of the four languages in one gzipped table that the browser decodes (one column per language, rows ordered so similar texts sit together, an empty cell for text equal to English and one byte for text equal to the language before it, compressed with zopfli), no `scanf` (one `sscanf` pulled about 3 KB of the C library), TLS roots in DER, a single JSON reader (everything parsed in place, as `char*`), no float `printf`, LittleFS without its debug asserts (`LFS_NO_ASSERT`, 3.4 KB; errors are still return codes), one TLS session at a time, TLS limited to ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519, MD5, the TLS 1.0 PRF and client certificates are left out of the link by `TlsTrim.h`, about 29 KB; the fast P-256 stays, so the handshake is as fast as before; every server the device uses negotiates ECDHE + AES-128-GCM), lwIP without extras (`ip=lm2n`, about 10 KB: no NAT, IP fragmentation or AutoIP; SNTP keeps one server, so `Clock` alternates between `pool.ntp.org` and `time.google.com` until it syncs), an own HTTP server instead of `ESP8266WebServer` (about 12 KB: one client at a time, routes by `if` instead of a `std::function` table, no upload, Digest, keep-alive or chunked encoding; the page ends when the connection closes), a WS2812 driver without a library, the command word table in flash. **mDNS** was measured at about 21 KB and does not fit; use a DHCP reservation instead.

@@ -8,7 +8,7 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 | | |
 | --- | --- |
-| Firmware | 499,712 of 500,000 bytes (288 to spare) |
+| Firmware | 499,680 of 500,000 bytes (320 to spare) |
 | Signed OTA package | ~363 KB of 400 KB |
 | Static RAM | 37,728 bytes |
 | Native tests | 452, with 100 % of lines, functions and branches |
@@ -32,7 +32,7 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 - **Panel in English, Portuguese, Spanish and French**, from one compressed table that the browser decodes (`bd2cc11`).
 - **Settings page**, time zone and time window, SHT3x, MAX17048 battery gauge, device name and hostname, MQTT TelePeriod: see [IMPLEMENTATION.md](IMPLEMENTATION.md).
-- **ESP-01 photo back** on the panel (`389e60e`): AVIF, 3.2 KB, transparent background (it suits the dark theme). An own codec decoded by the browser was tried first (`32c7779`). It beat WebP below 2 KB, but AVIF needs no decoder in the firmware. In the same room it gives a much better picture (SSIM 0.963 against 0.886), so the own codec was removed.
+- **ESP-01 photo back** on the panel (`389e60e`): AVIF, 3.2 KB, on its white background (first transparent; on the dark page the board looked loose). An own codec decoded by the browser was tried first (`32c7779`). It beat WebP below 2 KB, but AVIF needs no decoder in the firmware. In the same room it gives a much better picture (SSIM 0.963 against 0.886), so the own codec was removed.
 
 ### Name
 
@@ -48,7 +48,7 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 ## Decisions worth remembering
 
-- **500,000-byte limit.** A project rule, checked in CI. Every change fits inside it. **Only 288 bytes are left:** any new firmware feature first needs room taken from somewhere else.
+- **500,000-byte limit.** A project rule, checked in CI. Every change fits inside it. **Only 320 bytes are left:** any new firmware feature first needs room taken from somewhere else.
 - **The fast P-256 stays.** Dropping it frees about 10 KB, but ECDHE and ECDSA on P-256 (every handshake) would use the slower generic code. Not a trade worth making while other room exists.
 - **The ESP-01 photo stays.** If space runs out, it is not the first thing to go. Its size is set by `PHOTO_BYTES` in `tools/embed_assets.py` (3,250 today): a smaller photo is the quickest room.
 - **Images in formats the browser decodes.** A decoder of our own costs flash; AVIF and SVG cost none.

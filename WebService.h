@@ -1585,7 +1585,7 @@ private:
         _go("/update");
     }
 
-    // The module photo: AVIF with a transparent background (Assets.h)
+    // The module photo: AVIF on its white background (Assets.h)
     void _deviceMark() {
         _p(PSTR("<figure><img src='/esp01.avif' alt='ESP-01' width='220' height='209'>"
                 "<figcaption class='m'>" L_FW_MODULE "<br>" L_PHOTO ": SparkFun, CC BY 2.0</figcaption></figure>"));
