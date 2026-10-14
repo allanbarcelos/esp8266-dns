@@ -17,7 +17,7 @@ static Config cfg;
 static const char* OK_JSON  = R"({"success":true,"errors":[],"result":{"id":"x","content":"1.2.3.4"}})";
 static const char* ERR_JSON = R"({"success":false,"errors":[{"code":10000,"message":"Authentication error"}]})";
 
-// IP público já conhecido (PublicIPResolver)
+// Public IP already known (PublicIPResolver)
 void setUp() {
     resetMocks();
     logger = Logger();
@@ -39,7 +39,7 @@ struct Fixture {
 static const unsigned long T0 = 1000;
 static const unsigned long R  = CloudflareDNS::RETRY_INTERVAL;
 
-void test_configured_exige_token_zona_e_record() {
+void test_configured_needs_token_zone_and_record() {
     Fixture f;
     TEST_ASSERT_TRUE(f.dns.configured());
     cfg.cf_record[0] = '\0';
@@ -55,7 +55,7 @@ void test_configured_exige_token_zona_e_record() {
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
 }
 
-void test_sem_ip_publico_espera() {
+void test_without_public_ip_waits() {
     cfg.publicIP[0] = '\0';
     Fixture f;
     TEST_ASSERT_FALSE(f.dns.due(T0));
@@ -63,7 +63,7 @@ void test_sem_ip_publico_espera() {
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
 }
 
-void test_sem_wifi_ou_relogio_nao_atualiza() {
+void test_without_wifi_or_clock_does_not_update() {
     Fixture f;
     WiFi._status = WL_DISCONNECTED;
     f.dns.tick(T0);
@@ -73,7 +73,7 @@ void test_sem_wifi_ou_relogio_nao_atualiza() {
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
 }
 
-void test_atualiza_o_record() {
+void test_updates_the_record() {
     Fixture f;
     setMillis(T0);
     MockHTTP::push(200, OK_JSON);
@@ -87,18 +87,18 @@ void test_atualiza_o_record() {
     TEST_ASSERT_EQUAL_STRING("Authorization", p.headers[0].first.c_str());
     TEST_ASSERT_EQUAL_STRING("Bearer TOKEN",  p.headers[0].second.c_str());
 
-    // TLS validado com as raízes embarcadas e relógio atual
+    // TLS validated with the embedded roots and the current clock
     TEST_ASSERT_TRUE(cloudflareTrust(MockTLS::lastTrust));
     TEST_ASSERT_EQUAL((long)fakeNow, (long)MockTLS::lastTime);
     TEST_ASSERT_EQUAL(0, MockTLS::insecureCalls);
 
     TEST_ASSERT_EQUAL_STRING("1.2.3.4", f.dns.syncedIP());
     TEST_ASSERT_EQUAL(T0, cfg.lastDnsUpdate);
-    TEST_ASSERT_TRUE(logHas(logger, "Atualizando DNS para 1.2.3.4"));
-    TEST_ASSERT_TRUE(logHas(logger, "DNS atualizado!"));
+    TEST_ASSERT_TRUE(logHas(logger, "Updating DNS to 1.2.3.4"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS updated!"));
 }
 
-void test_ip_inalterado_nao_envia_patch() {
+void test_same_ip_sends_no_patch() {
     Fixture f;
     MockHTTP::push(200, OK_JSON);
     f.dns.tick(T0);
@@ -107,7 +107,7 @@ void test_ip_inalterado_nao_envia_patch() {
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
 }
 
-void test_ip_mudou_envia_patch_novamente() {
+void test_changed_ip_sends_patch_again() {
     Fixture f;
     MockHTTP::push(200, OK_JSON);
     f.dns.tick(T0);
@@ -120,12 +120,12 @@ void test_ip_mudou_envia_patch_novamente() {
     TEST_ASSERT_EQUAL_STRING("5.6.7.8", f.dns.syncedIP());
 }
 
-// Falha tenta de novo a cada minuto, mesmo com o IP igual
-void test_erro_da_api_tenta_de_novo_em_um_minuto() {
+// A failure retries every minute, even with the same IP
+void test_api_error_retries_in_a_minute() {
     Fixture f;
     MockHTTP::push(403, ERR_JSON);
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS erro 10000: Authentication error"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS error 10000: Authentication error"));
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
     TEST_ASSERT_EQUAL(0, cfg.lastDnsUpdate);
 
@@ -138,66 +138,66 @@ void test_erro_da_api_tenta_de_novo_em_um_minuto() {
     TEST_ASSERT_EQUAL_STRING("1.2.3.4", f.dns.syncedIP());
 }
 
-void test_erro_sem_detalhes() {
+void test_error_without_details() {
     Fixture f;
     MockHTTP::push(500, R"({"success":false})");
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS erro 0: Erro desconhecido"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS error 0: Unknown error"));
 }
 
-void test_resposta_json_invalida() {
+void test_invalid_json_response() {
     Fixture f;
     MockHTTP::push(502, "<html>Bad gateway</html>");
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS resposta invalida (HTTP 502)"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS invalid response (HTTP 502)"));
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
 }
 
-void test_resposta_json_truncada() {
+void test_truncated_json_response() {
     Fixture f;
     MockHTTP::push(200, "{\"success\":");
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS resposta invalida (HTTP 200)"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS invalid response (HTTP 200)"));
 }
 
-// Resposta real do PATCH: registro completo, objetos e listas aninhados,
-// vírgulas dentro de texto. Lida inteira, sem filtro.
+// A real PATCH response: the full record, nested objects and lists, commas
+// inside text. Read whole, with no filter.
 static const char* FULL_JSON =
     R"({"result":{"id":"023e105f4ecef8ad9ca31a8372d0c353","zone_id":"023e105f4ecef8ad9ca31a8372d0c353",)"
-    R"("zone_name":"example.com","name":"casa.example.com","type":"A","content":"1.2.3.4",)"
+    R"("zone_name":"example.com","name":"home.example.com","type":"A","content":"1.2.3.4",)"
     R"("proxiable":true,"proxied":false,"ttl":1,"settings":{"ipv4_only":true,"ipv6_only":false},)"
     R"("meta":{"auto_added":false,"managed_by_apps":false,"managed_by_argo_tunnel":false},)"
-    R"("comment":"casa, escritorio, [teste] {x}","tags":["a:1","b:2"],)"
+    R"("comment":"home, office, [test] {x}","tags":["a:1","b:2"],)"
     R"("created_on":"2014-01-01T05:20:00.12345Z","modified_on":"2014-01-01T05:20:00.12345Z"},)"
-    R"("success":true,"errors":[],"messages":[{"code":1000,"message":"ok, feito"}]})";
+    R"("success":true,"errors":[],"messages":[{"code":1000,"message":"ok, done"}]})";
 
-void test_resposta_completa_da_api() {
+void test_full_api_response() {
     Fixture f;
     MockHTTP::push(200, FULL_JSON);
     f.dns.tick(T0);
     TEST_ASSERT_EQUAL_STRING("1.2.3.4", f.dns.syncedIP());
-    TEST_ASSERT_TRUE(logHas(logger, "DNS atualizado!"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS updated!"));
 }
 
-void test_mensagem_de_erro_com_virgulas() {
+void test_error_message_with_commas() {
     Fixture f;
     MockHTTP::push(400, R"({"success":false,"errors":[{"code":9005,"message":"Content, for A record, is invalid"}],"messages":[],"result":null})");
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS erro 9005: Content, for A record, is invalid"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS error 9005: Content, for A record, is invalid"));
 }
 
-// JSON válido, mas sem "success" (proxy, outra API): inválido
-void test_resposta_sem_campo_success() {
+// Valid JSON, but without "success" (proxy, another API): invalid
+void test_response_without_success_field() {
     Fixture f;
     MockHTTP::push(200, R"({"result":{"id":"x"},"errors":[]})");
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS resposta invalida (HTTP 200)"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS invalid response (HTTP 200)"));
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
 }
 
-// Documento do tamanho da resposta: se a heap não tiver o bloco, a
-// resposta conta como inválida e a próxima verificação tenta de novo
-void test_resposta_sem_memoria_para_o_documento() {
+// A document sized to the response: if the heap lacks the block, the
+// response counts as invalid and the next check tries again
+void test_response_without_memory_for_the_document() {
     Fixture f;
     size_t values = 0;
     for (const char* p = OK_JSON; *p; p++) values += *p == ',' || *p == '{' || *p == '[';
@@ -205,12 +205,12 @@ void test_resposta_sem_memoria_para_o_documento() {
     MockHTTP::push(200, OK_JSON);
     mock::failMallocSize = JSON_ARRAY_SIZE(values);
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS resposta invalida (HTTP 200)"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS invalid response (HTTP 200)"));
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
 }
 
-// A sessão TLS fecha antes de a resposta ser analisada
-void test_sessao_tls_fecha_antes_da_analise() {
+// The TLS session closes before the response is parsed
+void test_tls_session_closes_before_parsing() {
     Fixture f;
     MockHTTP::push(200, OK_JSON);
     MockTLS::stopCalls = 0;
@@ -218,39 +218,39 @@ void test_sessao_tls_fecha_antes_da_analise() {
     TEST_ASSERT_TRUE(MockTLS::stopCalls >= 1);
 }
 
-void test_erro_de_conexao_tls() {
+void test_tls_connection_error() {
     Fixture f;
     MockHTTP::push(-1);
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS erro de conexao: -1"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS connection error: -1"));
 }
 
-void test_falha_ao_iniciar_conexao() {
+void test_connection_start_fails() {
     Fixture f;
     MockHTTP::failNextBegin();
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS: falha ao conectar"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: connection failed"));
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
 }
 
-void test_dns_memoria_insuficiente() {
+void test_dns_not_enough_memory() {
     Fixture f;
     ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS: memoria insuficiente"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: not enough memory"));
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
 }
 
-void test_dns_tls_indisponivel() {
+void test_dns_tls_unavailable() {
     Fixture f;
     MockTLS::nullOwned = true;
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS: TLS indisponivel"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: TLS unavailable"));
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
 }
 
-void test_sucesso_zera_falhas_do_wifi() {
+void test_success_resets_wifi_failures() {
     Fixture f;
     for (int i = 0; i < WiFiService::MAX_FAILURES - 1; i++) f.wifi.notifyFailure();
     MockHTTP::push(200, OK_JSON);
@@ -259,8 +259,8 @@ void test_sucesso_zera_falhas_do_wifi() {
     TEST_ASSERT_FALSE(f.wifi.restartPending());
 }
 
-// O ntfy solta o TLS quando o próximo tick do DNS vai usar a rede
-void test_due_avisa_quando_vai_usar_a_rede() {
+// ntfy releases TLS when the next DNS tick will use the network
+void test_due_tells_when_it_will_use_the_network() {
     Fixture f;
     TEST_ASSERT_TRUE(f.dns.due(0));
     WiFi._status = WL_DISCONNECTED;
@@ -275,26 +275,26 @@ void test_due_avisa_quando_vai_usar_a_rede() {
 
 int main() {
     UNITY_BEGIN();
-    RUN_TEST(test_configured_exige_token_zona_e_record);
-    RUN_TEST(test_sem_ip_publico_espera);
-    RUN_TEST(test_sem_wifi_ou_relogio_nao_atualiza);
-    RUN_TEST(test_atualiza_o_record);
-    RUN_TEST(test_ip_inalterado_nao_envia_patch);
-    RUN_TEST(test_ip_mudou_envia_patch_novamente);
-    RUN_TEST(test_erro_da_api_tenta_de_novo_em_um_minuto);
-    RUN_TEST(test_erro_sem_detalhes);
-    RUN_TEST(test_resposta_json_invalida);
-    RUN_TEST(test_resposta_json_truncada);
-    RUN_TEST(test_resposta_completa_da_api);
-    RUN_TEST(test_mensagem_de_erro_com_virgulas);
-    RUN_TEST(test_resposta_sem_campo_success);
-    RUN_TEST(test_resposta_sem_memoria_para_o_documento);
-    RUN_TEST(test_sessao_tls_fecha_antes_da_analise);
-    RUN_TEST(test_erro_de_conexao_tls);
-    RUN_TEST(test_falha_ao_iniciar_conexao);
-    RUN_TEST(test_dns_memoria_insuficiente);
-    RUN_TEST(test_dns_tls_indisponivel);
-    RUN_TEST(test_sucesso_zera_falhas_do_wifi);
-    RUN_TEST(test_due_avisa_quando_vai_usar_a_rede);
+    RUN_TEST(test_configured_needs_token_zone_and_record);
+    RUN_TEST(test_without_public_ip_waits);
+    RUN_TEST(test_without_wifi_or_clock_does_not_update);
+    RUN_TEST(test_updates_the_record);
+    RUN_TEST(test_same_ip_sends_no_patch);
+    RUN_TEST(test_changed_ip_sends_patch_again);
+    RUN_TEST(test_api_error_retries_in_a_minute);
+    RUN_TEST(test_error_without_details);
+    RUN_TEST(test_invalid_json_response);
+    RUN_TEST(test_truncated_json_response);
+    RUN_TEST(test_full_api_response);
+    RUN_TEST(test_error_message_with_commas);
+    RUN_TEST(test_response_without_success_field);
+    RUN_TEST(test_response_without_memory_for_the_document);
+    RUN_TEST(test_tls_session_closes_before_parsing);
+    RUN_TEST(test_tls_connection_error);
+    RUN_TEST(test_connection_start_fails);
+    RUN_TEST(test_dns_not_enough_memory);
+    RUN_TEST(test_dns_tls_unavailable);
+    RUN_TEST(test_success_resets_wifi_failures);
+    RUN_TEST(test_due_tells_when_it_will_use_the_network);
     return UNITY_END();
 }

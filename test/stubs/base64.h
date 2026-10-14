@@ -4,8 +4,8 @@
 #pragma once
 #include "Arduino.h"
 
-// base64 do core (sem quebras de linha), de verdade: o teste confere o
-// cabeçalho Authorization que um navegador mandaria
+// The core's base64 (no line breaks), for real: the test checks the
+// Authorization header a browser would send
 class base64 {
 public:
     static String encode(const String& text) {

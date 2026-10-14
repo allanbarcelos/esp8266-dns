@@ -4,16 +4,16 @@
 #pragma once
 #include <ESP8266WiFi.h>
 
-// Servidor HTTP do painel, no lugar do ESP8266WebServer do core: só o que
-// as rotas daqui usam. Um cliente por vez; a resposta termina fechando a
-// conexão (sem keep-alive nem chunked). Sem upload, sem Digest, sem tabela
-// de rotas (o WebService decide pelo caminho) e sem std::function.
+// The panel's HTTP server, replacing the core's ESP8266WebServer: only what
+// the routes here use. One client at a time; the response ends by closing
+// the connection (no keep-alive, no chunked encoding). No upload, no Digest,
+// no route table (WebService decides by path) and no std::function.
 //
-// Mesma semântica do core onde importa: argumentos da query e do corpo
-// urlencoded (o primeiro com o nome vale), e o corpo cru em "plain"
-// (curl -d ligar). Uma conexão sem pedido espera até WAIT_MS; se outra
-// chega com dados, a parada cede depois de YIELD_MS (pré-conexão do
-// navegador).
+// Same semantics as the core where it matters: arguments from the query and
+// the urlencoded body (the first one with the name wins), and the raw body
+// in "plain" (curl -d on). A connection with no request waits up to
+// WAIT_MS; if another one arrives with data, the idle one yields after
+// YIELD_MS (browser preconnect).
 class HttpServer {
 public:
     enum : uint8_t { GET, POST, OTHER };
@@ -22,8 +22,8 @@ public:
     static constexpr size_t        UNKNOWN_LENGTH = (size_t)-1;
     static constexpr size_t        MAX_BODY       = 2048;
     static constexpr size_t        MAX_AUTH       = 200;
-    static constexpr unsigned long WAIT_MS        = 5000;   // pedido depois de conectar
-    static constexpr unsigned long READ_MS        = 2000;   // cada pedaço do pedido
+    static constexpr unsigned long WAIT_MS        = 5000;   // request after connecting
+    static constexpr unsigned long READ_MS        = 2000;   // each chunk of the request
     static constexpr unsigned long YIELD_MS       = 30;
 
     explicit HttpServer(uint16_t port) : _server(port) {}
@@ -35,7 +35,7 @@ public:
     }
 
     void handleClient() {
-        if (!_client.connected()) {          // nenhuma, ou a anterior fechou
+        if (!_client.connected()) {          // none, or the previous one closed
             _client.stop();
             _client = _server.accept();
             if (!_client) return;
@@ -51,12 +51,12 @@ public:
         _client.stop();
     }
 
-    // ── Pedido ───────────────────────────────────────────────────────────────
+    // ── Request ──────────────────────────────────────────────────────────────
     uint8_t       method() const        { return _method; }
     const char*   path() const          { return _path; }
     const String& authorization() const { return _auth; }
 
-    // Valor do argumento (query, depois corpo urlencoded); "plain" é o corpo
+    // Argument value (query, then urlencoded body); "plain" is the body
     String arg(const char* name) const {
         if (strcmp(name, "plain") == 0) return _body;
         String v;
@@ -64,7 +64,7 @@ public:
         return String();
     }
 
-    // ── Resposta ─────────────────────────────────────────────────────────────
+    // ── Response ─────────────────────────────────────────────────────────────
     void sendHeader(const char* name, const String& value) {
         _headers += name;
         _headers += ": ";
@@ -80,7 +80,7 @@ public:
         _put(body.c_str(), body.length(), false);
     }
 
-    // Corpo na flash (imagens, CSS e JS embutidos)
+    // Body in flash (embedded images, CSS and JS)
     void send_P(int code, const char* type, PGM_P data, size_t len) {
         _length = len;
         _head(code, type);
@@ -126,7 +126,7 @@ private:
         _flush();
     }
 
-    // 0 = pedido pronto para o handler; senão o código do erro
+    // 0 = request ready for the handler; otherwise the error code
     int _parse() {
         char line[MAX_AUTH + 24];
         if (!_line(line, sizeof(line))) return 400;
@@ -140,7 +140,7 @@ private:
             *q = '\0';
             _query = q + 1;
         }
-        if (strlen(sp + 1) >= sizeof(_path)) return 404;   // nenhuma rota é tão longa
+        if (strlen(sp + 1) >= sizeof(_path)) return 404;   // no route is that long
         strcpy(_path, sp + 1);
 
         long length = 0;
@@ -166,7 +166,7 @@ private:
         return 0;
     }
 
-    // Uma linha sem o \r\n; o que passar do buffer é descartado
+    // One line without the \r\n; whatever exceeds the buffer is dropped
     bool _line(char* buf, size_t cap) {
         size_t n = 0;
         for (;;) {
@@ -188,7 +188,7 @@ private:
         return _client.read();
     }
 
-    // Procura name=valor em a=1&b=2 e decodifica (+ e %XX)
+    // Finds name=value in a=1&b=2 and decodes it (+ and %XX)
     static bool _find(const String& s, const char* name, String& out) {
         const char* p = s.c_str();
         size_t n = strlen(name);
@@ -242,7 +242,7 @@ private:
         }
     }
 
-    // Só é chamado com algo no buffer: cheio, ou no fim da resposta
+    // Only called with something in the buffer: full, or at the end of the response
     void _flush() {
         _client.write(reinterpret_cast<const uint8_t*>(_out), _used);
         _used = 0;

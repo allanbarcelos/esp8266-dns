@@ -16,7 +16,7 @@ void setUp() {
 }
 void tearDown() {}
 
-// MAX17048 simulado: registros de 16 bits, o mais significativo primeiro
+// Simulated MAX17048: 16-bit registers, most significant byte first
 struct Gauge {
     I2cSim   sim{3, 1};
     uint16_t soc = 0, rate = 0, cell = 0;
@@ -30,7 +30,7 @@ struct Gauge {
     }
 };
 
-void test_sem_medidor_esta_na_fonte() {
+void test_without_gauge_is_on_supply() {
     PowerService p{cfg, logger};
     p.begin();
     p.tick(0);
@@ -39,76 +39,76 @@ void test_sem_medidor_esta_na_fonte() {
     TEST_ASSERT_EQUAL(0, logger.count());
 }
 
-void test_medidor_sem_resposta() {
+void test_gauge_not_answering() {
     cfg.bat_sda = 3;
     PowerService p{cfg, logger};
     p.begin();
     TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[3]);
     TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[1]);
     TEST_ASSERT_EQUAL(PowerService::UNKNOWN, p.source());
-    I2cSim sim(3, 1);                                     // ninguém no endereço
+    I2cSim sim(3, 1);                                     // nobody at the address
     p.tick(0);
     TEST_ASSERT_EQUAL(PowerService::UNKNOWN, p.source());
-    TEST_ASSERT_TRUE(logHas(logger, "Energia: medidor sem resposta"));
+    TEST_ASSERT_TRUE(logHas(logger, "Power: gauge not answering"));
 }
 
-void test_bateria_carregando_e_fonte() {
+void test_battery_charging_and_supply() {
     cfg.bat_sda = 3;
     Gauge g;
     PowerService p{cfg, logger};
     p.begin();
 
-    g.soc = 0x4C80;                                       // 76,5 %
-    g.rate = (uint16_t)-25;                               // -5,2 %/h
-    g.cell = 51200;                                       // 4,000 V
+    g.soc = 0x4C80;                                       // 76.5 %
+    g.rate = (uint16_t)-25;                               // -5.2 %/h
+    g.cell = 51200;                                       // 4.000 V
     p.tick(0);
     TEST_ASSERT_EQUAL(PowerService::BATTERY, p.source());
     TEST_ASSERT_EQUAL(76, p.percent());
     TEST_ASSERT_EQUAL(4000, p.millivolts());
     TEST_ASSERT_EQUAL(-52, p.rateTenths());
-    TEST_ASSERT_TRUE(logHas(logger, "Energia: na bateria"));
+    TEST_ASSERT_TRUE(logHas(logger, "Power: on battery"));
 
-    g.rate = 10;                                          // enchendo
+    g.rate = 10;                                          // filling up
     p.tick(PowerService::READ_MS - 1);
-    TEST_ASSERT_EQUAL(PowerService::BATTERY, p.source()); // ainda não leu de novo
+    TEST_ASSERT_EQUAL(PowerService::BATTERY, p.source()); // has not read again yet
     p.tick(PowerService::READ_MS);
     TEST_ASSERT_EQUAL(PowerService::CHARGING, p.source());
-    TEST_ASSERT_TRUE(logHas(logger, "Energia: carregando"));
+    TEST_ASSERT_TRUE(logHas(logger, "Power: charging"));
 
-    g.rate = 0;                                           // cheia e parada
-    g.soc = 0x6500;                                       // 101 %: fica em 100
+    g.rate = 0;                                           // full and idle
+    g.soc = 0x6500;                                       // 101 %: stays at 100
     p.tick(2 * PowerService::READ_MS);
     TEST_ASSERT_EQUAL(PowerService::MAINS, p.source());
     TEST_ASSERT_EQUAL(100, p.percent());
-    TEST_ASSERT_TRUE(logHas(logger, "Energia: na fonte"));
+    TEST_ASSERT_TRUE(logHas(logger, "Power: on supply"));
 
     int lines = logger.count();
     g.soc = 0x6400;
-    p.tick(3 * PowerService::READ_MS);                    // mesma situação: sem log
+    p.tick(3 * PowerService::READ_MS);                    // same state: no log
     TEST_ASSERT_EQUAL(lines, logger.count());
 
-    g.soc = 0x3200;                                       // parada, mas longe de cheia
+    g.soc = 0x3200;                                       // idle, but far from full
     p.tick(4 * PowerService::READ_MS);
     TEST_ASSERT_EQUAL(PowerService::BATTERY, p.source());
     g.rate = (uint16_t)-3;
-    g.soc = 0x6400;                                       // cheia, mas gastando
+    g.soc = 0x6400;                                       // full, but draining
     p.tick(5 * PowerService::READ_MS);
     TEST_ASSERT_EQUAL(PowerService::BATTERY, p.source());
 
-    // Some no meio: a leitura seguinte avisa
+    // Gone halfway: the next reading reports it
     g.sim.present.clear();
     p.tick(6 * PowerService::READ_MS);
     TEST_ASSERT_EQUAL(PowerService::UNKNOWN, p.source());
 }
 
-// Cada registro pode falhar: a leitura toda vale como sem resposta
-void test_registro_que_falha() {
+// Any register can fail: the whole reading counts as no answer
+void test_failing_register() {
     cfg.bat_sda = 3;
     Gauge g;
     g.soc = 0x6400;
     PowerService p{cfg, logger};
     p.begin();
-    for (int nth : {1, 2}) {                              // recusa o 2º ou o 3º registro
+    for (int nth : {1, 2}) {                              // refuses the 2nd or the 3rd register
         int reads = 0;
         g.sim.reply = [&](uint8_t, const std::vector<uint8_t>&) {
             reads++;
@@ -116,7 +116,7 @@ void test_registro_que_falha() {
         };
         g.sim.present = {PowerService::ADDR};
         p.begin();
-        // Depois de nth leituras, o medidor some
+        // After nth reads, the gauge goes away
         auto base = g.sim.reply;
         g.sim.reply = [&, base, nth](uint8_t a, const std::vector<uint8_t>& w) {
             if (reads + 1 >= nth) g.sim.present.clear();
@@ -127,13 +127,13 @@ void test_registro_que_falha() {
     }
 }
 
-void test_pinos_livres() {
+void test_free_pins() {
     IoTConfig t;
     TEST_ASSERT_TRUE(PowerService::pinsFree(-1, t));
     TEST_ASSERT_TRUE(PowerService::pinsFree(3, t));
-    t.actuatorPin = 1;                                    // atuador no SCL
+    t.actuatorPin = 1;                                    // actuator on SCL
     TEST_ASSERT_FALSE(PowerService::pinsFree(3, t));
-    t.actuatorPin = 3;                                    // no SDA
+    t.actuatorPin = 3;                                    // on SDA
     TEST_ASSERT_FALSE(PowerService::pinsFree(3, t));
     t.actuatorPin = 0;
     TEST_ASSERT_TRUE(PowerService::pinsFree(3, t));
@@ -142,9 +142,9 @@ void test_pinos_livres() {
     TEST_ASSERT_FALSE(PowerService::pinsFree(3, t));
     t.sensorPin = 3;
     TEST_ASSERT_FALSE(PowerService::pinsFree(3, t));
-    strlcpy(t.sensor, "sht3x", sizeof(t.sensor));         // mesmo barramento
+    strlcpy(t.sensor, "sht3x", sizeof(t.sensor));         // same bus
     TEST_ASSERT_TRUE(PowerService::pinsFree(3, t));
-    t.sensorPin = 1;                                      // SHT3x com os papéis trocados
+    t.sensorPin = 1;                                      // SHT3x with the roles swapped
     TEST_ASSERT_FALSE(PowerService::pinsFree(3, t));
     t.sensorPin = 2;
     TEST_ASSERT_TRUE(PowerService::pinsFree(3, t));
@@ -152,10 +152,10 @@ void test_pinos_livres() {
 
 int main() {
     UNITY_BEGIN();
-    RUN_TEST(test_sem_medidor_esta_na_fonte);
-    RUN_TEST(test_medidor_sem_resposta);
-    RUN_TEST(test_bateria_carregando_e_fonte);
-    RUN_TEST(test_registro_que_falha);
-    RUN_TEST(test_pinos_livres);
+    RUN_TEST(test_without_gauge_is_on_supply);
+    RUN_TEST(test_gauge_not_answering);
+    RUN_TEST(test_battery_charging_and_supply);
+    RUN_TEST(test_failing_register);
+    RUN_TEST(test_free_pins);
     return UNITY_END();
 }

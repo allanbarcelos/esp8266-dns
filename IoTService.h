@@ -13,31 +13,31 @@
 #include "I2cBus.h"
 #include "Ws2812.h"
 
-// Um sensor e um atuador no ESP-01, cada um opcional:
-// - só sensor: lê e publica no ntfy;
-// - só atuador: obedece comandos (painel, API local, ntfy);
-// - os dois: com a regra ligada, o sensor comanda o atuador no modo
-//   automático. Um comando manual vale até "auto". Com a janela de
-//   horário ligada, o automático só liga dentro dela (hora local, pelo
-//   fuso do Config); fora, ou com o relógio em 1970, fica desligado.
-// A configuração é copiada em begin(): uma gravação que falha não muda a
-// saída que já está no ar.
+// One sensor and one actuator on the ESP-01, each optional:
+// - sensor only: reads and publishes to ntfy;
+// - actuator only: obeys commands (panel, local API, ntfy, MQTT);
+// - both: with the rule on, the sensor drives the actuator in automatic
+//   mode. A manual command holds until "auto". With the time window on,
+//   automatic mode only turns on inside it (local time, from the time
+//   zone in Config); outside it, or with the clock in 1970, it stays off.
+// The configuration is copied in begin(): a failed save does not change
+// the output already running.
 class IoTService {
 public:
     static constexpr unsigned long DEBOUNCE_MS      = 200;
     static constexpr unsigned long READ_GAP_MS      = 2000;
     static constexpr unsigned long DS_CONVERT_MS    = 800;
-    static constexpr unsigned long SHT_MEASURE_MS   = 20;   // repetibilidade alta: 15 ms
+    static constexpr unsigned long SHT_MEASURE_MS   = 20;   // high repeatability: 15 ms
     static constexpr uint8_t       SHT_ADDR         = 0x44;
-    // Pulso de início em LOW: DHT11 pede ≥ 18 ms, DHT22 ≥ 1 ms (2 pela
-    // resolução do millis). Acima do máximo o sensor pode não responder.
+    // Start pulse held LOW: DHT11 needs ≥ 18 ms, DHT22 ≥ 1 ms (2 given the
+    // millis resolution). Above the maximum the sensor may not answer.
     static constexpr unsigned long DHT11_WAKE_MS    = 18;
     static constexpr unsigned long DHT11_WAKE_MAX   = 30;
     static constexpr unsigned long DHT22_WAKE_MS    = 2;
     static constexpr unsigned long DHT22_WAKE_MAX   = 20;
     static constexpr unsigned long PULSE_WINDOW_MS  = 10000;
     static constexpr size_t        MSG_LEN          = 80;
-    static constexpr uint8_t       MAX_LEDS         = 60;  // 1,8 ms sem interrupção
+    static constexpr uint8_t       MAX_LEDS         = 60;  // 1.8 ms with interrupts off
 
     enum Result : uint8_t { OK, INVALID, UNSUPPORTED, NO_ACTUATOR };
 
@@ -58,7 +58,7 @@ public:
         return false;
     }
 
-    // Inteiro com sinal opcional. Recusa vazio, lixo e fora da faixa.
+    // Integer with an optional sign. Rejects empty input, junk and out of range.
     static bool parseI16(const String& s, int min, int max, int16_t& out) {
         if (s.length() == 0 || s.length() > 6) return false;
         int i = 0;
@@ -102,7 +102,7 @@ public:
         }
         if (allowedPin(_r.actuatorPin) && !(_sensor >= 0 && sensorUses(_r.actuatorPin))) {
             _act = iot::actuatorIndex(_r.actuator);
-            if (_act < 0 && _r.actuator[0]) _unknown("atuador");
+            if (_act < 0 && _r.actuator[0]) _unknown("actuator");
         }
 
         if (_sensor >= 0) {
@@ -120,13 +120,13 @@ public:
             if (_r.restore) _restore();
             if (capability() == iot::C_POSITION) {
                 _servoOk = _servo.attach((int)_r.actuatorPin) != 0;
-                if (!_servoOk) _log.log(PSTR("IoT: servo indisponivel"));
+                if (!_servoOk) _log.log(PSTR("IoT: servo unavailable"));
             } else {
                 pinMode((uint8_t)_r.actuatorPin, OUTPUT);
             }
             _onSince = millis();
             _drive();
-            _log.log(PSTR("IoT: atuador %s GPIO%d"), iot::ACTUATORS[_act].slug, _r.actuatorPin);
+            _log.log(PSTR("IoT: actuator %s GPIO%d"), iot::ACTUATORS[_act].slug, _r.actuatorPin);
         }
     }
 
@@ -137,8 +137,8 @@ public:
         if (open != _open) {
             _open = open;
             if (hasRule() && !_manual && _takeRule())
-                _changed(open ? PSTR("[atuador] %s (inicio do horario)")
-                              : PSTR("[atuador] %s (fim do horario)"));
+                _changed(open ? PSTR("[actuator] %s (window opened)")
+                              : PSTR("[actuator] %s (window closed)"));
         }
         if (_pulsing && (long)(now - _pulseUntil) >= 0) {
             _pulsing = false;
@@ -147,40 +147,40 @@ public:
                 _manual = false;
                 if (_ruleKnown()) _takeRule();
             }
-            _changed(PSTR("[atuador] %s"));
+            _changed(PSTR("[actuator] %s"));
             _persist();
         }
         if (_on && _r.maxOn && now - _onSince >= (unsigned long)_r.maxOn * 60000UL) {
             _pulsing = false;
             _setOn(false, now);
             _manual = hasRule();
-            _changed(PSTR("[atuador] %s por seguranca"));
+            _changed(PSTR("[actuator] %s for safety"));
             _persist();
         }
     }
 
     bool hasSensor()   const { return _sensor >= 0; }
-    // O sensor usa o pino: o dele e, no SHT3x (I2C), o SCL do par
+    // The sensor uses the pin: its own and, for the SHT3x (I2C), the paired SCL
     bool sensorUses(int pin) const {
         return pin == _r.sensorPin ||
                (sensorKind() == iot::K_SHT3X && pin == I2cBus::sclFor(_r.sensorPin));
     }
-    // Configuração de versão mais nova: a parte fica desligada, o arquivo intacto
+    // Configuration from a newer version: the part stays off, the file untouched
     bool unknownType() const { return _unknownType; }
     bool hasActuator() const { return _act >= 0; }
     bool hasRule()     const { return _r.rule && hasSensor() && hasActuator(); }
     bool manual()      const { return _manual; }
 
-    // Minuto do dia na hora local; false sem relógio ou com ele em 1970
+    // Minute of the day in local time; false without a clock or with it in 1970
     bool localMinute(uint16_t& m) const {
         if (!_clock || !_clock->synced()) return false;
-        // 32 bits (vale até 2106): a divisão de 64 bits custaria flash
+        // 32 bits (good until 2106): a 64-bit division would cost flash
         long t = (long)((uint32_t)_clock->now() % 86400UL) + (long)_cfg.tz * 60;
         m = (uint16_t)(((t % 86400) + 86400) % 86400 / 60);
         return true;
     }
 
-    // Dentro da janela de horário (sempre, com ela desligada)
+    // Inside the time window (always, when the window is off)
     bool inHours() const {
         if (!_r.window) return true;
         uint16_t m;
@@ -198,7 +198,7 @@ public:
     const iot::SensorDef*   sensorDef()   const { return _sensor >= 0 ? &iot::SENSORS[_sensor] : nullptr; }
     const iot::ActuatorDef* actuatorDef() const { return _act >= 0 ? &iot::ACTUATORS[_act] : nullptr; }
 
-    // Texto do painel, da API ou do ntfy
+    // Text from the panel, the API, ntfy or MQTT
     uint8_t command(const char* text, unsigned long now) {
         iot::Command c;
         if (!iot::parseCommand(text, c)) return INVALID;
@@ -213,7 +213,7 @@ public:
         if (c.op == iot::OP_AUTO) {
             _manual = false;
             if (hasRule() && _ruleKnown()) _takeRule();
-            _changed(PSTR("[atuador] %s"));
+            _changed(PSTR("[actuator] %s"));
             _persist();
             return OK;
         }
@@ -244,26 +244,26 @@ public:
                 break;
         }
         _manual = hasRule();
-        _changed(PSTR("[atuador] %s"));
+        _changed(PSTR("[actuator] %s"));
         if (!_pulsing) _persist();
         return OK;
     }
 
-    // Leitura do sensor em texto curto
+    // Sensor reading as short text
     const char* sensorText() const {
-        if (_sensor < 0) return "nenhum";
-        if (_failing) return "falha";
-        if (!_haveLevel) return "aguardando";
+        if (_sensor < 0) return "none";
+        if (_failing) return "error";
+        if (!_haveLevel) return "waiting";
         return _sensorLine;
     }
 
     const char* actuatorText() const {
-        if (_act < 0) return "nenhum";
-        if (capability() == iot::C_POSITION && !_servoOk) return "falha";
+        if (_act < 0) return "none";
+        if (capability() == iot::C_POSITION && !_servoOk) return "error";
         return _actLine;
     }
 
-    // Estado em JSON (API e painel). Parte ausente vai como null.
+    // State as JSON (API and panel). A missing part goes as null.
     size_t stateJson(char* out, size_t n) const {
         size_t k = (size_t)snprintf(out, n, "{\"api\":1,\"sensor\":");
         k += _sensorJson(out + k, _left(n, k));
@@ -274,7 +274,7 @@ public:
     }
 
     bool pending() const { return _pending[0] != '\0'; }
-    // Mudança (comando, estado novo) sai em segundos; leitura periódica, por minuto
+    // A change (command, new state) goes out in seconds; a periodic reading, per minute
     bool urgent() const { return _urgent; }
     const char* message() const { return _pending; }
     void ack() {
@@ -282,7 +282,7 @@ public:
         _urgent = false;
     }
 
-    // Contagem de pulsos. O ISR só incrementa.
+    // Pulse count. The ISR only increments.
     static void IRAM_ATTR onPulse() { _pulses++; }
 
 private:
@@ -300,13 +300,13 @@ private:
     bool    _failing;
     bool    _haveRead;
     bool    _windowOpen;
-    bool    _active;        // digital: estado ativo
+    bool    _active;        // digital: active state
     bool    _edgeReady;
     int     _candidate;
     int     _stable;
     int     _hum;
     int     _temp;
-    int     _value;         // distância (cm) ou pulsos
+    int     _value;         // distance (cm) or pulses
     unsigned long _since;
     unsigned long _lastRead;
     unsigned long _owSince;
@@ -318,13 +318,13 @@ private:
     char    _offText[16];
     char    _sensorLine[32];
 
-    // Atuador
+    // Actuator
     bool    _on;
     bool    _manual;
     bool    _servoOk;
     bool    _pulsing;
-    bool    _haveRule;      // a regra já decidiu ao menos uma vez
-    bool    _open;          // dentro da janela de horário (último tick)
+    bool    _haveRule;      // the rule has decided at least once
+    bool    _open;          // inside the time window (last tick)
     bool    _ruleOn;
     uint8_t _ruleLevel;
     uint8_t _level;
@@ -372,7 +372,7 @@ private:
         _servoOk = false;
         _pulsing = false;
         _haveRule = false;
-        _open = true;           // o primeiro tick confere
+        _open = true;           // the first tick checks
         _ruleOn = false;
         _ruleLevel = 0;
         _level = 100;
@@ -388,12 +388,12 @@ private:
 
     void _unknown(const char* part) {
         _unknownType = true;
-        _log.log(PSTR("IoT: tipo de %s desconhecido"), part);
+        _log.log(PSTR("IoT: unknown %s type"), part);
     }
 
     static size_t _left(size_t n, size_t used) { return n > used ? n - used : 0; }
 
-    // Nome do estado digital: o da configuração ou o padrão do tipo
+    // Digital state name: the configured one or the type's default
     static void _stateName(char* dst, const char* custom, PGM_P fallback) {
         if (custom[0]) {
             strlcpy(dst, custom, 16);
@@ -407,14 +407,14 @@ private:
         if (sensorKind() == iot::K_PULSE) detachInterrupt((uint8_t)_r.sensorPin);
     }
 
-    // GPIO0 e GPIO2 têm de ficar altos no próximo boot
+    // GPIO0 and GPIO2 must be high on the next boot
     void _idleStrappingPin() {
         if (_r.actuatorPin == 0 || _r.actuatorPin == 2)
             pinMode((uint8_t)_r.actuatorPin, INPUT_PULLUP);
     }
 
-    // Deixa a saída anterior desligada antes de reconfigurar. O liga/desliga
-    // segura o nível desligado (pull-up ligaria um módulo que arma em alto).
+    // Leaves the previous output off before reconfiguring. On/off holds the
+    // off level (a pull-up would turn on a module that triggers high).
     void _release() {
         if (_act < 0) return;
         uint8_t cap = capability();
@@ -460,7 +460,7 @@ private:
         _on = on;
     }
 
-    // Ligar volta à posição ou intensidade de "ligado" quando não há outra
+    // Turning on goes back to the "on" position or level when there is no other
     void _turnOn(unsigned long now) {
         uint8_t cap = capability();
         if (cap == iot::C_POSITION) _angle = _r.angleOn;
@@ -497,16 +497,16 @@ private:
     void _describe() {
         uint8_t cap = capability();
         if (cap == iot::C_LEVEL && _on)
-            snprintf(_actLine, sizeof(_actLine), "ligado %u%%", _level);
+            snprintf(_actLine, sizeof(_actLine), "on %u%%", _level);
         else if (cap == iot::C_POSITION)
-            snprintf(_actLine, sizeof(_actLine), "%s %u graus", _on ? "aberto" : "fechado", angle());
+            snprintf(_actLine, sizeof(_actLine), "%s %u deg", _on ? "open" : "closed", angle());
         else if (cap == iot::C_COLOR && _on)
-            snprintf(_actLine, sizeof(_actLine), "ligado #%06lx %u%%", (unsigned long)_rgb, _level);
+            snprintf(_actLine, sizeof(_actLine), "on #%06lx %u%%", (unsigned long)_rgb, _level);
         else
-            strlcpy(_actLine, _on ? "ligado" : "desligado", sizeof(_actLine));
+            strlcpy(_actLine, _on ? "on" : "off", sizeof(_actLine));
     }
 
-    // Saída mudou por comando ou tempo: aplica, registra e avisa
+    // The output changed by command or time: apply, log and notify
     void _changed(PGM_P fmt) {
         _drive();
         char line[MSG_LEN];
@@ -518,9 +518,9 @@ private:
         }
     }
 
-    // Leva o atuador à última decisão da regra (modo automático); fora da
-    // janela de horário, desligado. Não aciona a saída: quem chama decide
-    // (_drive ou _changed).
+    // Takes the actuator to the rule's last decision (automatic mode); off
+    // outside the time window. Does not drive the output: the caller does
+    // (_drive or _changed).
     bool _takeRule() {
         uint8_t cap = capability();
         bool want = _ruleOn && _open;
@@ -537,7 +537,7 @@ private:
         return changed;
     }
 
-    // A regra tem o que dizer: já leu o sensor, ou está fora do horário
+    // The rule has something to say: the sensor was read, or it is outside the window
     bool _ruleKnown() const { return _haveRule || !_open; }
 
     bool _proportional() const {
@@ -586,7 +586,7 @@ private:
         _report(true);
     }
 
-    // Leitura vai ao log e, com o ntfy ligado, ao tópico (com o atuador)
+    // The reading goes to the log and, with ntfy on, to the topic (with the actuator)
     void _report(bool log) {
         char line[MSG_LEN];
         if (_act >= 0)
@@ -603,17 +603,17 @@ private:
     void _fail() {
         if (_failing) return;
         _failing = true;
-        _log.log(PSTR("IoT: leitura falhou"));
+        _log.log(PSTR("IoT: reading failed"));
     }
 
-    // Décimos de grau ou de umidade: cabem em int16_t, e o texto, no buffer
+    // Tenths of a degree or of humidity: they fit in int16_t, and the text in the buffer
     static void _fmtTenths(char* b, size_t n, int16_t tenths) {
         const char* sign = tenths < 0 ? "-" : "";
         int v = tenths < 0 ? -tenths : tenths;
         snprintf(b, n, "%s%d.%d", sign, v / 10, v % 10);
     }
 
-    // value em décimos, exceto distância e pulsos. A margem evita oscilar.
+    // value in tenths, except distance and pulses. The margin avoids chattering.
     bool _rule(int value, bool tenths) const {
         int scale = tenths ? 10 : 1;
         int limit = (int)_r.threshold * scale;
@@ -626,7 +626,7 @@ private:
         return value <= limit;
     }
 
-    // Limite alto acima do limite: interpola. Faixa vazia vira dois patamares.
+    // High limit above the limit: interpolates. An empty range becomes two steps.
     uint8_t _mapDuty(int value, bool tenths) const {
         int scale = tenths ? 10 : 1;
         int lo = (int)_r.threshold * scale;
@@ -638,13 +638,13 @@ private:
         return (uint8_t)((int)_r.dutyOff + delta * (value - lo) / (hi - lo));
     }
 
-    // Nova leitura numérica: texto, regra e aviso
+    // New numeric reading: text, rule and notice
     void _accept(int value, bool tenths) {
         _failing = false;
         uint8_t kind = sensorKind();
         char a[12];
         if (kind == iot::K_PULSE) {
-            snprintf(_sensorLine, sizeof(_sensorLine), "%d pulsos/10 s", value);
+            snprintf(_sensorLine, sizeof(_sensorLine), "%d pulses/10 s", value);
         } else if (kind == iot::K_RANGE) {
             snprintf(_sensorLine, sizeof(_sensorLine), "%d cm", value);
         } else if (kind == iot::K_DS18) {
@@ -682,8 +682,8 @@ private:
         return true;
     }
 
-    // O pulso do DHT dura dezenas de microssegundos. A ISR do Wi-Fi
-    // estica esse intervalo, então a leitura fica com a interrupção fechada.
+    // A DHT pulse lasts tens of microseconds. The Wi-Fi ISR stretches that
+    // interval, so the reading runs with interrupts off.
     bool _dhtBits(uint8_t data[5]) {
         for (int i = 0; i < 5; i++) data[i] = 0;
         if (!_waitLevel(LOW, 300)) return false;
@@ -699,7 +699,7 @@ private:
         return true;
     }
 
-    // Fase 1: pino em LOW; o tick seguinte que cair na janela lê os bits.
+    // Phase 1: pin LOW; the next tick that lands in the window reads the bits.
     void _dhtWake(unsigned long now) {
         uint8_t pin = (uint8_t)_r.sensorPin;
         pinMode(pin, OUTPUT);
@@ -708,7 +708,7 @@ private:
         _dhtSince = now;
     }
 
-    // Fase 2: solta o pino e lê os 40 bits (µs, com a interrupção fechada)
+    // Phase 2: releases the pin and reads the 40 bits (µs, with interrupts off)
     bool _readDht(uint8_t data[5]) {
         uint8_t pin = (uint8_t)_r.sensorPin;
         digitalWrite(pin, HIGH);
@@ -735,14 +735,14 @@ private:
         _temp = t;
     }
 
-    // Sem delay: o pulso de início atravessa dois ticks e o loop segue
+    // No delay: the start pulse spans two ticks and the loop keeps going
     void _tickDht(unsigned long now) {
         if (_dhtWaking) {
             bool dht11 = sensorKind() == iot::K_DHT11;
             unsigned long held = now - _dhtSince;
             if (held < (dht11 ? DHT11_WAKE_MS : DHT22_WAKE_MS)) return;
             if (held > (dht11 ? DHT11_WAKE_MAX : DHT22_WAKE_MAX)) {
-                _dhtWake(now); // o loop atrasou: recomeça o pulso
+                _dhtWake(now); // the loop ran late: restart the pulse
                 return;
             }
             _dhtWaking = false;
@@ -853,7 +853,7 @@ private:
         _owSince = now;
     }
 
-    // CRC-8 da Sensirion: polinômio 0x31, começa em 0xFF
+    // Sensirion CRC-8: polynomial 0x31, starts at 0xFF
     static uint8_t _crcSht(const uint8_t* d) {
         uint8_t crc = 0xFF;
         for (int i = 0; i < 2; i++) {
@@ -863,9 +863,9 @@ private:
         return crc;
     }
 
-    // SHT3x: pede a medida (sem clock stretching) e lê no tick seguinte
-    // que cair depois de SHT_MEASURE_MS. Usa o estado do DS18B20, que
-    // também espera a conversão.
+    // SHT3x: asks for a measurement (no clock stretching) and reads on the
+    // first tick after SHT_MEASURE_MS. Reuses the DS18B20 state, which also
+    // waits for a conversion.
     void _tickSht(unsigned long now) {
         I2cBus bus((uint8_t)_r.sensorPin, (uint8_t)I2cBus::sclFor(_r.sensorPin));
         if (_owState == OW_WAIT) {
@@ -876,7 +876,7 @@ private:
                 _fail();
                 return;
             }
-            // °C = -45 + 175 × t / 65535; %UR = 100 × h / 65535 (em décimos)
+            // °C = -45 + 175 × t / 65535; %RH = 100 × h / 65535 (in tenths)
             _temp = -450 + (int)(1750L * (d[0] << 8 | d[1]) / 65535);
             _hum = (int)(1000L * (d[3] << 8 | d[4]) / 65535);
             _accept(_r.metric == 1 ? _temp : _hum, true);
@@ -894,7 +894,7 @@ private:
         _owSince = now;
     }
 
-    // HC-SR04 com trig e echo no mesmo pino. A distância sai em cm.
+    // HC-SR04 with trig and echo on the same pin. Distance in cm.
     bool _readRange(int* cm) {
         uint8_t pin = (uint8_t)_r.sensorPin;
         pinMode(pin, OUTPUT);
@@ -944,7 +944,7 @@ private:
     }
 
     // ── JSON ─────────────────────────────────────────────────────────────────
-    // snprintf direto: o ArduinoJson pediria um documento só para isto.
+    // Plain snprintf: ArduinoJson would need a document just for this.
 
     size_t _sensorJson(char* out, size_t n) const {
         if (_sensor < 0) return (size_t)snprintf(out, n, "null");

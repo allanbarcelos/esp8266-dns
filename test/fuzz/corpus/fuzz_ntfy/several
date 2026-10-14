@@ -1,0 +1,3 @@
+{"event":"keepalive"}
+{"id":"o1","time":1,"event":"open"}
+{"id":"m2","time":1700000100,"event":"message","message":"fly"}

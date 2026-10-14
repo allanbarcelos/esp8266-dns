@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-// Texto de comando qualquer (painel, API, ntfy, MQTT), em cada capacidade
-// de atuador, e o JSON de estado que sai depois.
+// Any command text (panel, API, ntfy, MQTT), on each actuator
+// capability, and the state JSON that comes out after.
 #include "../test_support.h"
 #include "Config.h"
 #include "IoTCommand.h"
@@ -13,7 +13,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     iot::Command c;
     iot::parseCommand(text.c_str(), c);
 
-    static const char* ACTUATORS[] = {"rele", "led", "servo", "fita"};
+    static const char* ACTUATORS[] = {"relay", "led", "servo", "strip"};
     for (const char* a : ACTUATORS) {
         resetMocks();
         Logger log;

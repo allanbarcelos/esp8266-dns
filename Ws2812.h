@@ -4,15 +4,15 @@
 #pragma once
 #include <Arduino.h>
 
-// Fita WS2812 (NeoPixel) com uma cor só: dispensa biblioteca e buffer por
-// LED. Cada bit dura 1,25 µs (0: 0,4 µs alto; 1: 0,8 µs alto), na ordem
-// G, R, B. A interrupção fica fechada durante o envio (30 µs por LED; 60
-// LEDs dão 1,8 ms), senão o Wi-Fi estica um bit e a cor sai errada.
-// Depois do envio, o pino em nível baixo por mais de 50 µs fixa a cor.
+// WS2812 (NeoPixel) strip with a single color: no library and no per-LED
+// buffer. Each bit lasts 1.25 µs (0: 0.4 µs high; 1: 0.8 µs high), in G, R,
+// B order. Interrupts stay off while sending (30 µs per LED; 60 LEDs take
+// 1.8 ms), otherwise Wi-Fi stretches a bit and the color comes out wrong.
+// After sending, the pin held low for more than 50 µs latches the color.
 #if defined(ARDUINO_ARCH_ESP8266)
 #include <esp8266_peri.h>
 
-// Inline obrigatório: chamada para a flash dentro do laço atrasaria o bit
+// Must be inline: a call into flash inside the loop would delay the bit
 static inline __attribute__((always_inline)) uint32_t _ws2812Cycles() {
     uint32_t c;
     __asm__ __volatile__("rsr %0, ccount" : "=a"(c));
@@ -44,7 +44,7 @@ static void IRAM_ATTR ws2812Show(uint8_t pin, uint16_t count, uint32_t rgb) {
     interrupts();
 }
 #else
-// Testes nativos: guarda o último envio
+// Native tests: keeps the last send
 namespace mock {
     inline int      wsPin = -1;
     inline uint16_t wsCount = 0;

@@ -11,21 +11,21 @@ void tearDown() {}
 
 using Bytes = std::vector<uint8_t>;
 
-void test_pares_de_pinos() {
+void test_pin_pairs() {
     TEST_ASSERT_EQUAL(2, I2cBus::sclFor(0));
     TEST_ASSERT_EQUAL(0, I2cBus::sclFor(2));
     TEST_ASSERT_EQUAL(1, I2cBus::sclFor(3));
     TEST_ASSERT_EQUAL(3, I2cBus::sclFor(1));
 }
 
-void test_begin_solta_as_linhas() {
+void test_begin_releases_the_lines() {
     I2cBus bus(0, 2);
     bus.begin();
     TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[0]);
     TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[2]);
 }
 
-void test_escrita_com_e_sem_aparelho() {
+void test_write_with_and_without_device() {
     I2cSim sim(0, 2);
     sim.present = {0x44};
     I2cBus bus(0, 2);
@@ -36,17 +36,17 @@ void test_escrita_com_e_sem_aparelho() {
     TEST_ASSERT_EQUAL(1, sim.starts);
     TEST_ASSERT_EQUAL(1, sim.stops);
 
-    TEST_ASSERT_FALSE(bus.write(0x45, cmd, 3));           // ninguém responde
+    TEST_ASSERT_FALSE(bus.write(0x45, cmd, 3));           // nobody answers
     TEST_ASSERT_EQUAL(1, (int)sim.writes.size());
     TEST_ASSERT_EQUAL(2, sim.stops);
 
-    sim.nackAfter = 1;                                    // recusa o 2º byte
+    sim.nackAfter = 1;                                    // refuses the 2nd byte
     TEST_ASSERT_FALSE(bus.write(0x44, cmd, 3));
     TEST_ASSERT_TRUE(sim.writes.back() == Bytes({0x44, 0x24}));
     TEST_ASSERT_EQUAL(3, sim.stops);
 }
 
-void test_leitura_e_registro_de_16_bits() {
+void test_read_and_16_bit_register() {
     I2cSim sim(3, 1);
     sim.present = {0x36};
     sim.reply = [](uint8_t addr, const Bytes& w) {
@@ -64,9 +64,9 @@ void test_leitura_e_registro_de_16_bits() {
     int stops = sim.stops;
     TEST_ASSERT_TRUE(bus.readReg16(0x36, 0x04, v));
     TEST_ASSERT_EQUAL_HEX16(0x5A80, v);
-    TEST_ASSERT_EQUAL(stops + 1, sim.stops);              // start repetido, um stop só
+    TEST_ASSERT_EQUAL(stops + 1, sim.stops);              // repeated start, a single stop
 
-    // Mais bytes do que o aparelho tem: o resto vem em 0xFF
+    // More bytes than the device has: the rest comes as 0xFF
     sim.reply = [](uint8_t, const Bytes&) { return Bytes{0x01}; };
     TEST_ASSERT_TRUE(bus.read(0x36, d, 2));
     TEST_ASSERT_EQUAL_HEX8(0x01, d[0]);
@@ -74,18 +74,18 @@ void test_leitura_e_registro_de_16_bits() {
 
     TEST_ASSERT_FALSE(bus.read(0x37, d, 2));
     TEST_ASSERT_FALSE(bus.readReg16(0x37, 0x04, v));
-    sim.refuseRead = true;                                // aceita o registro, recusa a leitura
+    sim.refuseRead = true;                                // accepts the register, refuses the read
     TEST_ASSERT_FALSE(bus.readReg16(0x36, 0x04, v));
     sim.refuseRead = false;
-    sim.nackAfter = 0;                                    // recusa o registro
+    sim.nackAfter = 0;                                    // refuses the register
     TEST_ASSERT_FALSE(bus.readReg16(0x36, 0x04, v));
 }
 
 int main() {
     UNITY_BEGIN();
-    RUN_TEST(test_pares_de_pinos);
-    RUN_TEST(test_begin_solta_as_linhas);
-    RUN_TEST(test_escrita_com_e_sem_aparelho);
-    RUN_TEST(test_leitura_e_registro_de_16_bits);
+    RUN_TEST(test_pin_pairs);
+    RUN_TEST(test_begin_releases_the_lines);
+    RUN_TEST(test_write_with_and_without_device);
+    RUN_TEST(test_read_and_16_bit_register);
     return UNITY_END();
 }

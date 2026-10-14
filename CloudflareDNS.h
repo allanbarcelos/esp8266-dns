@@ -12,13 +12,13 @@
 #include "WiFiService.h"
 #include "PublicIPResolver.h"  // TlsClient
 
-// Mantém o registro A do Cloudflare apontando para o IP público.
+// Keeps the Cloudflare A record pointing at the public IP.
 //
-// O IP vem do PublicIPResolver (Config::publicIP). O já sincronizado fica
-// em memória: não dependemos do resolver DNS local (que tem cache/TTL e
-// devolve IPs da Cloudflare em registros proxied). Após um boot, o
-// primeiro IP conhecido sempre gera um PATCH (idempotente); falha tenta de
-// novo a cada RETRY_INTERVAL.
+// The IP comes from PublicIPResolver (Config::publicIP). The one already
+// synced is kept in memory: we do not rely on the local DNS resolver (which
+// caches by TTL and returns Cloudflare IPs for proxied records). After a
+// boot, the first known IP always sends a PATCH (idempotent); a failure
+// retries every RETRY_INTERVAL.
 class CloudflareDNS {
 public:
     CloudflareDNS(Config& cfg, Logger& log, WiFiService& wifi, Clock& clock)
@@ -33,11 +33,11 @@ public:
         _sync();
     }
 
-    // A próxima chamada de tick vai usar a rede (TLS)
+    // The next tick call will use the network (TLS)
     bool due(unsigned long now) const {
         return configured() && _cfg.publicIP[0] && strcmp(_cfg.publicIP, _syncedIP) != 0 &&
                (!_attempted || now - _lastAttempt >= RETRY_INTERVAL) &&
-               _wifi.isConnected() && _clock.synced();  // TLS precisa de relógio válido
+               _wifi.isConnected() && _clock.synced();  // TLS needs a valid clock
     }
 
     bool configured() const {
@@ -60,14 +60,14 @@ private:
     void _sync() {
         char ip[16];
         strlcpy(ip, _cfg.publicIP, sizeof(ip));
-        _log.log(PSTR("Atualizando DNS para %s"), ip);
+        _log.log(PSTR("Updating DNS to %s"), ip);
         BearSSL::X509List trust;
         cloudflareRoots(trust);
         if (_patchRecord(trust, _cfg.cf_record, ip)) {
             strlcpy(_syncedIP, ip, sizeof(_syncedIP));
             _cfg.lastDnsUpdate = millis();
             _wifi.notifySuccess();
-            _log.log(PSTR("DNS atualizado!"));
+            _log.log(PSTR("DNS updated!"));
         }
     }
 
@@ -78,21 +78,21 @@ private:
         url += record;
 
         if (!PublicIPResolver::memoryOk()) {
-            _log.log(PSTR("DNS: memoria insuficiente"));
+            _log.log(PSTR("DNS: not enough memory"));
             return false;
         }
         TlsClient client;
         client.setTrustAnchors(&trust);
         client.setX509Time(_clock.now());
         if (!client.prepare(5000)) {
-            _log.log(PSTR("DNS: TLS indisponivel"));
+            _log.log(PSTR("DNS: TLS unavailable"));
             return false;
         }
 
         HTTPClient http;
         http.setTimeout(5000);
         if (!http.begin(client, url)) {
-            _log.log(PSTR("DNS: falha ao conectar"));
+            _log.log(PSTR("DNS: connection failed"));
             return false;
         }
         http.addHeader("Authorization", String("Bearer ") + _cfg.cf_token);
@@ -105,36 +105,36 @@ private:
         int code = http.PATCH(payload);
         String resp = (code > 0) ? http.getString() : String();
         http.end();
-        client.stop();  // o keep-alive do HTTPClient manteria a sessão TLS aberta
+        client.stop();  // HTTPClient keep-alive would keep the TLS session open
 
         if (code <= 0) {
-            _log.log(PSTR("DNS erro de conexao: %d"), code);
+            _log.log(PSTR("DNS connection error: %d"), code);
             return false;
         }
 
-        // Lida no lugar (char*), como as mensagens do ntfy: um só leitor de
-        // JSON no firmware, e as strings ficam na resposta. O documento
-        // guarda só a estrutura, uma posição por valor, e a TLS já foi
-        // fechada: a heap está livre.
+        // Parsed in place (char*), like the ntfy messages: a single JSON
+        // reader in the firmware, and the strings stay in the response. The
+        // document only holds the structure, one slot per value, and TLS is
+        // already closed: the heap is free.
         DynamicJsonDocument doc(JSON_ARRAY_SIZE(_values(resp)));
         DeserializationError err = deserializeJson(doc, resp.begin());
         if (err || doc["success"].isNull()) {
-            _log.log(PSTR("DNS resposta invalida (HTTP %d)"), code);
+            _log.log(PSTR("DNS invalid response (HTTP %d)"), code);
             return false;
         }
 
         if (!(doc["success"] | false)) {
             int         ec  = doc["errors"][0]["code"]    | 0;
-            const char* msg = doc["errors"][0]["message"] | "Erro desconhecido";
-            _log.log(PSTR("DNS erro %d: %s"), ec, msg);
+            const char* msg = doc["errors"][0]["message"] | "Unknown error";
+            _log.log(PSTR("DNS error %d: %s"), ec, msg);
             return false;
         }
         return true;
     }
 
-    // Teto de valores no JSON: cada valor depois do primeiro de um objeto
-    // ou lista vem após uma vírgula, e o primeiro, após { ou [. Vírgula
-    // dentro de texto só aumenta a conta.
+    // Upper bound on the values in the JSON: each value after the first in
+    // an object or list follows a comma, and the first follows { or [. A
+    // comma inside text only raises the count.
     static size_t _values(const String& json) {
         size_t n = 0;
         for (const char* p = json.c_str(); *p; p++)

@@ -13,8 +13,8 @@ void setUp() {
     resetMocks();
     logger = Logger();
     cfg = Config{};
-    cfg.ssid = "Rede";
-    cfg.pass = "senha123";
+    cfg.ssid = "Home";
+    cfg.pass = "secret123";
 }
 void tearDown() {}
 
@@ -22,7 +22,7 @@ using W = WiFiService;
 
 // ── begin() ──────────────────────────────────────────────────────────────────
 
-void test_sem_ssid_inicia_ap_protegido() {
+void test_without_ssid_starts_protected_ap() {
     cfg.ssid = "";
     W wifi(cfg, logger);
     wifi.begin();
@@ -35,36 +35,36 @@ void test_sem_ssid_inicia_ap_protegido() {
     TEST_ASSERT_EQUAL(0, WiFi.beginCalls);
 }
 
-void test_conecta_em_modo_estacao() {
+void test_connects_in_station_mode() {
     W wifi(cfg, logger);
     wifi.begin();
     TEST_ASSERT_EQUAL(WIFI_STA, WiFi._mode);
     TEST_ASSERT_FALSE(WiFi.persistentFlag);
     TEST_ASSERT_TRUE(WiFi.autoReconnectFlag);
-    TEST_ASSERT_EQUAL_STRING("Rede", WiFi.beginSSID.c_str());
-    TEST_ASSERT_EQUAL_STRING("senha123", WiFi.beginPass.c_str());
+    TEST_ASSERT_EQUAL_STRING("Home", WiFi.beginSSID.c_str());
+    TEST_ASSERT_EQUAL_STRING("secret123", WiFi.beginPass.c_str());
     TEST_ASSERT_FALSE(wifi.inConfigMode());
     TEST_ASSERT_EQUAL(WIFI_NONE_SLEEP, WiFi.sleepMode);
-    TEST_ASSERT_FALSE(logHas(logger, "Conectado!")); // o tick acompanha a associação
+    TEST_ASSERT_FALSE(logHas(logger, "Connected!")); // tick follows the association
     wifi.tick(0);
-    TEST_ASSERT_TRUE(logHas(logger, "Conectado!"));
+    TEST_ASSERT_TRUE(logHas(logger, "Connected!"));
 }
 
-// Hostname do DHCP: só quando configurado, antes de conectar
-void test_hostname_antes_de_conectar() {
+// DHCP hostname: only when set, before connecting
+void test_hostname_before_connecting() {
     {
         W wifi(cfg, logger);
         wifi.begin();
         TEST_ASSERT_EQUAL_STRING("", WiFi.hostName.c_str());
     }
-    strlcpy(cfg.hostname, "portao", sizeof(cfg.hostname));
+    strlcpy(cfg.hostname, "gate", sizeof(cfg.hostname));
     W wifi(cfg, logger);
     wifi.begin();
-    TEST_ASSERT_EQUAL_STRING("portao", WiFi.hostName.c_str());
+    TEST_ASSERT_EQUAL_STRING("gate", WiFi.hostName.c_str());
 }
 
-// begin() não espera a associação: o loop segue enquanto o Wi-Fi conecta
-void test_begin_nao_bloqueia() {
+// begin() does not wait for the association: the loop keeps going while Wi-Fi connects
+void test_begin_does_not_block() {
     WiFi._status = WL_DISCONNECTED;
     W wifi(cfg, logger);
     setMillis(5000);
@@ -76,14 +76,14 @@ void test_begin_nao_bloqueia() {
     WiFi._status = WL_CONNECTED;
     wifi.tick(5000 + W::CONNECT_TIMEOUT);
     TEST_ASSERT_FALSE(wifi.inConfigMode());
-    TEST_ASSERT_TRUE(logHas(logger, "Conectado!"));
-    // conectado: o tick volta a vigiar a associação normalmente
+    TEST_ASSERT_TRUE(logHas(logger, "Connected!"));
+    // connected: tick goes back to watching the association as usual
     WiFi._status = WL_DISCONNECTED;
     wifi.tick(5000 + W::CONNECT_TIMEOUT + W::STATUS_INTERVAL);
     TEST_ASSERT_EQUAL(1, WiFi.disconnectCalls);
 }
 
-void test_falha_inicia_ap_e_estacao() {
+void test_failure_starts_ap_and_station() {
     WiFi._status = WL_DISCONNECTED;
     W wifi(cfg, logger);
     wifi.begin();
@@ -92,12 +92,12 @@ void test_falha_inicia_ap_e_estacao() {
     TEST_ASSERT_EQUAL(WIFI_NONE_SLEEP, WiFi.sleepMode);
     TEST_ASSERT_TRUE(wifi.inConfigMode());
     TEST_ASSERT_EQUAL_STRING(AP_SSID, WiFi.apSSID.c_str());
-    TEST_ASSERT_TRUE(logHas(logger, "Falha na conexao"));
+    TEST_ASSERT_TRUE(logHas(logger, "Connection failed"));
 }
 
-// ── eventos ──────────────────────────────────────────────────────────────────
+// ── events ───────────────────────────────────────────────────────────────────
 
-void test_got_ip_sai_do_modo_configuracao() {
+void test_got_ip_leaves_setup_mode() {
     WiFi._status = WL_DISCONNECTED;
     W wifi(cfg, logger);
     wifi.registerEvents();
@@ -110,19 +110,19 @@ void test_got_ip_sai_do_modo_configuracao() {
     TEST_ASSERT_FALSE(wifi.inConfigMode());
     TEST_ASSERT_EQUAL(WIFI_STA, WiFi._mode);
     TEST_ASSERT_EQUAL(WIFI_NONE_SLEEP, WiFi.sleepMode);
-    TEST_ASSERT_TRUE(logHas(logger, "Modo AP desligado"));
+    TEST_ASSERT_TRUE(logHas(logger, "AP mode off"));
 }
 
-void test_got_ip_em_modo_estacao_nao_muda_modo() {
+void test_got_ip_in_station_mode_keeps_mode() {
     W wifi(cfg, logger);
     wifi.registerEvents();
     wifi.begin();
     WiFi._mode = WIFI_STA;
     WiFi.gotIP(WiFiEventStationModeGotIP{});
-    TEST_ASSERT_FALSE(logHas(logger, "Modo AP desligado"));
+    TEST_ASSERT_FALSE(logHas(logger, "AP mode off"));
 }
 
-void test_got_ip_zera_falhas() {
+void test_got_ip_resets_failures() {
     W wifi(cfg, logger);
     wifi.registerEvents();
     for (int i = 0; i < W::MAX_FAILURES - 1; i++) wifi.notifyFailure();
@@ -131,16 +131,16 @@ void test_got_ip_zera_falhas() {
     TEST_ASSERT_FALSE(wifi.restartPending());
 }
 
-void test_evento_desconectado_registra_log() {
+void test_disconnected_event_logs() {
     W wifi(cfg, logger);
     wifi.registerEvents();
     WiFi.disconnected(WiFiEventStationModeDisconnected{});
-    TEST_ASSERT_TRUE(logHas(logger, "Wi-Fi desconectado"));
+    TEST_ASSERT_TRUE(logHas(logger, "Wi-Fi disconnected"));
 }
 
 // ── tick() ───────────────────────────────────────────────────────────────────
 
-void test_modo_configuracao_nao_derruba_ap() {
+void test_setup_mode_keeps_ap() {
     cfg.ssid = "";
     W wifi(cfg, logger);
     wifi.begin();
@@ -156,7 +156,7 @@ void test_modo_configuracao_nao_derruba_ap() {
     TEST_ASSERT_FALSE(wifi.restartPending());
 }
 
-void test_reconecta_quando_desconectado() {
+void test_reconnects_when_disconnected() {
     W wifi(cfg, logger);
     WiFi._status = WL_DISCONNECTED;
 
@@ -171,18 +171,18 @@ void test_reconecta_quando_desconectado() {
     TEST_ASSERT_EQUAL(1, WiFi.beginCalls);
     TEST_ASSERT_EQUAL(WIFI_STA, WiFi._mode);
     TEST_ASSERT_EQUAL(WIFI_NONE_SLEEP, WiFi.sleepMode);
-    TEST_ASSERT_TRUE(logHas(logger, "Tentando reconectar"));
+    TEST_ASSERT_TRUE(logHas(logger, "Trying to reconnect"));
 }
 
-void test_nao_inicia_reconexao_duplicada() {
+void test_does_not_start_duplicate_reconnection() {
     W wifi(cfg, logger);
     WiFi._status = WL_DISCONNECTED;
-    wifi.tick(W::STATUS_INTERVAL);        // agenda reconexão (ainda pendente)
-    wifi.tick(2 * W::STATUS_INTERVAL);    // nova checagem com reconexão pendente
+    wifi.tick(W::STATUS_INTERVAL);        // schedules a reconnection (still pending)
+    wifi.tick(2 * W::STATUS_INTERVAL);    // another check with a reconnection pending
     TEST_ASSERT_EQUAL(1, WiFi.disconnectCalls);
 }
 
-void test_desconexao_prolongada_agenda_restart() {
+void test_long_disconnection_schedules_restart() {
     W wifi(cfg, logger);
     WiFi._status = WL_DISCONNECTED;
     unsigned long t = 0;
@@ -194,7 +194,7 @@ void test_desconexao_prolongada_agenda_restart() {
     TEST_ASSERT_TRUE(wifi.restartPending());
 }
 
-void test_conectado_nao_sonda_nem_reinicia() {
+void test_connected_neither_probes_nor_restarts() {
     W wifi(cfg, logger);
     unsigned long t = 0;
     for (int i = 0; i < W::MAX_FAILURES; i++) {
@@ -209,7 +209,7 @@ void test_conectado_nao_sonda_nem_reinicia() {
 
 // ── tickRestart() ────────────────────────────────────────────────────────────
 
-void test_memoria_critica_exige_checagens_consecutivas() {
+void test_critical_memory_needs_consecutive_checks() {
     W wifi(cfg, logger);
     ESP._heap = 1000;
     unsigned long t = 0;
@@ -219,7 +219,7 @@ void test_memoria_critica_exige_checagens_consecutivas() {
     }
     TEST_ASSERT_FALSE(wifi.restartPending());
 
-    // Recupera: zera o contador
+    // Recovers: resets the counter
     ESP._heap = 50000;
     t += W::MEM_CHECK_INTERVAL;
     wifi.tickRestart(t);
@@ -234,17 +234,17 @@ void test_memoria_critica_exige_checagens_consecutivas() {
     t += W::MEM_CHECK_INTERVAL;
     wifi.tickRestart(t);
     TEST_ASSERT_TRUE(wifi.restartPending());
-    TEST_ASSERT_TRUE(logHas(logger, "Memoria critica"));
+    TEST_ASSERT_TRUE(logHas(logger, "Critical memory"));
 }
 
-void test_memoria_verificada_apenas_no_intervalo() {
+void test_memory_checked_only_on_interval() {
     W wifi(cfg, logger);
     ESP._heap = 1000;
     for (int i = 0; i < 10; i++) wifi.tickRestart(W::MEM_CHECK_INTERVAL);
     TEST_ASSERT_FALSE(wifi.restartPending());
 }
 
-void test_ota_inibe_watchdogs() {
+void test_ota_holds_off_watchdogs() {
     W wifi(cfg, logger);
     wifi.setOTAInProgress(true);
     ESP._heap = 1000;
@@ -253,14 +253,14 @@ void test_ota_inibe_watchdogs() {
     TEST_ASSERT_FALSE(wifi.restartPending());
 }
 
-void test_reinicio_diario() {
+void test_daily_restart() {
     W wifi(cfg, logger);
     wifi.tickRestart(W::DAILY_RESTART + 1);
     TEST_ASSERT_TRUE(wifi.restartPending());
-    TEST_ASSERT_TRUE(logHas(logger, "Reinicio diario"));
+    TEST_ASSERT_TRUE(logHas(logger, "Daily restart"));
 }
 
-void test_restart_executa_apos_atraso() {
+void test_restart_runs_after_delay() {
     W wifi(cfg, logger);
     setMillis(1000);
     wifi.scheduleRestart(500);
@@ -270,7 +270,7 @@ void test_restart_executa_apos_atraso() {
     TEST_ASSERT_EQUAL(1, ESP._restarts);
 }
 
-void test_schedule_restart_ignora_segundo_pedido() {
+void test_schedule_restart_ignores_second_request() {
     W wifi(cfg, logger);
     setMillis(0);
     wifi.scheduleRestart(100);
@@ -279,14 +279,14 @@ void test_schedule_restart_ignora_segundo_pedido() {
     TEST_ASSERT_EQUAL(1, ESP._restarts);
 }
 
-void test_is_connected_reflete_status() {
+void test_is_connected_reflects_status() {
     W wifi(cfg, logger);
     TEST_ASSERT_TRUE(wifi.isConnected());
     WiFi._status = WL_DISCONNECTED;
     TEST_ASSERT_FALSE(wifi.isConnected());
 }
 
-// ── Senha do AP de configuração ──────────────────────────────────────────────
+// ── Setup AP password ────────────────────────────────────────────────────────
 
 static bool apKeyValid(const std::string& k) {
     if (k.size() != W::AP_KEY_LEN) return false;
@@ -295,7 +295,7 @@ static bool apKeyValid(const std::string& k) {
     return true;
 }
 
-void test_senha_do_ap_sorteada_e_guardada() {
+void test_ap_password_drawn_and_saved() {
     cfg.ssid = "";
     W wifi(cfg, logger);
     wifi.begin();
@@ -303,30 +303,30 @@ void test_senha_do_ap_sorteada_e_guardada() {
     TEST_ASSERT_TRUE(apKeyValid(pass));
     TEST_ASSERT_NOT_EQUAL(0, pass.compare("esp8266dns"));
     TEST_ASSERT_EQUAL_STRING(pass.c_str(), MockFS::files[W::AP_KEY_PATH].c_str());
-    TEST_ASSERT_TRUE(logHas(logger, "AP: senha nova gerada"));
-    TEST_ASSERT_FALSE(logHas(logger, pass.c_str()));          // fora do log do painel
-    TEST_ASSERT_EQUAL_STRING(("AP " AP_SSID ", senha: " + pass + "\n").c_str(), Serial.last.c_str());
+    TEST_ASSERT_TRUE(logHas(logger, "AP: new password generated"));
+    TEST_ASSERT_FALSE(logHas(logger, pass.c_str()));          // kept out of the panel log
+    TEST_ASSERT_EQUAL_STRING(("AP " AP_SSID ", password: " + pass + "\n").c_str(), Serial.last.c_str());
 
-    // Próximo boot: a mesma senha, sem sortear de novo
+    // Next boot: the same password, without drawing again
     logger = Logger();
     W again(cfg, logger);
     again.begin();
     TEST_ASSERT_EQUAL_STRING(pass.c_str(), WiFi.apPass.c_str());
-    TEST_ASSERT_FALSE(logHas(logger, "senha nova"));
+    TEST_ASSERT_FALSE(logHas(logger, "new password"));
 }
 
-void test_senha_do_ap_muda_entre_aparelhos() {
+void test_ap_password_differs_between_devices() {
     W a(cfg, logger);
     std::string first = a.apPassword();
     MockFS::reset();
-    ESP.random();                                             // outro estado do RNG
+    ESP.random();                                             // another RNG state
     W b(cfg, logger);
     TEST_ASSERT_TRUE(apKeyValid(b.apPassword()));
     TEST_ASSERT_NOT_EQUAL(0, first.compare(b.apPassword()));
 }
 
-void test_senha_do_ap_estragada_e_sorteada_de_novo() {
-    const char* bad[] = {"curta", "abcdefghijk", "abcdefghijkmn", "ABCDEFGHJKMN", "abcdefghijk1", "abcdefghijk ", "abcdefghijk{"};
+void test_broken_ap_password_is_drawn_again() {
+    const char* bad[] = {"short", "abcdefghijk", "abcdefghijkmn", "ABCDEFGHJKMN", "abcdefghijk1", "abcdefghijk ", "abcdefghijk{"};
     for (const char* b : bad) {
         MockFS::reset();
         MockFS::put(W::AP_KEY_PATH, b);
@@ -334,26 +334,26 @@ void test_senha_do_ap_estragada_e_sorteada_de_novo() {
         W wifi(cfg, logger);
         std::string pass = wifi.apPassword();
         TEST_ASSERT_TRUE(apKeyValid(pass));
-        TEST_ASSERT_TRUE(logHas(logger, "AP: senha nova gerada"));
+        TEST_ASSERT_TRUE(logHas(logger, "AP: new password generated"));
         TEST_ASSERT_EQUAL_STRING(pass.c_str(), MockFS::files[W::AP_KEY_PATH].c_str());
     }
-    // Válida: fica como está
+    // Valid: stays as is
     MockFS::reset();
     MockFS::put(W::AP_KEY_PATH, "abcd2345wxyz");
     W ok(cfg, logger);
     TEST_ASSERT_EQUAL_STRING("abcd2345wxyz", ok.apPassword());
 }
 
-void test_senha_do_ap_sem_gravar_vale_no_boot() {
+void test_unsaved_ap_password_lasts_the_boot() {
     MockFS::failWriteOpen = true;
     W wifi(cfg, logger);
     std::string pass = wifi.apPassword();
     TEST_ASSERT_TRUE(apKeyValid(pass));
-    TEST_ASSERT_TRUE(logHas(logger, "AP: senha nao gravada"));
-    TEST_ASSERT_EQUAL_STRING(pass.c_str(), wifi.apPassword());   // a mesma no boot inteiro
+    TEST_ASSERT_TRUE(logHas(logger, "AP: password not saved"));
+    TEST_ASSERT_EQUAL_STRING(pass.c_str(), wifi.apPassword());   // the same for the whole boot
 }
 
-void test_senha_do_ap_repetida_na_serial() {
+void test_ap_password_repeated_on_serial() {
     cfg.ssid = "";
     W wifi(cfg, logger);
     wifi.begin();
@@ -362,38 +362,38 @@ void test_senha_do_ap_repetida_na_serial() {
     TEST_ASSERT_EQUAL(calls, Serial.printfCalls);
     wifi.tick(W::AP_ANNOUNCE_MS);
     TEST_ASSERT_EQUAL(calls + 1, Serial.printfCalls);
-    TEST_ASSERT_TRUE(contains(Serial.last, "senha: "));
+    TEST_ASSERT_TRUE(contains(Serial.last, "password: "));
     wifi.tick(W::AP_ANNOUNCE_MS + 1);
     TEST_ASSERT_EQUAL(calls + 1, Serial.printfCalls);
 }
 
 int main() {
     UNITY_BEGIN();
-    RUN_TEST(test_sem_ssid_inicia_ap_protegido);
-    RUN_TEST(test_conecta_em_modo_estacao);
-    RUN_TEST(test_hostname_antes_de_conectar);
-    RUN_TEST(test_begin_nao_bloqueia);
-    RUN_TEST(test_falha_inicia_ap_e_estacao);
-    RUN_TEST(test_got_ip_sai_do_modo_configuracao);
-    RUN_TEST(test_got_ip_em_modo_estacao_nao_muda_modo);
-    RUN_TEST(test_got_ip_zera_falhas);
-    RUN_TEST(test_evento_desconectado_registra_log);
-    RUN_TEST(test_modo_configuracao_nao_derruba_ap);
-    RUN_TEST(test_reconecta_quando_desconectado);
-    RUN_TEST(test_nao_inicia_reconexao_duplicada);
-    RUN_TEST(test_desconexao_prolongada_agenda_restart);
-    RUN_TEST(test_conectado_nao_sonda_nem_reinicia);
-    RUN_TEST(test_memoria_critica_exige_checagens_consecutivas);
-    RUN_TEST(test_memoria_verificada_apenas_no_intervalo);
-    RUN_TEST(test_ota_inibe_watchdogs);
-    RUN_TEST(test_reinicio_diario);
-    RUN_TEST(test_restart_executa_apos_atraso);
-    RUN_TEST(test_schedule_restart_ignora_segundo_pedido);
-    RUN_TEST(test_is_connected_reflete_status);
-    RUN_TEST(test_senha_do_ap_sorteada_e_guardada);
-    RUN_TEST(test_senha_do_ap_muda_entre_aparelhos);
-    RUN_TEST(test_senha_do_ap_estragada_e_sorteada_de_novo);
-    RUN_TEST(test_senha_do_ap_sem_gravar_vale_no_boot);
-    RUN_TEST(test_senha_do_ap_repetida_na_serial);
+    RUN_TEST(test_without_ssid_starts_protected_ap);
+    RUN_TEST(test_connects_in_station_mode);
+    RUN_TEST(test_hostname_before_connecting);
+    RUN_TEST(test_begin_does_not_block);
+    RUN_TEST(test_failure_starts_ap_and_station);
+    RUN_TEST(test_got_ip_leaves_setup_mode);
+    RUN_TEST(test_got_ip_in_station_mode_keeps_mode);
+    RUN_TEST(test_got_ip_resets_failures);
+    RUN_TEST(test_disconnected_event_logs);
+    RUN_TEST(test_setup_mode_keeps_ap);
+    RUN_TEST(test_reconnects_when_disconnected);
+    RUN_TEST(test_does_not_start_duplicate_reconnection);
+    RUN_TEST(test_long_disconnection_schedules_restart);
+    RUN_TEST(test_connected_neither_probes_nor_restarts);
+    RUN_TEST(test_critical_memory_needs_consecutive_checks);
+    RUN_TEST(test_memory_checked_only_on_interval);
+    RUN_TEST(test_ota_holds_off_watchdogs);
+    RUN_TEST(test_daily_restart);
+    RUN_TEST(test_restart_runs_after_delay);
+    RUN_TEST(test_schedule_restart_ignores_second_request);
+    RUN_TEST(test_is_connected_reflects_status);
+    RUN_TEST(test_ap_password_drawn_and_saved);
+    RUN_TEST(test_ap_password_differs_between_devices);
+    RUN_TEST(test_broken_ap_password_is_drawn_again);
+    RUN_TEST(test_unsaved_ap_password_lasts_the_boot);
+    RUN_TEST(test_ap_password_repeated_on_serial);
     return UNITY_END();
 }

@@ -10,52 +10,52 @@
 #include "IoTCatalog.h"
 #include "IoTState.h"
 
-// /config.json com versão ("v"). Ao carregar, uma versão antiga passa
-// pelas migrações em sequência até a atual, o arquivo original fica em
-// /config.v1.json e o novo é gravado. Campo que falta recebe o padrão;
-// campo desconhecido é ignorado. Arquivo de versão mais nova (OTA que
-// voltou atrás) é lido no que se conhece e não é regravado sozinho: um
-// identificador de tipo desconhecido fica guardado como está.
+// /config.json with a version ("v"). On load, an old version goes
+// through the migrations in order up to the current one, the original file
+// is kept in /config.v1.json and the new one is written. A missing field
+// gets its default; an unknown field is ignored. A file from a newer
+// version (an OTA that went back) is read as far as it is understood and
+// is not rewritten on its own: an unknown type identifier stays as is.
 class ConfigStore {
 public:
     ConfigStore(Config& cfg, Logger& log) : _cfg(cfg), _log(log) {}
 
     static constexpr int    VERSION       = 2;
-    // Folga para o pior caso (todos os campos no tamanho máximo)
+    // Room for the worst case (every field at its maximum size)
     static constexpr size_t JSON_CAPACITY = 3072;
-    // Nada que save() grava chega perto: maior é arquivo estranho
+    // Nothing save() writes comes close: anything bigger is a foreign file
     static constexpr size_t MAX_FILE      = 4096;
 
     bool begin() {
         if (!LittleFS.begin()) {
-            _log.log(PSTR("Falha ao montar LittleFS"));
+            _log.log(PSTR("LittleFS mount failed"));
             return false;
         }
-        _log.log(PSTR("LittleFS inicializado"));
+        _log.log(PSTR("LittleFS ready"));
         return true;
     }
 
     bool load() {
         if (!LittleFS.exists(PATH)) {
-            _log.log(PSTR("config.json nao encontrado"));
+            _log.log(PSTR("config.json not found"));
             return false;
         }
 
         File f = LittleFS.open(PATH, "r");
         if (!f) {
-            _log.log(PSTR("Erro ao abrir config.json"));
+            _log.log(PSTR("Could not open config.json"));
             return false;
         }
 
-        // Lido inteiro e analisado no lugar (char*): o mesmo leitor de JSON
-        // do resto do firmware, e as strings ficam no texto, sem cópia no
-        // documento. O texto vive até o fim do load (o doc aponta para ele).
+        // Read whole and parsed in place (char*): the same JSON reader as the
+        // rest of the firmware, and the strings stay in the text, with no copy
+        // in the document. The text lives until load ends (the doc points to it).
         size_t n = f.size();
         std::unique_ptr<char, void (*)(void*)> text(
             n < MAX_FILE ? (char*)malloc(n + 1) : nullptr, free);
         if (!text) {
             f.close();
-            _log.log(PSTR("config.json ilegivel (%u bytes)"), (unsigned)n);
+            _log.log(PSTR("config.json unreadable (%u bytes)"), (unsigned)n);
             return false;
         }
         text.get()[f.readBytes(text.get(), n)] = '\0';
@@ -65,7 +65,7 @@ public:
         DeserializationError err = deserializeJson(doc, text.get());
 
         if (err) {
-            _log.log(PSTR("Erro JSON: %s"), err.c_str());
+            _log.log(PSTR("JSON error: %s"), err.c_str());
             return false;
         }
 
@@ -90,7 +90,7 @@ public:
         strlcpy(_cfg.cf_zone,    doc["cf_zone"]    | "", sizeof(_cfg.cf_zone));
         strlcpy(_cfg.cf_host,    doc["cf_host"]    | "", sizeof(_cfg.cf_host));
 
-        // Antes eram até 5 IDs em cf_records: fica o primeiro
+        // There used to be up to 5 IDs in cf_records: the first one stays
         const char* rec = doc["cf_record"];
         if (!rec) rec = doc["cf_records"][0] | "";
         strlcpy(_cfg.cf_record, rec, sizeof(_cfg.cf_record));
@@ -98,19 +98,19 @@ public:
         int version = doc["v"] | 1;
         if (version == 1) {
             _migrateV1(doc);
-            _log.log(PSTR("Configuracao migrada para v%d"), VERSION);
+            _log.log(PSTR("Configuration migrated to v%d"), VERSION);
             _backup();
             save();
             return true;
         }
         _loadIoT(doc);
-        if (version > VERSION) _log.log(PSTR("Configuracao v%d, mais nova que o firmware"), version);
-        _log.log(PSTR("Configuracao carregada"));
+        if (version > VERSION) _log.log(PSTR("Configuration v%d, newer than the firmware"), version);
+        _log.log(PSTR("Configuration loaded"));
         return true;
     }
 
-    // Escrita atômica: grava em arquivo temporário e renomeia por cima.
-    // Uma queda de energia no meio da escrita preserva o config anterior.
+    // Atomic write: writes a temporary file and renames it over the old one.
+    // A power cut in the middle of the write keeps the previous config.
     bool save() {
         DynamicJsonDocument doc(JSON_CAPACITY);
 
@@ -166,25 +166,25 @@ public:
         doc["win_end"]       = t.winEnd;
 
         if (doc.overflowed()) {
-            _log.log(PSTR("Config excede capacidade JSON"));
+            _log.log(PSTR("Config exceeds the JSON capacity"));
             return false;
         }
 
         File f = LittleFS.open(TMP_PATH, "w");
         if (!f) {
-            _log.log(PSTR("Erro ao salvar config"));
+            _log.log(PSTR("Could not save config"));
             return false;
         }
         serializeJson(doc, f);
         f.close();
 
         if (!LittleFS.rename(TMP_PATH, PATH)) {
-            _log.log(PSTR("Erro ao substituir config.json"));
+            _log.log(PSTR("Could not replace config.json"));
             LittleFS.remove(TMP_PATH);
             return false;
         }
 
-        _log.log(PSTR("Configuracao salva"));
+        _log.log(PSTR("Configuration saved"));
         return true;
     }
 
@@ -227,9 +227,9 @@ private:
         t.winEnd       = doc["win_end"]       | 0;
     }
 
-    // v1 gravava o tipo pela posição na tabela antiga e só acionava o
-    // módulo com sensor. Sem sensor, o módulo fica desligado também aqui,
-    // senão o pino passaria a ser acionado depois da atualização.
+    // v1 stored the type by its position in the old table and only drove the
+    // module with a sensor. Without a sensor, the module stays off here too,
+    // otherwise the pin would start being driven after the update.
     void _migrateV1(const JsonDocument& doc) {
         IoTConfig& t = _cfg.iot;
         t = IoTConfig{};
@@ -257,7 +257,7 @@ private:
 
         t.actuatorPin = modulePin;
         strlcpy(t.actuator, iot::v1Actuator(doc["iot_module_type"] | 0), sizeof(t.actuator));
-        // "Comando" fixo (1 ligado, 2 desligado) vira o estado manual guardado
+        // A fixed "command" (1 on, 2 off) becomes the saved manual state
         uint8_t manual = doc["iot_manual"] | 0;
         if (manual == 1 || manual == 2) {
             t.restore = true;
@@ -270,9 +270,9 @@ private:
         }
     }
 
-    // Cópia do arquivo original antes da primeira gravação no formato novo
+    // Copy of the original file before the first write in the new format
     void _backup() {
-        File in = LittleFS.open(PATH, "r");  // acabou de ser lido
+        File in = LittleFS.open(PATH, "r");  // just read
         File out = LittleFS.open(BACKUP_PATH, "w");
         if (!out) return;
         char buf[64];

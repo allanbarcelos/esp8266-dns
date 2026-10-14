@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 #pragma once
-// Substitui o Servo.h do core ESP8266 nos testes nativos.
+// Replaces the ESP8266 core's Servo.h in the native tests.
 #include <Arduino.h>
 
 class Servo {

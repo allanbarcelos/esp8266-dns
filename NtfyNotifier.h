@@ -11,22 +11,23 @@
 #include "PublicIPResolver.h"
 #include "IoTService.h"
 
-// ntfy.sh nos dois sentidos.
+// ntfy.sh both ways.
 //
-// Envio (tópico de dados): o IP público no boot e quando muda, e as
-// leituras e mudanças do IoT ([sensor], [atuador]). O IP vem do
-// PublicIPResolver (Config): não depende do Cloudflare. O certificado também é validado aqui: o envio
-// leva o token e os botões levam o tópico de comandos, que um intermediário
-// usaria para acionar o equipamento.
+// Publishing (data topic): the public IP at boot and when it changes, plus
+// the IoT readings and changes ([sensor], [actuator]). The IP comes from
+// PublicIPResolver (Config): it does not depend on Cloudflare. The
+// certificate is validated here too: the post carries the token and the
+// buttons carry the command topic, which a man in the middle could use to
+// drive the equipment.
 //
-// Comandos (tópico de comandos, opcional): uma assinatura contínua
-// (GET /<tópico>/json) entrega cada mensagem na hora, e ela vira um
-// comando do atuador, com o mesmo texto do painel e da API. O ESP-01 só
-// tem memória para uma sessão TLS: antes de um envio, ou quando o DNS ou
-// o OTA vão usar a rede (hold), o fluxo fecha; ao reabrir pede
-// since=<último id>, e o ntfy (que guarda as mensagens por 12 h) entrega
-// o que chegou no intervalo. O certificado do ntfy.sh é validado: um
-// comando forjado no caminho ligaria o equipamento.
+// Commands (command topic, optional): a continuous subscription
+// (GET /<topic>/json) delivers each message right away, and it becomes an
+// actuator command, with the same text as the panel and the API. The ESP-01
+// only has memory for one TLS session: before a post, or when DNS or OTA
+// will use the network (hold), the stream closes; on reopening it asks for
+// since=<last id>, and ntfy (which keeps messages for 12 h) delivers what
+// arrived meanwhile. The ntfy.sh certificate is validated: a command forged
+// on the way would turn the equipment on.
 class NtfyNotifier {
 public:
     NtfyNotifier(Config& cfg, Logger& log, Clock& clock, IoTService* iot = nullptr)
@@ -41,27 +42,27 @@ public:
 
     void tick(unsigned long now) {
         if (_postDue(now)) {
-            _closeStream();   // uma sessão TLS por vez
+            _closeStream();   // one TLS session at a time
             _publish(now);
             return;
         }
         _tickStream(now);
     }
 
-    // DNS ou OTA vão usar TLS: o fluxo fecha e libera a heap
+    // DNS or OTA will use TLS: the stream closes and frees the heap
     void hold(bool on) {
         _held = on;
         if (on) _closeStream();
     }
 
-    // Situação dos comandos, para o painel
+    // Command stream state, for the panel
     const char* commandStatus() const {
-        if (!_wantStream()) return "desligado";
-        if (_state == ST_BODY) return "conectado";
-        return _held ? "pausado" : "conectando";
+        if (!_wantStream()) return "off";
+        if (_state == ST_BODY) return "connected";
+        return _held ? "paused" : "connecting";
     }
 
-    // Tópicos ntfy: 1–64 caracteres [A-Za-z0-9_-]
+    // ntfy topics: 1–64 characters [A-Za-z0-9_-]
     static bool isValidTopic(const String& topic) {
         if (topic.length() == 0 || topic.length() >= sizeof(Config::ntfy_topic)) return false;
         for (size_t i = 0; i < topic.length(); i++) {
@@ -71,13 +72,13 @@ public:
         return true;
     }
 
-    static constexpr unsigned long RETRY_INTERVAL = 60000UL;  // IP e leituras periódicas
-    static constexpr unsigned long POST_GAP       = 5000UL;   // eventos (limite do ntfy.sh)
+    static constexpr unsigned long RETRY_INTERVAL = 60000UL;  // IP and periodic readings
+    static constexpr unsigned long POST_GAP       = 5000UL;   // events (ntfy.sh rate limit)
     static constexpr unsigned long CONNECT_MS     = 5000UL;
-    static constexpr unsigned long IDLE_TIMEOUT   = 120000UL; // keepalive do ntfy: 45 s
+    static constexpr unsigned long IDLE_TIMEOUT   = 120000UL; // ntfy keepalive: 45 s
     static constexpr unsigned long RECONNECT_MS   = 2000UL;
     static constexpr uint16_t      BACKOFF_MAX_S  = 300;
-    static constexpr long          STALE_S        = 600;      // comando velho não vale
+    static constexpr long          STALE_S        = 600;      // an old command does not count
     static constexpr size_t        LINE_LEN       = 256;
 
 private:
@@ -91,7 +92,7 @@ private:
     bool          _attempted;
     char          _reply[IoTService::MSG_LEN];
 
-    // Fluxo de comandos
+    // Command stream
     enum : uint8_t { ST_IDLE, ST_STATUS, ST_HEADERS, ST_BODY };
     TlsClient          _tls;
     BearSSL::X509List* _trust = nullptr;
@@ -108,8 +109,8 @@ private:
 
     // ── Envio ────────────────────────────────────────────────────────────────
 
-    // Evento (resposta a comando, mudança de estado) sai em segundos; IP e
-    // leitura periódica, a cada minuto
+    // An event (command reply, state change) goes out in seconds; the IP and
+    // periodic readings, every minute
     bool _postDue(unsigned long now) const {
         if (_cfg.ntfy_topic[0] == '\0') return false;
         if (!_attempted) return true;
@@ -132,7 +133,7 @@ private:
             return;
         }
 
-        // IP do PublicIPResolver: vai ao tópico no boot e quando muda
+        // IP from PublicIPResolver: goes to the topic at boot and when it changes
         const char* ip = _cfg.publicIP;
         if (!ip[0] || strcmp(ip, _lastSent) == 0) return;
 
@@ -144,11 +145,11 @@ private:
 
     bool _post(const char* body, bool actions = false) {
         if (!PublicIPResolver::memoryOk()) {
-            _log.log(PSTR("ntfy: memoria insuficiente"));
+            _log.log(PSTR("ntfy: not enough memory"));
             return false;
         }
         if (!_clock.synced()) {
-            _log.log(PSTR("ntfy: relogio nao sincronizado"));
+            _log.log(PSTR("ntfy: clock not synchronized"));
             return false;
         }
         BearSSL::X509List trust;
@@ -157,7 +158,7 @@ private:
         client.setTrustAnchors(&trust);
         client.setX509Time(_clock.now());
         if (!client.prepare(5000)) {
-            _log.log(PSTR("ntfy: TLS indisponivel"));
+            _log.log(PSTR("ntfy: TLS unavailable"));
             return false;
         }
         HTTPClient http;
@@ -167,7 +168,7 @@ private:
         url += _cfg.ntfy_topic;
 
         if (!http.begin(client, url)) {
-            _log.log(PSTR("ntfy: falha ao conectar"));
+            _log.log(PSTR("ntfy: connection failed"));
             return false;
         }
 
@@ -182,38 +183,38 @@ private:
         http.end();
 
         if (code >= 200 && code < 300) {
-            _log.log(PSTR("ntfy enviado (%d)"), code);
+            _log.log(PSTR("ntfy sent (%d)"), code);
             return true;
         }
-        _log.log(PSTR("ntfy erro: %d"), code);
+        _log.log(PSTR("ntfy error: %d"), code);
         return false;
     }
 
-    // Botões na notificação do celular: cada um publica um comando no tópico
-    // de comandos (com o token, se houver). No máximo três, pelo que o
-    // atuador faz; com a regra, o terceiro volta ao automático.
+    // Buttons on the phone notification: each one publishes a command to the
+    // command topic (with the token, if any). At most three, by what the
+    // actuator does; with the rule, the third goes back to automatic.
     void _actions(HTTPClient& http) {
         if (!_cfg.ntfy_cmd[0] || !_iot->hasActuator()) return;
         const iot::ActuatorDef* a = _iot->actuatorDef();
         char pulse[12];
-        snprintf(pulse, sizeof(pulse), "pulso %u", a->pulse);
+        snprintf(pulse, sizeof(pulse), "pulse %u", a->pulse);
         const char* labels[3];
         const char* bodies[3];
         switch (a->cap) {
             case iot::C_LEVEL:
-                labels[0] = "Desligar"; bodies[0] = "desligar";
-                labels[1] = "50%";      bodies[1] = "50%";
-                labels[2] = "100%";     bodies[2] = "100%";
+                labels[0] = "Off";   bodies[0] = "off";
+                labels[1] = "50%";   bodies[1] = "50%";
+                labels[2] = "100%";  bodies[2] = "100%";
                 break;
             case iot::C_POSITION:
-                labels[0] = "Abrir";    bodies[0] = "abrir";
-                labels[1] = "Fechar";   bodies[1] = "fechar";
-                labels[2] = "Pulso";    bodies[2] = pulse;
+                labels[0] = "Open";  bodies[0] = "open";
+                labels[1] = "Close"; bodies[1] = "close";
+                labels[2] = "Pulse"; bodies[2] = pulse;
                 break;
-            default: // liga/desliga e cor
-                labels[0] = "Ligar";    bodies[0] = "ligar";
-                labels[1] = "Desligar"; bodies[1] = "desligar";
-                labels[2] = "Pulso";    bodies[2] = pulse;
+            default: // on/off and color
+                labels[0] = "On";    bodies[0] = "on";
+                labels[1] = "Off";   bodies[1] = "off";
+                labels[2] = "Pulse"; bodies[2] = pulse;
                 break;
         }
         if (_iot->hasRule()) {
@@ -238,7 +239,7 @@ private:
         http.addHeader("Actions", out);
     }
 
-    // ── Comandos ─────────────────────────────────────────────────────────────
+    // ── Commands ─────────────────────────────────────────────────────────────
 
     bool _wantStream() const {
         return _iot && _iot->hasActuator() && _cfg.ntfy_cmd[0];
@@ -254,30 +255,30 @@ private:
             _connect(now);
             return;
         }
-        // Lê o que chegou sem esperar: no máximo uma linha cheia por tick
+        // Reads what arrived without waiting: at most one full line per tick
         for (size_t i = 0; i < LINE_LEN && _tls.available() > 0; i++) {
             _lastData = now;
             _feed((char)_tls.read(), now);
             if (_state == ST_IDLE) return;
         }
         if (!_tls.connected()) {
-            _log.log(PSTR("ntfy: fluxo de comandos encerrado"));
+            _log.log(PSTR("ntfy: command stream closed"));
             _drop(now, RECONNECT_MS);
             return;
         }
         if (now - _lastData > IDLE_TIMEOUT) {
-            _log.log(PSTR("ntfy: fluxo de comandos parado"));
+            _log.log(PSTR("ntfy: command stream stalled"));
             _drop(now, RECONNECT_MS);
         }
     }
 
     void _connect(unsigned long now) {
         if (!_clock.synced()) {
-            _retry(now, RECONNECT_MS);   // o certificado pede relógio certo
+            _retry(now, RECONNECT_MS);   // the certificate needs a correct clock
             return;
         }
         if (!PublicIPResolver::memoryOk()) {
-            _log.log(PSTR("ntfy: memoria insuficiente para comandos"));
+            _log.log(PSTR("ntfy: not enough memory for commands"));
             _fail(now);
             return;
         }
@@ -286,11 +287,11 @@ private:
         _tls.setTrustAnchors(_trust);
         _tls.setX509Time(_clock.now());
         if (!_tls.prepare(CONNECT_MS) || !_tls.connect("ntfy.sh", 443)) {
-            _log.log(PSTR("ntfy: sem conexao para comandos"));
+            _log.log(PSTR("ntfy: no connection for commands"));
             _fail(now);
             return;
         }
-        // HTTP/1.0: o servidor manda o fluxo direto, sem chunked
+        // HTTP/1.0: the server sends the stream directly, not chunked
         char req[200];
         snprintf(req, sizeof(req), "GET /%s/json%s%s HTTP/1.0\r\nHost: ntfy.sh\r\n"
                  "User-Agent: ESP8266\r\n", _cfg.ntfy_cmd,
@@ -311,7 +312,7 @@ private:
         if (c == '\r') return;
         if (c != '\n') {
             if (_len < LINE_LEN - 1) _line[_len++] = c;
-            else _overflow = true;   // linha longa (anexo, título): ignorada
+            else _overflow = true;   // long line (attachment, title): ignored
             return;
         }
         _line[_len] = '\0';
@@ -324,7 +325,7 @@ private:
             const char* sp = strchr(_line, ' ');
             int code = sp ? atoi(sp + 1) : 0;
             if (code != 200) {
-                _log.log(PSTR("ntfy: comandos HTTP %d"), code);
+                _log.log(PSTR("ntfy: commands HTTP %d"), code);
                 _fail(now);
                 return;
             }
@@ -333,7 +334,7 @@ private:
             if (_line[0] == '\0') {
                 _state = ST_BODY;
                 _backoff = 5;
-                _log.log(PSTR("ntfy: comandos conectados"));
+                _log.log(PSTR("ntfy: commands connected"));
             }
         } else {
             _onEvent(now);
@@ -349,15 +350,15 @@ private:
         const char* msg = doc["message"] | "";
         long age = (long)(_clock.now() - (time_t)(doc["time"] | 0L));
         if (age > STALE_S) {
-            _log.log(PSTR("ntfy: comando antigo ignorado"));
+            _log.log(PSTR("ntfy: old command ignored"));
             return;
         }
         uint8_t r = _iot->command(msg, now);
-        _log.log(PSTR("ntfy: comando \"%.32s\""), msg);
+        _log.log(PSTR("ntfy: command \"%.32s\""), msg);
         if (r == IoTService::OK) return;
-        const char* why = r == IoTService::INVALID ? "comando invalido"
-                        : "comando nao vale para este atuador";
-        snprintf(_reply, sizeof(_reply), "[erro] %s: %.32s", why, msg);
+        const char* why = r == IoTService::INVALID ? "invalid command"
+                        : "command not valid for this actuator";
+        snprintf(_reply, sizeof(_reply), "[error] %s: %.32s", why, msg);
         _log.log(PSTR("ntfy: %s"), _reply);
     }
 
@@ -371,14 +372,14 @@ private:
         _retry(now, ms);
     }
 
-    // Falha seguida espera cada vez mais (5 s até 5 min)
+    // Repeated failures wait longer each time (5 s up to 5 min)
     void _fail(unsigned long now) {
         _drop(now, (unsigned long)_backoff * 1000UL);
         _backoff = _backoff * 2 > BACKOFF_MAX_S ? BACKOFF_MAX_S : (uint16_t)(_backoff * 2);
     }
 
     void _closeStream() {
-        if (_trust) _tls.stop();   // só há sessão depois de alocar as raízes
+        if (_trust) _tls.stop();   // there is only a session after the roots are allocated
         delete _trust;
         _trust = nullptr;
         _state = ST_IDLE;

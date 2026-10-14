@@ -28,7 +28,7 @@ struct FSInfo {
     size_t usedBytes  = 8192;
 };
 
-// ── Arquivo mock com interface de leitura (Stream) e escrita (Print) ──────────
+// ── Mock file with read (Stream) and write (Print) interfaces ─────────────────
 class File {
 public:
     File() : _valid(false) {}
@@ -39,7 +39,7 @@ public:
 
     size_t size() const { return _data.size(); }
 
-    // Leitura (deserializeJson)
+    // Reading (deserializeJson)
     int read() { return (!_writing && _pos < _data.size()) ? (uint8_t)_data[_pos++] : -1; }
     size_t readBytes(char* buf, size_t n) {
         size_t k = std::min(n, _data.size() - _pos);
@@ -48,7 +48,7 @@ public:
         return k;
     }
 
-    // Escrita (serializeJson)
+    // Writing (serializeJson)
     size_t write(uint8_t c)                  { _data += (char)c; return 1; }
     size_t write(const uint8_t* b, size_t n) { _data.append((const char*)b, n); return n; }
 

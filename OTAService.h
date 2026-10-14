@@ -14,38 +14,38 @@
 #include "WiFiService.h"
 #include "PublicIPResolver.h"
 
-// Atualização OTA a partir dos GitHub Releases.
+// OTA update from GitHub Releases.
 //
-// O transporte usa TLS sem validação de certificado. O arquivo baixado
-// depende de o build embutir public.key:
-//   - com a chave, firmware.signed.bin; Update.end() confere a assinatura
-//     RSA-2048/SHA-256 e grava só o gzip;
-//   - sem a chave, firmware.bin (gzip puro).
-// O eboot lê o tamanho descomprimido nos 4 últimos bytes. No arquivo
-// assinado esses bytes são o tamanho da assinatura. Gravá-lo sem remover
-// o trailer faz o bootloader copiar a imagem errada. Versões mais antigas
-// que a atual são ignoradas, impedindo downgrade.
+// The transport uses TLS without certificate validation. The downloaded file
+// depends on whether the build embeds public.key:
+//   - with the key, firmware.signed.bin; Update.end() checks the
+//     RSA-2048/SHA-256 signature and writes only the gzip;
+//   - without the key, firmware.bin (plain gzip).
+// eboot reads the uncompressed size from the last 4 bytes. In the signed
+// file those bytes are the signature length. Writing it without removing the
+// trailer makes the bootloader copy the wrong image. Versions older than the
+// current one are ignored, which prevents downgrades.
 //
-// A imagem é comprimida com gzip (o eboot descomprime no boot): sem isso,
-// atual + nova não cabem juntas nos ~940 KB de área de sketch de 1 MB.
-// O linker (ld/eagle.flash.1m64.ota.ld) deixa 400 KB antes do FS fora do
-// IROM; o sketch nunca ocupa essa reserva.
+// The image is gzip-compressed (eboot decompresses it at boot): without
+// that, current + new do not fit together in the ~940 KB sketch area of 1 MB.
+// The linker (ld/eagle.flash.1m64.ota.ld) leaves 400 KB before the FS
+// outside IROM; the sketch never takes that reserve.
 //
-// GitHub não negocia MFLN. O buffer TLS de 4 KB usado no Cloudflare
-// não cabe o registro TLS de 16 KB: o download trava ou cai. A sessão
-// com o GitHub usa 16 KB. Consulta e download compartilham um TlsClient
-// e HTTP cru: HTTPClient + ArduinoJson + Location/cookies em String, em
-// cima dos 16 KB de TLS, geravam OOM (Exception 29 no contexto SYS).
-// O nome do header cabe em 32 bytes; o Location do asset (~1 KB) é
-// malloc só durante os redirects e libertado antes do Update.begin.
-// 302 fecha a sessão e abre outra no CDN (MFLN 4 KB se o CDN aceitar).
-// Falha transitória retenta com backoff; se a heap não der, grava
-// /ota.pending e reinicia em modo recuperação. O contador do pedido sobe
-// já ao retomá-lo: um travamento (OOM no TLS) também gasta um boot.
-// Imagem rejeitada por Update.end() não melhora com nova tentativa: a
-// versão fica marcada em /ota.rejected (sobrevive ao reinício: sem
-// heap no painel, a consulta roda em recuperação) e só uma instalação
-// manual a baixa de novo.
+// GitHub does not negotiate MFLN. The 4 KB TLS buffer used for Cloudflare
+// cannot hold a 16 KB TLS record: the download stalls or drops. The GitHub
+// session uses 16 KB. The check and the download share one TlsClient and raw
+// HTTP: HTTPClient + ArduinoJson + Location/cookies in String, on top of the
+// 16 KB of TLS, caused OOM (Exception 29 in the SYS context). The header
+// name fits in 32 bytes; the asset Location (~1 KB) is malloc'ed only during
+// the redirects and freed before Update.begin. A 302 closes the session and
+// opens another one at the CDN (MFLN 4 KB if the CDN accepts it). A
+// transient failure retries with backoff; if the heap is short, it writes
+// /ota.pending and restarts in recovery mode. The request counter goes up as
+// soon as it resumes: a crash (OOM in TLS) also spends a boot. An image
+// rejected by Update.end() does not get better on retry: the version is
+// marked in /ota.rejected (it survives the restart: without heap for the
+// panel, the check runs in recovery) and only a manual install downloads it
+// again.
 class OTAService {
 public:
     OTAService(Logger& log, WiFiService& wifi) : _log(log), _wifi(wifi) {}
@@ -54,11 +54,11 @@ public:
     bool automatic() const { return _automatic; }
     bool slim()      const { return _slim; }
     bool busy()      const {
-        // _nextRetry só fica != 0 junto com _wantCheck/_wantInstall
+        // _nextRetry is only != 0 together with _wantCheck/_wantInstall
         return _active() || _wantCheck || _wantInstall;
     }
 
-    // Consulta ou download agora ou no próximo tick (o ntfy solta o TLS)
+    // Check or download now or on the next tick (ntfy releases TLS)
     bool wantsNet(unsigned long now) const {
         if (busy()) return true;
         if (!_automatic || now >= DEADLINE) return false;
@@ -71,13 +71,13 @@ public:
         _loadPending();
     }
 
-    // O POST só arma o pedido; o tick executa.
+    // The POST only arms the request; the tick runs it.
     void requestCheck() {
         if (_active() || _wantCheck) return;
         _wantInstall = false;
         _nextRetry = 0;
         _wantCheck = true;
-        _note(Report::Checking, PSTR("Consultando o GitHub..."));
+        _note(Report::Checking, PSTR("Checking GitHub..."));
     }
 
     void requestInstall() {
@@ -85,7 +85,7 @@ public:
         _wantCheck = false;
         _nextRetry = 0;
         _wantInstall = true;
-        _note(Report::Available, PSTR("Baixando %s..."), _available);
+        _note(Report::Available, PSTR("Downloading %s..."), _available);
     }
 
     enum class Report : uint8_t { None, Checking, UpToDate, Available, Failed };
@@ -118,7 +118,7 @@ public:
         if (_wantCheck) {
             _wantCheck = false;
             _nextRetry = 0;
-            // Recuperação: a consulta existe para concluir o OTA, sem painel.
+            // Recovery: the check exists to finish the OTA, with no panel.
             _checkNow(now, _slim);
             return;
         }
@@ -134,7 +134,7 @@ public:
         _checkNow(now, true);
     }
 
-    // Tags no formato "vN". Build local ("dev") aceita qualquer tag válida.
+    // Tags in the "vN" format. A local build ("dev") accepts any valid tag.
     static bool isNewer(const char* latest, const char* current) {
         long l = parseTag(latest);
         if (l < 0) return false;
@@ -142,10 +142,10 @@ public:
         return c < 0 || l > c;
     }
 
-    // Com public.key o Updater remove a assinatura. Sem ela, o gzip puro
-    // é o único arquivo cujo final o eboot interpreta como tamanho.
-    // ARDUINO_SIGNING vem do build. Não incluir Updater_Signing.h: o do
-    // core redefine a macro como 0 e apagaria a escolha do asset.
+    // With public.key the Updater strips the signature. Without it, the
+    // plain gzip is the only file whose ending eboot reads as the size.
+    // ARDUINO_SIGNING comes from the build. Do not include Updater_Signing.h:
+    // the core's redefines the macro as 0 and would erase the asset choice.
     static const char* assetName(bool signing) {
         return signing ? "firmware.signed.bin" : "firmware.bin";
     }
@@ -158,7 +158,7 @@ public:
 #endif
     }
 
-    // "v42" → 42; qualquer outro formato → -1
+    // "v42" → 42; any other format → -1
     static long parseTag(const char* tag) {
         if (!tag || tag[0] != 'v' || tag[1] == '\0') return -1;
         long n = 0;
@@ -178,11 +178,11 @@ public:
         return (int)(_written * 100UL / (size_t)_contentLength);
     }
 
-    static constexpr unsigned long FIRST_CHECK    = 20000UL;    // 1ª consulta após o boot
-    static constexpr unsigned long CHECK_INTERVAL = 3600000UL;  // 1 hora
+    static constexpr unsigned long FIRST_CHECK    = 20000UL;    // first check after boot
+    static constexpr unsigned long CHECK_INTERVAL = 3600000UL;  // 1 hour
     static constexpr unsigned long DEADLINE       = 82800000UL; // ~23 h
-    static constexpr unsigned long STALL_TIMEOUT  = 60000UL;    // sem dados por 60 s
-    static constexpr unsigned long READ_TIMEOUT   = 15000UL;    // resposta HTTP parada
+    static constexpr unsigned long STALL_TIMEOUT  = 60000UL;    // no data for 60 s
+    static constexpr unsigned long READ_TIMEOUT   = 15000UL;    // HTTP response stalled
     static constexpr unsigned long RETRY_MS       = 10000UL;
     static constexpr unsigned long RETRY_MAX_MS   = 20000UL;
     static constexpr uint8_t       MAX_TRIES      = 4;
@@ -190,13 +190,13 @@ public:
     static constexpr uint8_t       MAX_REDIRECTS  = 5;
     static constexpr uint16_t      GITHUB_RX      = 16384;
     static constexpr uint16_t      GITHUB_TX      = 512;
-    // Exception(29)/StoreProhibited em hardware real com heap 22648/bloco
-    // 22296: o guard passava, mas a alocação real do BearSSL (dentro do
-    // connect(), depois da resolução DNS) ainda não cabia. 24000/19000 é a
-    // margem que esta placa precisa para não entrar em connect() nesse caso.
+    // Exception(29)/StoreProhibited on real hardware with heap 22648/block
+    // 22296: the guard passed, but BearSSL's real allocation (inside
+    // connect(), after DNS resolution) still did not fit. 24000/19000 is the
+    // margin this board needs so it does not enter connect() in that case.
     static constexpr uint32_t      GITHUB_HEAP    = 24000;  // 16 KB TLS + BearSSL + path
     static constexpr uint32_t      GITHUB_BLOCK   = 19000;
-    static constexpr uint32_t      TLS_TAIL       = 2048;   // após o buffer RX
+    static constexpr uint32_t      TLS_TAIL       = 2048;   // after the RX buffer
     static constexpr size_t        OTA_HOST_CAP   = 80;
     static constexpr size_t        OTA_PATH_CAP   = 1280;
     static constexpr const char*   PENDING_PATH   = "/ota.pending";
@@ -240,8 +240,8 @@ private:
         uint32_t block = ESP.getMaxFreeBlockSize();
         _log.log(PSTR("OTA heap %u block %u"), heap, block);
         if (heap >= GITHUB_HEAP && block >= GITHUB_BLOCK) return true;
-        _note(Report::Failed, PSTR("Memoria insuficiente"));
-        _log.log(PSTR("OTA: memoria insuficiente"));
+        _note(Report::Failed, PSTR("Not enough memory"));
+        _log.log(PSTR("OTA: not enough memory"));
         return false;
     }
 
@@ -250,13 +250,14 @@ private:
         _persistAndReboot();
     }
 
-    // ── Rede sem bloquear ─────────────────────────────────────────────────────
-    // O connect() do TLS ainda bloqueia (BearSSL não tem handshake
-    // assíncrono), mas a espera pela resposta não: cada tick consome só os
-    // bytes que já chegaram e devolve o loop (painel, IoT). A resposta é
-    // lida por parsers incrementais; READ_TIMEOUT sem dados encerra.
+    // ── Non-blocking network ──────────────────────────────────────────────────
+    // The TLS connect() still blocks (BearSSL has no asynchronous
+    // handshake), but waiting for the response does not: each tick consumes
+    // only the bytes that already arrived and hands back the loop (panel,
+    // IoT). The response is read by incremental parsers; READ_TIMEOUT with no
+    // data ends it.
 
-    // Cabeçalho HTTP byte a byte. location, quando não nulo, tem cap > 0.
+    // HTTP header byte by byte. location, when not null, has cap > 0.
     struct HeaderParser {
         enum Stage : uint8_t { STATUS, NAME, VALUE_WS, VALUE };
         Stage  stage;
@@ -279,7 +280,7 @@ private:
             if (location) location[0] = '\0';
         }
 
-        // 1: cabeçalho completo; 0: precisa de mais; -1: resposta inválida
+        // 1: header complete; 0: needs more; -1: invalid response
         int feed(char ch) {
             if (stage == VALUE_WS) {
                 if (ch == ' ' || ch == '\t') return 0;
@@ -334,7 +335,7 @@ private:
         }
     };
 
-    // "tag_name": "<valor>" byte a byte, sem guardar o JSON
+    // "tag_name": "<value>" byte by byte, without keeping the JSON
     struct TagParser {
         enum Stage : uint8_t { KEY, BEFORE_COLON, BEFORE_VALUE, VALUE };
         Stage    stage;
@@ -356,7 +357,7 @@ private:
             return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r';
         }
 
-        // 1: tag lida; 0: precisa de mais; -1: JSON inválido
+        // 1: tag read; 0: needs more; -1: invalid JSON
         int feed(char ch) {
             static const char key[] = "\"tag_name\"";
             if (stage == KEY) {
@@ -403,14 +404,14 @@ private:
     char          _latest[16]   = {};
     bool          _checkInstall = false;
     char          _host[OTA_HOST_CAP] = {};
-    char*         _path         = nullptr; // malloc só durante os redirects
+    char*         _path         = nullptr; // malloc'ed only during the redirects
     uint8_t       _hop          = 0;
 
-    // Download ou sessão TLS em andamento
+    // Download or TLS session in progress
     bool _active() const { return _inProgress || _net != NET_IDLE; }
 
-    // Lê o que já chegou. 1/-1: o parser da etapa concluiu ou falhou;
-    // -1 também para conexão fechada ou READ_TIMEOUT sem dados; 0: aguarda.
+    // Reads what already arrived. 1/-1: the step's parser finished or failed;
+    // -1 also for a closed connection or READ_TIMEOUT with no data; 0: waits.
     int _pump(unsigned long now) {
         while (_client.available() > 0) {
             char ch = (char)_client.read();
@@ -431,7 +432,7 @@ private:
         else _onDownloadHeaders(now, r);
     }
 
-    // ── consulta da versão ────────────────────────────────────────────────────
+    // ── version check ─────────────────────────────────────────────────────────
 
     void _checkNow(unsigned long now, bool install) {
         _checkInstall = install;
@@ -445,14 +446,14 @@ private:
         static const char path[] =
             "/repos/allanbarcelos/esp8266-dns/releases/latest";
         if (!_prepareTls(host, true)) {
-            _note(Report::Failed, PSTR("Cliente TLS indisponivel"));
-            _log.log(PSTR("OTA: TLS indisponivel"));
+            _note(Report::Failed, PSTR("TLS client unavailable"));
+            _log.log(PSTR("OTA: TLS unavailable"));
             _checkFailed(now);
             return;
         }
         if (!_client.connect(host, 443)) {
-            _note(Report::Failed, PSTR("Falha ao consultar o GitHub"));
-            _log.log(PSTR("Falha ao verificar versao"));
+            _note(Report::Failed, PSTR("Could not reach GitHub"));
+            _log.log(PSTR("Version check failed"));
             _checkFailed(now);
             return;
         }
@@ -471,14 +472,14 @@ private:
 
     void _onCheckHeaders(unsigned long now, int r) {
         if (r < 0) {
-            _note(Report::Failed, PSTR("Resposta invalida do GitHub"));
-            _log.log(PSTR("Erro JSON versao: headers"));
+            _note(Report::Failed, PSTR("Invalid response from GitHub"));
+            _log.log(PSTR("Version JSON error: headers"));
             _checkFailed(now);
             return;
         }
         if (_hdrP.code != 200) {
             _note(Report::Failed, PSTR("GitHub HTTP %d"), _hdrP.code);
-            _log.log(PSTR("Erro HTTP versao: %d"), _hdrP.code);
+            _log.log(PSTR("Version HTTP error: %d"), _hdrP.code);
             _checkFailed(now);
             return;
         }
@@ -489,13 +490,13 @@ private:
 
     void _onCheckBody(unsigned long now, int r) {
         if (r < 0) {
-            _note(Report::Failed, PSTR("Resposta invalida do GitHub"));
-            _log.log(PSTR("Erro JSON versao: tag_name"));
+            _note(Report::Failed, PSTR("Invalid response from GitHub"));
+            _log.log(PSTR("Version JSON error: tag_name"));
             _checkFailed(now);
             return;
         }
         if (_latest[0] == '\0') {
-            _note(Report::Failed, PSTR("Versao remota vazia"));
+            _note(Report::Failed, PSTR("Empty remote version"));
             _checkFailed(now);
             return;
         }
@@ -511,26 +512,26 @@ private:
             _tries = 0;
             _retryDelay = 0;
             _clearPending();
-            _note(Report::UpToDate, PSTR("Firmware ja esta atualizado"));
+            _note(Report::UpToDate, PSTR("Firmware is up to date"));
             if (restore) {
-                _log.log(PSTR("OTA: recuperacao concluida, restaurando painel"));
+                _log.log(PSTR("OTA: recovery done, restoring the panel"));
                 _wifi.scheduleRestart(1500);
             }
             return;
         }
         strlcpy(_available, _latest, sizeof(_available));
-        _note(Report::Available, PSTR("Nova versao %s"), _available);
-        _log.log(PSTR("Nova versao encontrada: %s"), _available);
+        _note(Report::Available, PSTR("New version %s"), _available);
+        _log.log(PSTR("New version found: %s"), _available);
         if (!_checkInstall) return;
         if (strcmp(_available, _rejected) == 0) {
             bool restore = _slim;
             _tries = 0;
             _retryDelay = 0;
             _clearPending();
-            _note(Report::Failed, PSTR("%s rejeitada; aguardando outra versao"), _available);
-            _log.log(PSTR("OTA: %s ja foi rejeitada"), _available);
+            _note(Report::Failed, PSTR("%s rejected; waiting for another version"), _available);
+            _log.log(PSTR("OTA: %s was already rejected"), _available);
             if (restore) {
-                _log.log(PSTR("OTA: recuperacao concluida, restaurando painel"));
+                _log.log(PSTR("OTA: recovery done, restoring the panel"));
                 _wifi.scheduleRestart(1500);
             }
             return;
@@ -550,8 +551,8 @@ private:
         return line[n] == '\0';
     }
 
-    // url é o próprio buffer path (Location do redirect, já limitado a
-    // pathCap): o caminho só é movido para o início.
+    // url is the path buffer itself (the redirect Location, already limited
+    // to pathCap): the path is only moved to the start.
     static bool _splitUrl(const char* url, char* host, size_t hostCap,
                           char* path, size_t pathCap) {
         if (strncmp(url, "https://", 8) != 0) return false;
@@ -603,7 +604,7 @@ private:
         _client.print("\r\n");
     }
 
-    // ── início do download (redirects até o CDN) ──────────────────────────────
+    // ── download start (redirects up to the CDN) ──────────────────────────────
 
     void _download(const char* version, unsigned long now) {
         if (!_tlsReady()) {
@@ -613,37 +614,37 @@ private:
         }
         _path = (char*)malloc(OTA_PATH_CAP);
         if (!_path) {
-            _note(Report::Failed, PSTR("Memoria insuficiente"));
-            _log.log(PSTR("OTA: memoria insuficiente"));
+            _note(Report::Failed, PSTR("Not enough memory"));
+            _log.log(PSTR("OTA: not enough memory"));
             _recoverHeap();
             _downloadFailed(now);
             return;
         }
-        // Host e caminho fixos; só a tag (≤15) e o asset variam e cabem
+        // Fixed host and path; only the tag (≤15) and the asset vary, and they fit
         strlcpy(_host, "github.com", sizeof(_host));
         snprintf_P(_path, OTA_PATH_CAP,
                    PSTR("/allanbarcelos/esp8266-dns/releases/download/%s/%s"),
                    version, assetName(signingEnabled()));
-        _log.log(PSTR("URL firmware: https://%s%s"), _host, _path);
+        _log.log(PSTR("Firmware URL: https://%s%s"), _host, _path);
         _hop = 0;
         _downloadConnect(now);
     }
 
     void _downloadConnect(unsigned long now) {
         if (!_prepareTls(_host, _hop > 0)) {
-            _note(Report::Failed, PSTR("Cliente TLS indisponivel"));
-            _log.log(PSTR("OTA: TLS indisponivel"));
+            _note(Report::Failed, PSTR("TLS client unavailable"));
+            _log.log(PSTR("OTA: TLS unavailable"));
             _downloadFailed(now);
             return;
         }
         if (!_client.connect(_host, 443)) {
-            _note(Report::Failed, PSTR("Falha ao baixar o firmware"));
-            _log.log(PSTR("Falha ao iniciar OTA"));
+            _note(Report::Failed, PSTR("Firmware download failed"));
+            _log.log(PSTR("Could not start OTA"));
             _downloadFailed(now);
             return;
         }
         _sendGet(_host, _path);
-        _hdrP.begin(_path, OTA_PATH_CAP); // Location reaproveita o buffer
+        _hdrP.begin(_path, OTA_PATH_CAP); // Location reuses the buffer
         _net = NET_DL_HDR;
         _netLast = now;
         _pumpNet(now);
@@ -659,8 +660,8 @@ private:
 
     void _onDownloadHeaders(unsigned long now, int r) {
         if (r < 0) {
-            _note(Report::Failed, PSTR("Resposta OTA incompleta"));
-            _log.log(PSTR("OTA: headers incompletos"));
+            _note(Report::Failed, PSTR("Incomplete OTA response"));
+            _log.log(PSTR("OTA: incomplete headers"));
             _downloadFailed(now);
             return;
         }
@@ -669,21 +670,21 @@ private:
             _log.log(PSTR("OTA redirect %d"), code);
             _client.stop();
             if (_path[0] == '\0') {
-                _note(Report::Failed, PSTR("Redirect OTA sem Location"));
-                _log.log(PSTR("OTA: redirect sem Location"));
+                _note(Report::Failed, PSTR("OTA redirect without Location"));
+                _log.log(PSTR("OTA: redirect without Location"));
                 _downloadFailed(now);
                 return;
             }
             if (_path[0] != '/' &&
                 !_splitUrl(_path, _host, sizeof(_host), _path, OTA_PATH_CAP)) {
-                _note(Report::Failed, PSTR("Redirect OTA invalido"));
-                _log.log(PSTR("OTA: redirect invalido"));
+                _note(Report::Failed, PSTR("Invalid OTA redirect"));
+                _log.log(PSTR("OTA: invalid redirect"));
                 _downloadFailed(now);
                 return;
             }
             if (++_hop >= MAX_REDIRECTS) {
-                _note(Report::Failed, PSTR("OTA excedeu redirecionamentos"));
-                _log.log(PSTR("OTA: redirecionamentos esgotados"));
+                _note(Report::Failed, PSTR("OTA exceeded the redirects"));
+                _log.log(PSTR("OTA: too many redirects"));
                 _downloadFailed(now);
                 return;
             }
@@ -692,7 +693,7 @@ private:
         }
         if (code != 200) {
             _note(Report::Failed, PSTR("Download HTTP %d"), code);
-            _log.log(PSTR("HTTP OTA erro: %d"), code);
+            _log.log(PSTR("OTA HTTP error: %d"), code);
             _downloadFailed(now);
             return;
         }
@@ -706,8 +707,8 @@ private:
         if (_unknownLen) {
             flashSize = ESP.getFreeSketchSpace();
         } else if (_contentLength == 0) {
-            _note(Report::Failed, PSTR("Tamanho do firmware invalido"));
-            _log.log(PSTR("Tamanho firmware invalido"));
+            _note(Report::Failed, PSTR("Invalid firmware size"));
+            _log.log(PSTR("Invalid firmware size"));
             _downloadFailed(now);
             return;
         } else {
@@ -715,8 +716,8 @@ private:
         }
 
         if (flashSize == 0 || !Update.begin(flashSize)) {
-            _note(Report::Failed, PSTR("Sem espaco para o firmware"));
-            _log.log(PSTR("Sem espaco para OTA: %s"), Update.getErrorString().c_str());
+            _note(Report::Failed, PSTR("No room for the firmware"));
+            _log.log(PSTR("No room for OTA: %s"), Update.getErrorString().c_str());
             _downloadFailed(now);
             return;
         }
@@ -726,17 +727,17 @@ private:
         _lastProgress = now;
         _inProgress   = true;
         _wifi.setOTAInProgress(true);
-        if (_unknownLen) _log.log(PSTR("OTA iniciado: tamanho desconhecido"));
-        else _log.log(PSTR("OTA iniciado: %d bytes"), _contentLength);
+        if (_unknownLen) _log.log(PSTR("OTA started: unknown size"));
+        else _log.log(PSTR("OTA started: %d bytes"), _contentLength);
     }
 
     void _streamChunk(unsigned long now) {
         if (!_wifi.isConnected()) {
-            _abort("Wi-Fi caiu durante OTA", now);
+            _abort("Wi-Fi dropped during OTA", now);
             return;
         }
         if (now - _lastProgress > STALL_TIMEOUT) {
-            _abort("OTA sem dados, abortando", now);
+            _abort("OTA without data, aborting", now);
             return;
         }
 
@@ -745,7 +746,7 @@ private:
             if (!_unknownLen) return;
             if (_client.connected()) return;
             if (_written == 0) {
-                _abort("OTA vazio", now);
+                _abort("Empty OTA", now);
                 return;
             }
             _complete(true);
@@ -756,7 +757,7 @@ private:
         size_t len = _client.readBytes(buf, avail < sizeof(buf) ? avail : sizeof(buf));
 
         if (Update.write(buf, len) != len) {
-            _abort("Erro de escrita OTA", now);
+            _abort("OTA write error", now);
             return;
         }
         _written     += len;
@@ -778,12 +779,12 @@ private:
             _tries = 0;
             _retryDelay = 0;
             _clearPending();
-            _log.log(PSTR("OTA concluido! Reiniciando..."));
-            _note(Report::UpToDate, PSTR("Firmware atualizado"));
+            _log.log(PSTR("OTA done! Restarting..."));
+            _note(Report::UpToDate, PSTR("Firmware updated"));
             _wifi.scheduleRestart(1000);
         } else {
-            _note(Report::Failed, PSTR("Imagem rejeitada: %s"), Update.getErrorString().c_str());
-            _log.log(PSTR("Erro OTA: %s"), Update.getErrorString().c_str());
+            _note(Report::Failed, PSTR("Image rejected: %s"), Update.getErrorString().c_str());
+            _log.log(PSTR("OTA error: %s"), Update.getErrorString().c_str());
             strlcpy(_rejected, _available, sizeof(_rejected));
             _saveRejected();
             bool restore = _slim;
@@ -791,7 +792,7 @@ private:
             _retryDelay = 0;
             _clearPending();
             if (restore) {
-                _log.log(PSTR("OTA: recuperacao encerrada, restaurando painel"));
+                _log.log(PSTR("OTA: recovery over, restoring the panel"));
                 _wifi.scheduleRestart(1500);
             }
         }
@@ -819,12 +820,12 @@ private:
             _tries = 0;
             _retryDelay = 0;
             _nextRetry = 0;
-            if (install) { // instalação só é pedida com _available preenchido
+            if (install) { // an install is only requested with _available set
                 _persistAndReboot();
                 return;
             }
-            _note(Report::Failed, PSTR("OTA falhou, tenta de novo mais tarde"));
-            _log.log(PSTR("OTA: tentativas esgotadas"));
+            _note(Report::Failed, PSTR("OTA failed, will try again later"));
+            _log.log(PSTR("OTA: out of retries"));
             return;
         }
         unsigned long delayMs = _retryDelay == 0 ? RETRY_MS : _retryDelay * 2;
@@ -833,8 +834,8 @@ private:
         _nextRetry = now + delayMs;
         if (install) _wantInstall = true;
         else _wantCheck = true;
-        _note(Report::Failed, PSTR("Nova tentativa em %u s"), (unsigned)(delayMs / 1000));
-        _log.log(PSTR("OTA: nova tentativa em %u s"), (unsigned)(delayMs / 1000));
+        _note(Report::Failed, PSTR("Retrying in %u s"), (unsigned)(delayMs / 1000));
+        _log.log(PSTR("OTA: retrying in %u s"), (unsigned)(delayMs / 1000));
     }
 
     void _persistAndReboot() {
@@ -843,13 +844,13 @@ private:
             _clearPending();
             _wantInstall = false;
             _wantCheck = false;
-            _note(Report::Failed, PSTR("OTA desistiu apos recuperacao"));
-            _log.log(PSTR("OTA: desistiu apos recuperacao"));
+            _note(Report::Failed, PSTR("OTA gave up after recovery"));
+            _log.log(PSTR("OTA: gave up after recovery"));
             _wifi.scheduleRestart(1500);
             return;
         }
-        if (!_savePending(_available, boots)) _log.log(PSTR("OTA: nao gravou pedido de recuperacao"));
-        else _log.log(PSTR("OTA: recuperacao no proximo boot"));
+        if (!_savePending(_available, boots)) _log.log(PSTR("OTA: could not save the recovery request"));
+        else _log.log(PSTR("OTA: recovery on the next boot"));
         _wifi.scheduleRestart(1500);
     }
 
@@ -866,7 +867,7 @@ private:
     void _saveRejected() {
         File f = LittleFS.open(REJECTED_PATH, "w");
         if (!f) {
-            _log.log(PSTR("OTA: nao gravou versao rejeitada"));
+            _log.log(PSTR("OTA: could not save the rejected version"));
             return;
         }
         f.write((const uint8_t*)_rejected, strlen(_rejected));
@@ -904,29 +905,29 @@ private:
         bool isCheck = strcmp(tag, "check") == 0;
         if (got < 1 || (!isCheck && parseTag(tag) < 0)) {
             LittleFS.remove(PENDING_PATH);
-            _log.log(PSTR("OTA: pedido de recuperacao invalido"));
+            _log.log(PSTR("OTA: invalid recovery request"));
             return;
         }
         if (boots > MAX_BOOTS) {
             LittleFS.remove(PENDING_PATH);
-            _log.log(PSTR("OTA: recuperacao esgotada"));
+            _log.log(PSTR("OTA: recovery attempts exhausted"));
             return;
         }
         _pendingBoots = (uint8_t)boots;
         _slim = true;
-        // Antes de tentar: se este boot travar, o próximo já conta mais um.
-        // Sem gravar, a recuperação segue com o contador do último pedido.
+        // Before trying: if this boot crashes, the next one already counts one
+        // more. If it cannot save, recovery goes on with the last request's count.
         (void)_savePending(tag, (uint8_t)(boots + 1));
         if (isCheck) {
             _available[0] = '\0';
             _wantCheck = true;
-            _note(Report::Checking, PSTR("Retomando consulta"));
-            _log.log(PSTR("OTA: retomando consulta (boot %u)"), (unsigned)_pendingBoots);
+            _note(Report::Checking, PSTR("Resuming the check"));
+            _log.log(PSTR("OTA: resuming the check (boot %u)"), (unsigned)_pendingBoots);
             return;
         }
         strlcpy(_available, tag, sizeof(_available));
         _wantInstall = true;
-        _note(Report::Available, PSTR("Retomando %s"), _available);
-        _log.log(PSTR("OTA: retomando %s (boot %u)"), _available, (unsigned)_pendingBoots);
+        _note(Report::Available, PSTR("Resuming %s"), _available);
+        _log.log(PSTR("OTA: resuming %s (boot %u)"), _available, (unsigned)_pendingBoots);
     }
 };

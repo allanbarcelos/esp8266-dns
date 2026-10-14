@@ -9,16 +9,16 @@
 #include <memory>
 #include <utility>
 
-// Raízes que uma conexão TLS recebeu (X509List::append)
+// Roots a TLS connection received (X509List::append)
 namespace MockTLS {
     struct Trust {
-        const uint8_t* first = nullptr;   // primeira raiz
+        const uint8_t* first = nullptr;   // first root
         size_t         count = 0;
         size_t         bytes = 0;
     };
 }
 
-// ── Fila HTTP compartilhada (API via HTTPClient, download via TLS cru) ───────
+// ── Shared HTTP queue (API via HTTPClient, download via raw TLS) ─────────────
 namespace MockHTTP {
     struct Response {
         int code = 200;
@@ -30,7 +30,7 @@ namespace MockHTTP {
     struct Request {
         std::string method, url, payload;
         std::vector<std::pair<std::string, std::string>> headers;
-        // TLS do cliente que fez a requisição (validação do certificado)
+        // TLS of the client that made the request (certificate validation)
         MockTLS::Trust trust;
         long        x509Time = 0;
         bool        insecure = false;
@@ -46,8 +46,8 @@ namespace MockHTTP {
     inline std::string              lastUA;
     inline bool                     keepOpen = false;
     inline std::string              rawHttp;
-    inline bool                     rawAny = false; // rawHttp vale também para /releases/latest
-    inline std::string              lastRaw;        // último pedido HTTP cru (TLS)
+    inline bool                     rawAny = false; // rawHttp also applies to /releases/latest
+    inline std::string              lastRaw;        // last raw HTTP request (TLS)
 
     inline void reset() {
         calledURLs.clear(); requests.clear(); queue.clear(); qIdx = 0;
@@ -73,10 +73,10 @@ namespace MockHTTP {
     }
 }
 
-// Tipos globais — espelham o escopo do core ESP8266 3.1.2
+// Global types, mirroring the scope of ESP8266 core 3.1.2
 struct WiFiEventStationModeGotIP        {};
 struct WiFiEventStationModeDisconnected {};
-using  WiFiEventHandler = int; // stub: valor de retorno ignorado
+using  WiFiEventHandler = int; // stub: return value ignored
 
 enum WiFiMode_t { WIFI_OFF = 0, WIFI_STA = 1, WIFI_AP = 2, WIFI_AP_STA = 3 };
 
@@ -106,7 +106,7 @@ public:
         return String(b);
     }
 
-    // Mesma semântica do core: exatamente 4 octetos decimais 0–255
+    // Same semantics as the core: exactly 4 decimal octets 0–255
     bool fromString(const String& s) {
         const char* p = s.c_str();
         uint32_t out = 0;
@@ -132,7 +132,7 @@ public:
 class WiFiClass {
 public:
     wl_status_t _status = WL_CONNECTED;
-    IPAddress   _dns;                 // servidor DNS da rede (192.168.1.1)
+    IPAddress   _dns;                 // network DNS server (192.168.1.1)
     WiFiMode_t  _mode   = WIFI_STA;
 
     int         beginCalls      = 0;
@@ -179,15 +179,15 @@ public:
 
 inline WiFiClass WiFi;
 
-// Conexão aceita pelo WiFiServer: o que o navegador manda (rx) e o que o
-// aparelho responde (tx). Compartilhada entre as cópias do WiFiClient,
-// como o ClientContext do core; quem a mantém viva é o teste (ponteiro
-// cru no cliente: cópia sem contagem de referência).
+// Connection accepted by WiFiServer: what the browser sends (rx) and what the
+// device answers (tx). Shared between WiFiClient copies, like the
+// core's ClientContext; the test keeps it alive (a raw pointer in
+// the client: copies without reference counting).
 struct MockConn {
     std::string rx, tx;
     size_t      pos    = 0;
-    bool        open   = true;    // o navegador ainda não fechou
-    bool        closed = false;   // o aparelho chamou stop()
+    bool        open   = true;    // the browser has not closed yet
+    bool        closed = false;   // the device called stop()
     int         writes = 0;
 };
 
@@ -226,10 +226,10 @@ protected:
     MockConn*   _conn = nullptr;
 };
 
-// Fila de conexões que chegam na porta (o navegador as cria nos testes)
+// Queue of connections arriving at the port (the browser creates them in tests)
 namespace MockServer {
     inline std::deque<std::shared_ptr<MockConn>> pending;
-    inline std::vector<std::shared_ptr<MockConn>> accepted;   // vivas até o reset
+    inline std::vector<std::shared_ptr<MockConn>> accepted;   // alive until reset
     inline bool begun       = false;
     inline bool maxPending  = false;
     inline void reset() { pending.clear(); accepted.clear(); begun = false; maxPending = false; }
@@ -270,7 +270,7 @@ namespace BearSSL {
 
 namespace MockTLS {
     inline int                       insecureCalls = 0;
-    inline Trust                     lastTrust;               // o X509List em si é temporário
+    inline Trust                     lastTrust;               // the X509List itself is temporary
     inline time_t                    lastTime      = 0;
     inline int                       timeoutCalls  = 0;
     inline unsigned long             lastTimeoutMs = 0;
@@ -282,9 +282,9 @@ namespace MockTLS {
     inline int                       failOnConnect = 0; // 1-based; 0 = off
     inline bool                      mfln          = false;
     inline int                       stopCalls     = 0;
-    inline std::vector<uint16_t>     suites;                  // último setCiphers
-    // Na N-ésima chamada de setBufferSizes (1-based) o maior bloco livre
-    // cai para shrinkBlockTo: a alocação do BearSSL fragmentou a heap.
+    inline std::vector<uint16_t>     suites;                  // last setCiphers
+    // On the Nth setBufferSizes call (1-based) the largest free block
+    // drops to shrinkBlockTo: the BearSSL allocation fragmented the heap.
     inline int                       buffersCalls  = 0;
     inline int                       shrinkOnBuffers = 0;
     inline uint32_t                  shrinkBlockTo = 0;
@@ -304,14 +304,14 @@ inline void WiFiClient::setTimeout(unsigned long ms) {
 }
 
 class WiFiClientSecure;
-namespace MockTLS { inline WiFiClientSecure* live = nullptr; } // último que conectou
+namespace MockTLS { inline WiFiClientSecure* live = nullptr; } // last one that connected
 
 class WiFiClientSecure : public WiFiClient {
 public:
     WiFiClientSecure() { _owned = MockTLS::nullOwned ? nullptr : &_ctx; }
     ~WiFiClientSecure() { if (MockTLS::live == this) MockTLS::live = nullptr; }
 
-    // Dados que o servidor manda depois (fluxo contínuo)
+    // Data the server sends later (continuous stream)
     void inject(const std::string& data) { _rx += data; }
     bool isConnected() const { return _connected; }
     WiFiClient _ctx;

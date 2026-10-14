@@ -5,18 +5,19 @@
 #include <ESP8266WiFi.h>
 #include <lwip/udp.h>
 
-// Nome reverso (PTR) de um IPv4, perguntado direto ao DNS da rede por UDP.
-// O lwIP do core só resolve nome → IP; a pergunta e a leitura da resposta
-// ficam aqui, sem biblioteca. A resposta chega depois, pelo callback do
-// lwIP; sem resposta em TIMEOUT, o nome fica vazio.
+// Reverse name (PTR) of an IPv4, asked straight to the network's DNS over
+// UDP. The core's lwIP only resolves name → IP; building the query and
+// reading the answer live here, without a library. The answer arrives later
+// through the lwIP callback; with no answer within TIMEOUT, the name stays
+// empty.
 class ReverseDNS {
 public:
     static constexpr unsigned long TIMEOUT = 5000;
 
     ~ReverseDNS() { _close(); }
 
-    // Pergunta o PTR de ip; out recebe o nome quando a resposta chegar.
-    // out precisa viver até lá (é o Config).
+    // Asks for the PTR of ip; out gets the name when the answer arrives.
+    // out must live until then (it is the Config).
     void lookup(const char* ip, char* out, size_t len, unsigned long now) {
         _close();
         out[0] = '\0';
@@ -46,7 +47,7 @@ public:
 
     bool pending() const { return _pcb != nullptr; }
 
-    // Pergunta "d.c.b.a.in-addr.arpa PTR" com recursão. 0 se ip inválido.
+    // Query "d.c.b.a.in-addr.arpa PTR" with recursion. 0 if ip is invalid.
     static size_t query(const char* ip, uint16_t id, uint8_t* buf, size_t cap) {
         IPAddress a;
         if (cap < 46 || !a.fromString(ip)) return 0;
@@ -66,8 +67,8 @@ public:
         return i + sizeof(TAIL);
     }
 
-    // Nome do primeiro PTR da resposta em out. false se não for a resposta
-    // desta pergunta, se der erro ou se não houver PTR.
+    // Name of the answer's first PTR in out. false if it is not the answer
+    // to this query, if it is an error or if there is no PTR.
     static bool parse(const uint8_t* m, size_t n, uint16_t id, char* out, size_t len) {
         if (n < 12 || _u16(m) != id || !(m[2] & 0x80) || (m[3] & 0x0F)) return false;
         size_t i = 12;
@@ -96,7 +97,7 @@ private:
         _pcb = nullptr;
     }
 
-    // Resposta numa pbuf só (a de um PTR cabe); qualquer resposta encerra
+    // Answer in a single pbuf (a PTR answer fits); any answer ends the query
     static void _onRecv(void* arg, udp_pcb*, pbuf* p, const ip_addr_t*, u16_t) {
         ReverseDNS* self = static_cast<ReverseDNS*>(arg);
         if (p->len == p->tot_len)
@@ -108,7 +109,7 @@ private:
 
     static uint16_t _u16(const uint8_t* p) { return (uint16_t)(p[0] << 8 | p[1]); }
 
-    // Posição depois de um nome (rótulos ou ponteiro). Fora da mensagem: n + 1
+    // Position after a name (labels or pointer). Outside the message: n + 1
     static size_t _skip(const uint8_t* m, size_t n, size_t i) {
         while (i < n) {
             uint8_t c = m[i];
@@ -119,8 +120,8 @@ private:
         return n + 1;
     }
 
-    // Nome com rótulos separados por ponto; segue ponteiros de compressão
-    // (no máximo 8, contra laço) e nunca passa do fim de out.
+    // Name with dot-separated labels; follows compression pointers (at most
+    // 8, against loops) and never goes past the end of out.
     static bool _name(const uint8_t* m, size_t n, size_t i, char* out, size_t len) {
         size_t o = 0;
         for (int jumps = 0; i < n;) {

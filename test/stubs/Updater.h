@@ -16,7 +16,7 @@ public:
         _written += w;
         return w;
     }
-    // Mesma semântica do core: incompleto e !evenIfRemaining → aborta
+    // Same semantics as the core: incomplete and !evenIfRemaining → aborts
     bool end(bool evenIfRemaining = false) {
         if (_written < _size && !evenIfRemaining) { _aborts++; return false; }
         if (evenIfRemaining) _size = _written;
@@ -25,7 +25,7 @@ public:
     }
     String getErrorString() { return String("Signature Verification Failed"); }
 
-    // Controláveis nos testes
+    // Controlled by the tests
     bool   _beginOk    = true;
     bool   _endOk      = true;
     bool   _shortWrite = false;

@@ -5,10 +5,10 @@
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 
-// Último comando do atuador, para "ao religar: último estado". Fica fora do
-// config.json: um comando grava só este arquivo pequeno, e um config salvo
-// pela página não apaga o estado. Pulso em andamento nunca é gravado (uma
-// fechadura não pode reabrir sozinha depois de uma queda de energia).
+// The actuator's last command, for "on power-up: last state". It lives
+// outside config.json: a command writes only this small file, and a config
+// saved from the panel does not erase the state. A running pulse is never
+// saved (a lock must not open by itself after a power cut).
 struct IoTState {
     bool     manual = false;
     bool     on     = false;
@@ -17,15 +17,15 @@ struct IoTState {
     uint32_t rgb    = 0xFFFFFF;
 
     static constexpr const char* PATH = "/iot.state";
-    // 5 campos; na leitura os nomes ficam no texto lido
+    // 5 fields; when reading, the names stay in the text that was read
     static constexpr size_t CAPACITY = JSON_OBJECT_SIZE(5);
-    // O maior arquivo gravado tem 55 caracteres
+    // The largest file written has 55 characters
     static constexpr size_t MAX_TEXT = 96;
 
     bool load() {
         File f = LittleFS.open(PATH, "r");
         if (!f) return false;
-        // Lido inteiro e analisado no lugar (char*), como o config.json
+        // Read whole and parsed in place (char*), like config.json
         char text[MAX_TEXT];
         text[f.readBytes(text, sizeof(text) - 1)] = '\0';
         f.close();

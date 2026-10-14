@@ -3,7 +3,7 @@
 
 #pragma once
 
-// Definida pelo CI via -Dfirmware_version="vN"; builds locais usam "dev".
+// Set by CI with -Dfirmware_version="vN"; local builds use "dev".
 #ifndef firmware_version
 #define firmware_version "dev"
 #endif

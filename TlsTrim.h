@@ -2,19 +2,20 @@
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 #pragma once
-// Tira do firmware a parte do BearSSL que o aparelho nunca usa (~27 KB).
+// Removes from the firmware the part of BearSSL the device never uses (~27 KB).
 //
-// O WiFiClientSecure do core instala todas as cifras e curvas, e o linker
-// leva tudo junto. Aqui o sketch define as mesmas funções, vazias; o linker
-// fica com estas e não puxa os objetos da biblioteca. Só pode entrar no
-// .ino (um único arquivo compilado no firmware; os testes nativos não usam).
+// The core's WiFiClientSecure installs every cipher and curve, and the linker
+// pulls all of it in. Here the sketch defines the same functions, empty; the
+// linker keeps these and does not pull the library objects. It may only be
+// included from the .ino (a single file compiled into the firmware; the
+// native tests do not use it).
 //
-// Funciona porque todo TlsClient anuncia só ECDHE + AES-GCM
-// (TlsClient::SUITES): o servidor nunca escolhe uma cifra removida.
-//   - CBC, CCM, 3DES e ChaCha20: as cifras saem; AES-GCM fica.
-//   - X25519: a troca de chaves usa P-256; P-384/P-521 ficam para validar
-//     certificados (cadeias ECDSA como a da Let's Encrypt usam P-384).
-//   - Certificado de cliente (assinatura RSA/ECDSA): o aparelho não usa.
+// It works because every TlsClient announces only ECDHE + AES-GCM
+// (TlsClient::SUITES): the server never picks a removed cipher.
+//   - CBC, CCM, 3DES and ChaCha20: those ciphers go; AES-GCM stays.
+//   - X25519: key exchange uses P-256; P-384/P-521 stay to validate
+//     certificates (ECDSA chains such as Let's Encrypt's use P-384).
+//   - Client certificate (RSA/ECDSA signing): the device does not use it.
 #include <bearssl/bearssl.h>
 
 extern "C" {
@@ -32,8 +33,9 @@ void br_ssl_client_set_single_ec(br_ssl_client_context*, const br_x509_certifica
 br_rsa_pkcs1_sign br_rsa_pkcs1_sign_get_default() { return nullptr; }
 br_ecdsa_sign br_ecdsa_sign_asn1_get_default() { return nullptr; }
 
-// br_ec_all_m15 do BearSSL sem Curve25519: P-256 na implementação rápida,
-// P-384 e P-521 na genérica. É a que br_ec_get_default() devolve.
+// BearSSL's br_ec_all_m15 without Curve25519: P-256 on the fast
+// implementation, P-384 and P-521 on the generic one. It is what
+// br_ec_get_default() returns.
 #define TLS_EC(call) (curve == BR_EC_secp256r1 ? br_ec_p256_m15.call : br_ec_prime_i15.call)
 
 static const unsigned char* _ecGenerator(int curve, size_t* len) {

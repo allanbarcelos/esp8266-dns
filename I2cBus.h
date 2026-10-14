@@ -4,17 +4,17 @@
 #pragma once
 #include <Arduino.h>
 
-// I2C por software, só mestre, perto de 100 kHz. Sem a biblioteca Wire:
-// dois sensores pequenos (SHT3x, MAX17048) não pagam o driver genérico.
-// Linha alta é o pino solto com pull-up (INPUT_PULLUP); baixa, saída em
-// LOW (dreno aberto). O módulo precisa do próprio pull-up de 4,7 kOhm: o
-// interno é fraco demais para a borda. Sem clock stretching: os comandos
-// usados não pedem.
+// Software I2C, master only, around 100 kHz. No Wire library: two small
+// sensors (SHT3x, MAX17048) do not pay for the generic driver. A high line
+// is the pin released with a pull-up (INPUT_PULLUP); low is an output at
+// LOW (open drain). The module needs its own 4.7 kOhm pull-up: the internal
+// one is too weak for the edges. No clock stretching: the commands used do
+// not need it.
 //
-// No ESP-01 os pares são fixos: GPIO0 com GPIO2, RX (3) com TX (1).
+// On the ESP-01 the pairs are fixed: GPIO0 with GPIO2, RX (3) with TX (1).
 class I2cBus {
 public:
-    // SCL do par de um pino de SDA
+    // SCL paired with an SDA pin
     static int8_t sclFor(int8_t sda) { return (int8_t)(sda ^ 2); }
 
     I2cBus(uint8_t sda, uint8_t scl) : _sda(sda), _scl(scl) {}
@@ -24,8 +24,8 @@ public:
         _high(_scl);
     }
 
-    // n bytes para addr; true se o aparelho e cada byte tiverem ACK.
-    // Sem stop, a leitura seguinte faz o start repetido.
+    // n bytes to addr; true if the device and every byte got an ACK.
+    // Without a stop, the next read does the repeated start.
     bool write(uint8_t addr, const uint8_t* d, size_t n, bool stop = true) {
         _start();
         bool ok = _put((uint8_t)(addr << 1));
@@ -42,7 +42,7 @@ public:
         return ok;
     }
 
-    // Registro de 16 bits, o mais significativo primeiro (MAX17048)
+    // 16-bit register, most significant byte first (MAX17048)
     bool readReg16(uint8_t addr, uint8_t reg, uint16_t& v) {
         uint8_t b[2];
         if (!write(addr, &reg, 1, false) || !read(addr, b, 2)) return false;
@@ -78,7 +78,7 @@ private:
         _wait();
     }
 
-    // Um pulso de clock; devolve o SDA lido com o SCL alto
+    // One clock pulse; returns SDA read while SCL is high
     bool _clock() {
         _wait();
         _high(_scl);
@@ -95,7 +95,7 @@ private:
             _clock();
         }
         _high(_sda);
-        return !_clock();       // ACK: o aparelho segura o SDA em baixo
+        return !_clock();       // ACK: the device holds SDA low
     }
 
     uint8_t _get(bool ack) {

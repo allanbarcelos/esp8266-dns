@@ -1,33 +1,33 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-// Página IoT. Vai embutido no firmware em gzip (tools/embed_web.py →
-// WebAssets.h). A página define antes, num <script> próprio, SK e AC
-// (tipo → Kind/Cap, gerados do catálogo) e T (CSRF).
+// IoT page. Embedded in the firmware, gzipped (tools/embed_web.py →
+// WebAssets.h). The page defines beforehand, in its own <script>, SK and AC
+// (type → Kind/Cap, generated from the catalog) and T (CSRF).
 //
-// O minificador só junta linhas e tira espaços fora das aspas: termine todo
-// comando com ; ou }, sem regex literal nem template string.
+// The minifier only joins lines and strips spaces outside quotes: end every
+// statement with ; or }, with no regex literal and no template string.
 
 function $(i) { return document.getElementById(i); }
 function V(n) { return document.querySelector('[name=' + n + ']'); }
 
-// ── Formulário: só os campos do papel e dos tipos escolhidos, a dica de
-// ligação de cada tipo e a regra escrita como frase ─────────────────────────
+// ── Form: only the fields for the chosen role and types, the wiring hint
+// for each type and the rule written as a sentence ─────────────────────────
 
 var SH = ['',
-        'Modulo com saida digital (D0); a sensibilidade se ajusta no trimpot.',
-        'DHT11: pull-up de 4,7 a 10 kOhm entre dados e 3,3 V; uma leitura a cada 2 s.',
-        'DHT22: pull-up de 4,7 a 10 kOhm entre dados e 3,3 V; uma leitura a cada 2 s.',
-        'DS18B20: pull-up de 4,7 kOhm entre dados e 3,3 V.',
-        'HC-SR04: trig e echo juntos no mesmo pino, com 1 kOhm no echo; ate 400 cm.',
-        'Conta pulsos a cada 10 s (YF-S201: cerca de 75 pulsos por L/min).',
-        'I2C: SDA neste pino e SCL no par (GPIO0 com GPIO2, RX com TX); pull-up de 4,7 kOhm nos dois e endereco 0x44 (ADDR no GND).'],
+        'Module with a digital output (D0); sensitivity is set on the trimpot.',
+        'DHT11: 4.7 to 10 kOhm pull-up between data and 3.3 V; one reading every 2 s.',
+        'DHT22: 4.7 to 10 kOhm pull-up between data and 3.3 V; one reading every 2 s.',
+        'DS18B20: 4.7 kOhm pull-up between data and 3.3 V.',
+        'HC-SR04: trig and echo together on one pin, with 1 kOhm on echo; up to 400 cm.',
+        'Counts pulses every 10 s (YF-S201: about 75 pulses per L/min).',
+        'I2C: SDA on this pin and SCL on its pair (GPIO0 with GPIO2, RX with TX); 4.7 kOhm pull-ups on both and address 0x44 (ADDR to GND).'],
     AH = ['',
-        'Modulos de rele costumam ligar em nivel baixo.',
-        'PWM no pino: use MOSFET ou driver de motor, nunca a carga direto no pino.',
-        'Servo com 5 V separado e GND em comum com o ESP.',
-        'WS2812 em 5 V: resistor de 330 Ohm na linha de dados; ate 60 LEDs.'],
-    P = ' GPIO0 e GPIO2 precisam estar altos no boot; TX e RX deixam de ser serial.';
+        'Relay modules usually switch on low.',
+        'PWM on the pin: use a MOSFET or a motor driver, never the load straight on the pin.',
+        'Servo on a separate 5 V supply with GND shared with the ESP.',
+        'WS2812 on 5 V: 330 Ohm resistor on the data line; up to 60 LEDs.'],
+    P = ' GPIO0 and GPIO2 must be high at boot; TX and RX stop being serial.';
 
 function f() {
     var r = (document.querySelector('[name=role]:checked') || {}).value || 'n',
@@ -37,7 +37,7 @@ function f() {
         p = AC[V('actuator').value],
         d = k == 1,
         h = k == 2 || k == 3 || k == 7,
-        u = h ? (V('metric').value == '1' ? '\u00b0C' : '%') : k == 4 ? '\u00b0C' : k == 5 ? 'cm' : 'pulsos',
+        u = h ? (V('metric').value == '1' ? '\u00b0C' : '%') : k == 4 ? '\u00b0C' : k == 5 ? 'cm' : 'pulses',
         a = V('actuator').selectedOptions[0].text.toLowerCase(),
         t = +V('threshold').value,
         m = +V('margin').value,
@@ -62,17 +62,17 @@ function f() {
     $('rw').hidden = !V('window').checked;
     $('sh').textContent = SH[k] + P;
     $('ah').textContent = AH[p] + P;
-    if (!ru) s = 'Sem regra: o atuador so obedece comandos.';
+    if (!ru) s = 'No rule: the actuator only obeys commands.';
     else if (d) {
-        var o = V('sensor_on').value || 'ativo';
-        s = V('toggle').value == '1' ? 'Cada vez que o sensor ficar ' + o + ', o ' + a + ' inverte.'
-            : 'Liga o ' + a + ' enquanto o sensor estiver ' + o + '.';
+        var o = V('sensor_on').value || 'active';
+        s = V('toggle').value == '1' ? 'Each time the sensor becomes ' + o + ', the ' + a + ' flips.'
+            : 'Turns the ' + a + ' on while the sensor is ' + o + '.';
     }
-    else if (ln) s = 'Intensidade proporcional de ' + t + ' a ' + V('threshold_hi').value + ' ' + u + '.';
-    else s = 'Liga o ' + a + ' quando o valor ficar ' + (ab ? 'acima de ' : 'abaixo de ') + t + ' ' + u
-        + ' e desliga ao voltar ' + (ab ? 'abaixo de ' : 'acima de ') + (ab ? t - m : t + m) + ' ' + u + '.';
+    else if (ln) s = 'Level proportional from ' + t + ' to ' + V('threshold_hi').value + ' ' + u + '.';
+    else s = 'Turns the ' + a + ' on when the value goes ' + (ab ? 'above ' : 'below ') + t + ' ' + u
+        + ' and off when it goes back ' + (ab ? 'below ' : 'above ') + (ab ? t - m : t + m) + ' ' + u + '.';
     if (ru && V('window').checked)
-        s += ' So entre ' + V('win_start').value + ' e ' + V('win_end').value + ' (hora local); fora disso, desligado.';
+        s += ' Only between ' + V('win_start').value + ' and ' + V('win_end').value + ' (local time); off outside it.';
     $('rs').textContent = s;
 }
 document.querySelectorAll('form input,form select').forEach(function (e) {
@@ -80,8 +80,8 @@ document.querySelectorAll('form input,form select').forEach(function (e) {
 });
 f();
 
-// ── Cartão "Agora" (só com sensor ou atuador ligado): comandos sem
-// recarregar e leitura a cada 5 s ──────────────────────────────────────────
+// ── "Now" card (only with a sensor or actuator in use): commands without
+// reloading and a reading every 5 s ────────────────────────────────────────
 
 function u(s) {
     var a = s.actuator, e = s.sensor, w;
@@ -89,7 +89,7 @@ function u(s) {
     if (a) {
         $('na').textContent = a.text;
         if (w = $('sw')) w.setAttribute('aria-checked', a.on);
-        if (w = $('nm')) w.textContent = a.mode != 'auto' ? 'manual' : a.hours === false ? 'automatico, fora do horario' : 'automatico';
+        if (w = $('nm')) w.textContent = a.mode != 'auto' ? 'manual' : a.hours === false ? 'automatic, outside the window' : 'automatic';
         if (w = $('au')) w.hidden = a.mode == 'auto';
         if (a.level != null && (w = $('lv'))) { w.value = a.level; $('lvo').value = a.level; }
         if (a.angle != null && (w = $('ag'))) { w.value = a.angle; $('ago').value = a.angle; }
@@ -101,7 +101,7 @@ function c(x) {
     fetch('/iot/cmd', { method: 'POST', body: new URLSearchParams({ cmd: x, _csrf: T }) })
         .then(function (r) { return r.json(); })
         .then(function (s) { if (s.error) $('msg').textContent = s.error; else u(s); })
-        .catch(function () { $('msg').textContent = 'Sem resposta do aparelho'; });
+        .catch(function () { $('msg').textContent = 'No answer from the device'; });
 }
 if ($('ns') || $('na')) setInterval(function () {
     fetch('/iot/now')

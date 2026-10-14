@@ -11,11 +11,11 @@
 constexpr int HTTP_GET  = HttpServer::GET;
 constexpr int HTTP_POST = HttpServer::POST;
 
-// Navegador dos testes: escreve o pedido HTTP numa conexão nova, roda um
-// tick do servidor e lê a resposta crua (status, cabeçalhos e corpo).
-// Sem Authorization explícito, manda o login do painel (basicUser/basicPass)
-// se authOk. Argumentos vão na query (GET) ou no corpo urlencoded (POST);
-// "plain" vira o corpo cru, como o curl -d.
+// Test browser: writes the HTTP request on a new connection, runs one
+// server tick and reads the raw response (status, headers and body).
+// Without an explicit Authorization, sends the panel login (basicUser/basicPass)
+// if authOk. Arguments go in the query (GET) or the urlencoded body (POST);
+// "plain" becomes the raw body, like curl -d.
 struct MockBrowser {
     using Map = std::map<std::string, std::string>;
 
@@ -23,7 +23,7 @@ struct MockBrowser {
 
     std::function<void()> tick;
     bool        authOk    = true;
-    std::string basicUser = "admin", basicPass = "senha-forte";
+    std::string basicUser = "admin", basicPass = "strong-pass";
 
     int         code = 0;
     std::string out, contentType, raw;
@@ -56,7 +56,7 @@ struct MockBrowser {
         return o;
     }
 
-    // Pedido já escrito; devolve false se a rota não existe (404 vazio)
+    // Request already written; returns false if the route does not exist (empty 404)
     bool send(const std::string& request) {
         conn = std::make_shared<MockConn>();
         conn->rx = request;

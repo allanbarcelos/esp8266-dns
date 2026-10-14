@@ -36,7 +36,7 @@ static std::string json(const IoTService& iot) {
     return buf;
 }
 
-// Sensor digital estável no nível dado, a partir de t
+// Digital sensor steady at the given level, from t
 static void level(IoTService& iot, int pin, int lv, unsigned long t) {
     mock::pinIn[pin] = (uint8_t)lv;
     iot.tick(t);
@@ -64,7 +64,7 @@ static void feedDht(uint8_t pin, const uint8_t d[5]) {
     seg(LOW, 100);
 }
 
-// Leitura do DHT em dois ticks: pulso de início em t, bits em t + wake
+// DHT reading over two ticks: start pulse at t, bits at t + wake
 static void dhtRead(IoTService& iot, unsigned long t,
                     unsigned long wake = IoTService::DHT22_WAKE_MS) {
     iot.tick(t);
@@ -102,27 +102,27 @@ static void echo(uint8_t pin, unsigned long highUs) {
     seg(LOW, 2000);
 }
 
-// ── Catálogo, parse e comandos de texto ──────────────────────────────────────
+// ── Catalog, parsing and text commands ───────────────────────────────────────
 
-void test_catalogo_por_identificador() {
+void test_catalog_by_identifier() {
     TEST_ASSERT_EQUAL(10, iot::SENSOR_COUNT);
     TEST_ASSERT_TRUE(iot::tempAndHumidity(iot::K_SHT3X) && !iot::tempAndHumidity(iot::K_DS18));
     TEST_ASSERT_EQUAL(10, iot::ACTUATOR_COUNT);
     TEST_ASSERT_EQUAL(0, iot::sensorIndex("dht22"));
     TEST_ASSERT_EQUAL(-1, iot::sensorIndex(""));
     TEST_ASSERT_EQUAL(-1, iot::sensorIndex("laser"));
-    TEST_ASSERT_EQUAL(iot::C_COLOR, iot::ACTUATORS[iot::actuatorIndex("fita")].cap);
+    TEST_ASSERT_EQUAL(iot::C_COLOR, iot::ACTUATORS[iot::actuatorIndex("strip")].cap);
     TEST_ASSERT_EQUAL(-1, iot::actuatorIndex("teleporte"));
-    TEST_ASSERT_EQUAL_STRING("pulsos", iot::v1Sensor(4));
+    TEST_ASSERT_EQUAL_STRING("pulses", iot::v1Sensor(4));
     TEST_ASSERT_EQUAL_STRING("digital", iot::v1Sensor(200));
     TEST_ASSERT_EQUAL_STRING("motor", iot::v1Actuator(7));
-    TEST_ASSERT_EQUAL_STRING("rele", iot::v1Actuator(200));
-    // Toda entrada da tabela v1 existe no catálogo novo
+    TEST_ASSERT_EQUAL_STRING("relay", iot::v1Actuator(200));
+    // Every entry of the v1 table exists in the new catalog
     for (uint8_t i = 0; i < 16; i++) TEST_ASSERT_TRUE(iot::sensorIndex(iot::v1Sensor(i)) >= 0);
     for (uint8_t i = 0; i < 8; i++) TEST_ASSERT_TRUE(iot::actuatorIndex(iot::v1Actuator(i)) >= 0);
 }
 
-void test_pinos_e_parse() {
+void test_pins_and_parse() {
     TEST_ASSERT_TRUE(IoTService::allowedPin(0));
     TEST_ASSERT_TRUE(IoTService::allowedPin(3));
     TEST_ASSERT_FALSE(IoTService::allowedPin(-1));
@@ -162,33 +162,36 @@ static bool parse(const char* text, uint8_t op, uint32_t value = 0) {
     return true;
 }
 
-void test_comandos_de_texto() {
-    TEST_ASSERT_TRUE(parse("ligar", iot::OP_ON));
-    TEST_ASSERT_TRUE(parse("  LIGAR \r\n", iot::OP_ON));
-    TEST_ASSERT_TRUE(parse("abrir", iot::OP_ON));
+void test_text_commands() {
+    TEST_ASSERT_TRUE(parse("on", iot::OP_ON));
+    TEST_ASSERT_TRUE(parse("  ON \r\n", iot::OP_ON));
+    TEST_ASSERT_TRUE(parse("open", iot::OP_ON));
     TEST_ASSERT_TRUE(parse("off", iot::OP_OFF));
-    TEST_ASSERT_TRUE(parse("fechar", iot::OP_OFF));
-    TEST_ASSERT_TRUE(parse("alternar", iot::OP_TOGGLE));
-    TEST_ASSERT_TRUE(parse("pulso 5", iot::OP_PULSE, 5));
+    TEST_ASSERT_TRUE(parse("close", iot::OP_OFF));
+    TEST_ASSERT_TRUE(parse("toggle", iot::OP_TOGGLE));
+    TEST_ASSERT_TRUE(parse("pulse 5", iot::OP_PULSE, 5));
     TEST_ASSERT_TRUE(parse("pulse 3600s", iot::OP_PULSE, 3600));
     TEST_ASSERT_TRUE(parse("50%", iot::OP_LEVEL, 50));
-    TEST_ASSERT_TRUE(parse("nivel   0", iot::OP_LEVEL, 0));
-    TEST_ASSERT_TRUE(parse("brilho 40%", iot::OP_LEVEL, 40));
-    TEST_ASSERT_TRUE(parse("n\xc3\xadvel 10", iot::OP_LEVEL, 10));
-    TEST_ASSERT_TRUE(parse("\xc3\xa2ngulo 90", iot::OP_ANGLE, 90));
+    TEST_ASSERT_TRUE(parse("level   0", iot::OP_LEVEL, 0));
+    TEST_ASSERT_TRUE(parse("brightness 40%", iot::OP_LEVEL, 40));
+    TEST_ASSERT_TRUE(parse("LEVEL 10%", iot::OP_LEVEL, 10));
+    TEST_ASSERT_TRUE(parse("Angle 90", iot::OP_ANGLE, 90));
     TEST_ASSERT_TRUE(parse("angle 180", iot::OP_ANGLE, 180));
-    TEST_ASSERT_TRUE(parse("cor #FF8800", iot::OP_COLOR, 0xFF8800));
+    TEST_ASSERT_TRUE(parse("color #FF8800", iot::OP_COLOR, 0xFF8800));
     TEST_ASSERT_TRUE(parse("color 00ff7f", iot::OP_COLOR, 0x00FF7F));
     TEST_ASSERT_TRUE(parse("auto", iot::OP_AUTO));
-    TEST_ASSERT_TRUE(parse("estado", iot::OP_STATUS));
+    TEST_ASSERT_TRUE(parse("status", iot::OP_STATUS));
 
     iot::Command c;
     const char* bad[] = {
-        "", "   ", "pular", "ligar 5", "pulso", "pulso 0", "pulso 3601", "pulso 5m",
-        "pulso abc", "pulso 123456", "101%", "x%", "nivel 101", "angulo 181",
-        "cor", "cor #12345", "cor #1234567", "cor #12345g", "cor ff88zz",
-        "cor 12345!", "cor 12345:",
-        "ligar ligar ligar ligar ligar ligar ligar ligar",
+        "", "   ", "jump", "on 5", "pulse", "pulse 0", "pulse 3601", "pulse 5m",
+        "pulse abc", "pulse 123456", "101%", "x%", "level 101", "angle 181",
+        "color", "color #12345", "color #1234567", "color #12345g", "color ff88zz",
+        "color 12345!", "color 12345:",
+        "on on on on on on on on",
+        "toggle toggle toggle toggle toggle toggle toggle",   // longer than the buffer
+        // English only: the old Portuguese words are gone
+        "ligar", "desligar", "pulso 5", "nivel 50", "angulo 90", "cor #ff8800", "estado",
     };
     for (const char* b : bad) TEST_ASSERT_FALSE_MESSAGE(iot::parseCommand(b, c), b);
 
@@ -202,9 +205,9 @@ void test_comandos_de_texto() {
     TEST_ASSERT_FALSE(iot::commandAllowed(iot::C_LEVEL, iot::OP_COLOR));
 }
 
-// ── Configuração e pinos ─────────────────────────────────────────────────────
+// ── Configuration and pins ───────────────────────────────────────────────────
 
-void test_desligado_nao_mexe_nos_pinos() {
+void test_off_leaves_pins_alone() {
     IoTService iot{cfg, logger};
     iot.begin();
     iot.tick(0);
@@ -215,14 +218,14 @@ void test_desligado_nao_mexe_nos_pinos() {
     TEST_ASSERT_EQUAL(iot::C_NONE, iot.capability());
     TEST_ASSERT_NULL(iot.sensorDef());
     TEST_ASSERT_NULL(iot.actuatorDef());
-    TEST_ASSERT_EQUAL_STRING("nenhum", iot.sensorText());
-    TEST_ASSERT_EQUAL_STRING("nenhum", iot.actuatorText());
+    TEST_ASSERT_EQUAL_STRING("none", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("none", iot.actuatorText());
     TEST_ASSERT_EQUAL(255, mock::pinModeV[2]);
-    TEST_ASSERT_EQUAL(IoTService::NO_ACTUATOR, iot.command("ligar", 0));
+    TEST_ASSERT_EQUAL(IoTService::NO_ACTUATOR, iot.command("on", 0));
     TEST_ASSERT_EQUAL_STRING("{\"api\":1,\"sensor\":null,\"actuator\":null}", json(iot).c_str());
     TEST_ASSERT_FALSE(iot.pending());
 
-    // Tipo sem pino, ou pino sem tipo: nada
+    // Type without a pin, or pin without a type: nothing
     sensor("pir", -1);
     actuator("", 0);
     iot.begin();
@@ -235,10 +238,10 @@ void test_desligado_nao_mexe_nos_pinos() {
     TEST_ASSERT_FALSE(iot.unknownType());
 }
 
-// Buffer curto: o JSON é cortado, mas sempre termina e informa o tamanho real
-void test_json_em_buffer_curto() {
+// Short buffer: the JSON is cut, but it always ends and reports the real length
+void test_json_in_short_buffer() {
     sensor("dht22", 2);
-    actuator("fita", 0);
+    actuator("strip", 0);
     IoTService iot{cfg, logger};
     iot.begin();
     TEST_ASSERT_EQUAL_STRING("dht22", iot.sensorDef()->slug);
@@ -252,7 +255,7 @@ void test_json_em_buffer_curto() {
     }
 }
 
-void test_tipo_desconhecido_desliga_a_parte() {
+void test_unknown_type_turns_part_off() {
     sensor("laser", 2);
     actuator("teleporte", 0);
     IoTService iot{cfg, logger};
@@ -260,19 +263,19 @@ void test_tipo_desconhecido_desliga_a_parte() {
     TEST_ASSERT_TRUE(iot.unknownType());
     TEST_ASSERT_FALSE(iot.hasSensor());
     TEST_ASSERT_FALSE(iot.hasActuator());
-    TEST_ASSERT_TRUE(logHas(logger, "IoT: tipo de sensor desconhecido"));
-    TEST_ASSERT_TRUE(logHas(logger, "IoT: tipo de atuador desconhecido"));
+    TEST_ASSERT_TRUE(logHas(logger, "IoT: unknown sensor type"));
+    TEST_ASSERT_TRUE(logHas(logger, "IoT: unknown actuator type"));
     TEST_ASSERT_EQUAL(255, mock::pinModeV[0]);
 
-    // Sensor desconhecido não ocupa o pino: o atuador pode usá-lo
-    actuator("rele", 2);
+    // An unknown sensor does not hold the pin: the actuator may use it
+    actuator("relay", 2);
     iot.begin();
     TEST_ASSERT_TRUE(iot.hasActuator());
 }
 
-void test_mesmo_pino_fica_so_com_o_sensor() {
+void test_same_pin_stays_with_sensor() {
     sensor("pir", 2);
-    actuator("rele", 2);
+    actuator("relay", 2);
     IoTService iot{cfg, logger};
     iot.begin();
     TEST_ASSERT_TRUE(iot.hasSensor());
@@ -280,49 +283,49 @@ void test_mesmo_pino_fica_so_com_o_sensor() {
     TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[2]);
 }
 
-// ── Só sensor ────────────────────────────────────────────────────────────────
+// ── Sensor only ──────────────────────────────────────────────────────────────
 
-void test_so_sensor_publica_com_os_nomes_do_tipo() {
-    sensor("contato", 2);
+void test_sensor_only_publishes_with_type_names() {
+    sensor("contact", 2);
     cfg.iot.notify = true;
     IoTService iot{cfg, logger};
     mock::pinIn[2] = HIGH;
     iot.begin();
-    TEST_ASSERT_TRUE(logHas(logger, "IoT: sensor contato GPIO2"));
+    TEST_ASSERT_TRUE(logHas(logger, "IoT: sensor contact GPIO2"));
     TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[2]);
-    TEST_ASSERT_EQUAL_STRING("aguardando", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("waiting", iot.sensorText());
     TEST_ASSERT_TRUE(contains(json(iot), "\"status\":\"waiting\""));
 
     iot.tick(0);
     iot.tick(IoTService::DEBOUNCE_MS - 1);
     TEST_ASSERT_FALSE(iot.pending());
     iot.tick(IoTService::DEBOUNCE_MS);
-    TEST_ASSERT_EQUAL_STRING("aberta", iot.sensorText());
-    TEST_ASSERT_EQUAL_STRING("[sensor] aberta", iot.message());
-    TEST_ASSERT_TRUE(logHas(logger, "IoT: aberta"));
+    TEST_ASSERT_EQUAL_STRING("open", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("[sensor] open", iot.message());
+    TEST_ASSERT_TRUE(logHas(logger, "IoT: open"));
     TEST_ASSERT_EQUAL_STRING(
-        "{\"api\":1,\"sensor\":{\"type\":\"contato\",\"status\":\"ok\",\"text\":\"aberta\","
+        "{\"api\":1,\"sensor\":{\"type\":\"contact\",\"status\":\"ok\",\"text\":\"open\","
         "\"active\":true},\"actuator\":null}", json(iot).c_str());
     iot.ack();
     TEST_ASSERT_FALSE(iot.pending());
 
-    iot.tick(IoTService::DEBOUNCE_MS + 10);        // mesmo nível: nada novo
+    iot.tick(IoTService::DEBOUNCE_MS + 10);        // same level: nothing new
     TEST_ASSERT_FALSE(iot.pending());
 
-    // Oscilação mais curta que o debounce não conta
+    // A bounce shorter than the debounce does not count
     mock::pinIn[2] = LOW;
     iot.tick(1000);
     mock::pinIn[2] = HIGH;
     iot.tick(1100);
     iot.tick(1100 + IoTService::DEBOUNCE_MS);
-    TEST_ASSERT_EQUAL_STRING("aberta", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("open", iot.sensorText());
 
     level(iot, 2, LOW, 2000);
-    TEST_ASSERT_EQUAL_STRING("fechada", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("closed", iot.sensorText());
     TEST_ASSERT_TRUE(contains(json(iot), "\"active\":false"));
 }
 
-void test_nomes_proprios_e_nivel_invertido_sem_ntfy() {
+void test_custom_names_and_inverted_level_without_ntfy() {
     sensor("digital", 1);
     cfg.iot.sensorHigh = false;
     strlcpy(cfg.iot.onText, "molhado", sizeof(cfg.iot.onText));
@@ -336,32 +339,32 @@ void test_nomes_proprios_e_nivel_invertido_sem_ntfy() {
     TEST_ASSERT_EQUAL_STRING("seco", iot.sensorText());
 }
 
-// ── Só atuador: capacidades e comandos ───────────────────────────────────────
+// ── Actuator only: capabilities and commands ─────────────────────────────────
 
-void test_liga_desliga_obedece_comandos() {
-    actuator("rele", 0);
+void test_on_off_obeys_commands() {
+    actuator("relay", 0);
     cfg.iot.notify = true;
     IoTService iot{cfg, logger};
     iot.begin();
-    TEST_ASSERT_TRUE(logHas(logger, "IoT: atuador rele GPIO0"));
+    TEST_ASSERT_TRUE(logHas(logger, "IoT: actuator relay GPIO0"));
     TEST_ASSERT_EQUAL(OUTPUT, mock::pinModeV[0]);
-    TEST_ASSERT_EQUAL(HIGH, mock::pinOut[0]);          // liga em nível baixo
-    TEST_ASSERT_EQUAL_STRING("desligado", iot.actuatorText());
-    TEST_ASSERT_EQUAL_STRING("Rele", iot.actuatorDef()->label);
+    TEST_ASSERT_EQUAL(HIGH, mock::pinOut[0]);          // switches on low
+    TEST_ASSERT_EQUAL_STRING("off", iot.actuatorText());
+    TEST_ASSERT_EQUAL_STRING("Relay", iot.actuatorDef()->label);
     TEST_ASSERT_EQUAL_STRING(
-        "{\"api\":1,\"sensor\":null,\"actuator\":{\"type\":\"rele\",\"capability\":\"onoff\","
-        "\"on\":false,\"mode\":\"manual\",\"text\":\"desligado\"}}", json(iot).c_str());
+        "{\"api\":1,\"sensor\":null,\"actuator\":{\"type\":\"relay\",\"capability\":\"onoff\","
+        "\"on\":false,\"mode\":\"manual\",\"text\":\"off\"}}", json(iot).c_str());
 
-    TEST_ASSERT_EQUAL(IoTService::OK, iot.command("ligar", 10));
+    TEST_ASSERT_EQUAL(IoTService::OK, iot.command("on", 10));
     TEST_ASSERT_TRUE(iot.actuatorOn());
     TEST_ASSERT_EQUAL(LOW, mock::pinOut[0]);
-    TEST_ASSERT_FALSE(iot.manual());                   // sem regra não há modo
-    TEST_ASSERT_EQUAL_STRING("[atuador] ligado", iot.message());
-    TEST_ASSERT_TRUE(logHas(logger, "IoT: [atuador] ligado"));
+    TEST_ASSERT_FALSE(iot.manual());                   // no rule, no mode
+    TEST_ASSERT_EQUAL_STRING("[actuator] on", iot.message());
+    TEST_ASSERT_TRUE(logHas(logger, "IoT: [actuator] on"));
 
-    TEST_ASSERT_EQUAL(IoTService::OK, iot.command("alternar", 20));
+    TEST_ASSERT_EQUAL(IoTService::OK, iot.command("toggle", 20));
     TEST_ASSERT_FALSE(iot.actuatorOn());
-    TEST_ASSERT_EQUAL(IoTService::OK, iot.command("alternar", 30));
+    TEST_ASSERT_EQUAL(IoTService::OK, iot.command("toggle", 30));
     TEST_ASSERT_TRUE(iot.actuatorOn());
     TEST_ASSERT_EQUAL(IoTService::OK, iot.command("off", 40));
     TEST_ASSERT_FALSE(iot.actuatorOn());
@@ -373,27 +376,27 @@ void test_liga_desliga_obedece_comandos() {
     TEST_ASSERT_FALSE(iot.actuatorOn());
     TEST_ASSERT_EQUAL(IoTService::INVALID, iot.command("voar", 70));
     TEST_ASSERT_EQUAL(IoTService::UNSUPPORTED, iot.command("50%", 70));
-    TEST_ASSERT_EQUAL(IoTService::UNSUPPORTED, iot.command("angulo 9", 70));
+    TEST_ASSERT_EQUAL(IoTService::UNSUPPORTED, iot.command("angle 9", 70));
 
-    // Liga em nível alto
+    // Switches on high
     cfg.iot.actuatorHigh = true;
     iot.begin();
     TEST_ASSERT_EQUAL(LOW, mock::pinOut[0]);
-    iot.command("ligar", 0);
+    iot.command("on", 0);
     TEST_ASSERT_EQUAL(HIGH, mock::pinOut[0]);
 }
 
-void test_pulso_desliga_sozinho_e_nao_e_gravado() {
-    actuator("fechadura", 3);
+void test_pulse_turns_off_by_itself_and_is_not_saved() {
+    actuator("lock", 3);
     cfg.iot.restore = true;
     IoTService iot{cfg, logger};
     iot.begin();
-    TEST_ASSERT_EQUAL(IoTService::OK, iot.command("pulso 3", 1000));
+    TEST_ASSERT_EQUAL(IoTService::OK, iot.command("pulse 3", 1000));
     TEST_ASSERT_TRUE(iot.actuatorOn());
     TEST_ASSERT_EQUAL(0, (int)MockFS::files.count(IoTState::PATH));
     setMillis(1500);
     TEST_ASSERT_TRUE(contains(json(iot), "\"pulse\":3"));
-    setMillis(9000);                                   // passou do fim antes do tick
+    setMillis(9000);                                   // past the end before the tick
     TEST_ASSERT_TRUE(contains(json(iot), "\"pulse\":0"));
 
     iot.tick(3999);
@@ -402,66 +405,66 @@ void test_pulso_desliga_sozinho_e_nao_e_gravado() {
     TEST_ASSERT_FALSE(iot.actuatorOn());
     TEST_ASSERT_FALSE(contains(json(iot), "pulse"));
     IoTState st;
-    TEST_ASSERT_TRUE(st.load());                       // grava o fim do pulso
+    TEST_ASSERT_TRUE(st.load());                       // saves the end of the pulse
     TEST_ASSERT_FALSE(st.on);
 
-    // Outro comando cancela o pulso
-    iot.command("pulso 3", 5000);
-    iot.command("ligar", 5100);
+    // Another command cancels the pulse
+    iot.command("pulse 3", 5000);
+    iot.command("on", 5100);
     iot.tick(9000);
     TEST_ASSERT_TRUE(iot.actuatorOn());
 }
 
-void test_desligamento_de_seguranca() {
-    actuator("bomba", 0);
+void test_safety_shutoff() {
+    actuator("pump", 0);
     cfg.iot.maxOn = 1;
     cfg.iot.notify = true;
     IoTService iot{cfg, logger};
     iot.begin();
-    iot.command("ligar", 1000);
+    iot.command("on", 1000);
     iot.tick(1000 + 59999);
     TEST_ASSERT_TRUE(iot.actuatorOn());
     iot.tick(1000 + 60000);
     TEST_ASSERT_FALSE(iot.actuatorOn());
-    TEST_ASSERT_EQUAL_STRING("[atuador] desligado por seguranca", iot.message());
-    TEST_ASSERT_TRUE(logHas(logger, "por seguranca"));
+    TEST_ASSERT_EQUAL_STRING("[actuator] off for safety", iot.message());
+    TEST_ASSERT_TRUE(logHas(logger, "for safety"));
 
-    // Desligado não conta tempo
+    // Off does not count time
     iot.tick(1000 + 200000);
     TEST_ASSERT_FALSE(iot.actuatorOn());
 }
 
-void test_intensidade_pwm() {
-    actuator("ventilador", 0);
+void test_pwm_level() {
+    actuator("fan", 0);
     cfg.iot.dutyOn = 80;
     cfg.iot.dutyOff = 20;
     IoTService iot{cfg, logger};
     iot.begin();
     TEST_ASSERT_EQUAL(20 * 1023 / 100, mock::analogValue[0]);
-    TEST_ASSERT_EQUAL_STRING("desligado", iot.actuatorText());
+    TEST_ASSERT_EQUAL_STRING("off", iot.actuatorText());
     TEST_ASSERT_TRUE(contains(json(iot), "\"capability\":\"level\",\"on\":false"));
     TEST_ASSERT_TRUE(contains(json(iot), "\"level\":80"));
 
-    iot.command("ligar", 0);
+    iot.command("on", 0);
     TEST_ASSERT_EQUAL(80 * 1023 / 100, mock::analogValue[0]);
-    TEST_ASSERT_EQUAL_STRING("ligado 80%", iot.actuatorText());
+    TEST_ASSERT_EQUAL_STRING("on 80%", iot.actuatorText());
 
     iot.command("35%", 0);
     TEST_ASSERT_EQUAL(35 * 1023 / 100, mock::analogValue[0]);
     TEST_ASSERT_EQUAL(35, iot.level());
 
-    iot.command("nivel 0", 0);                         // 0% = desligado
+    iot.command("level 0", 0);                         // 0% = off
     TEST_ASSERT_FALSE(iot.actuatorOn());
-    iot.command("ligar", 0);                           // volta à intensidade de ligar
+    iot.command("on", 0);                           // back to the on level
     TEST_ASSERT_EQUAL(80, iot.level());
 
-    // Reconfigurar solta a saída; GPIO0 volta ao pull-up do boot
+    // Reconfiguring releases the output; GPIO0 goes back to the boot pull-up
     actuator("", -1);
     iot.begin();
     TEST_ASSERT_EQUAL(0, mock::analogValue[0]);
     TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[0]);
 
-    // Faixas fora do limite são cortadas
+    // Out-of-range values are clamped
     actuator("led", 1);
     cfg.iot.dutyOn = 250;
     cfg.iot.dutyOff = 250;
@@ -470,10 +473,10 @@ void test_intensidade_pwm() {
     actuator("", -1);
     iot.begin();
     TEST_ASSERT_EQUAL(0, mock::analogValue[1]);
-    TEST_ASSERT_EQUAL(OUTPUT, mock::pinModeV[1]);       // TX não é pino de boot
+    TEST_ASSERT_EQUAL(OUTPUT, mock::pinModeV[1]);       // TX is not a boot pin
 }
 
-void test_posicao_servo() {
+void test_servo_position() {
     actuator("servo", 2);
     cfg.iot.angleOn = 150;
     cfg.iot.angleOff = 20;
@@ -482,43 +485,43 @@ void test_posicao_servo() {
     TEST_ASSERT_TRUE(mock::servoAttached);
     TEST_ASSERT_EQUAL(2, mock::servoPin);
     TEST_ASSERT_EQUAL(20, mock::servoAngle);
-    TEST_ASSERT_EQUAL_STRING("fechado 20 graus", iot.actuatorText());
+    TEST_ASSERT_EQUAL_STRING("closed 20 deg", iot.actuatorText());
     TEST_ASSERT_TRUE(contains(json(iot), "\"angle\":20,\"ok\":true"));
 
-    iot.command("abrir", 0);
+    iot.command("open", 0);
     TEST_ASSERT_EQUAL(150, mock::servoAngle);
-    TEST_ASSERT_EQUAL_STRING("aberto 150 graus", iot.actuatorText());
-    iot.command("angulo 90", 0);
+    TEST_ASSERT_EQUAL_STRING("open 150 deg", iot.actuatorText());
+    iot.command("angle 90", 0);
     TEST_ASSERT_EQUAL(90, mock::servoAngle);
     TEST_ASSERT_EQUAL(90, iot.angle());
-    iot.command("angulo 20", 0);                       // o ângulo fechado é desligado
+    iot.command("angle 20", 0);                       // the closed angle is off
     TEST_ASSERT_FALSE(iot.actuatorOn());
-    iot.command("ligar", 0);                           // ligar volta ao aberto
+    iot.command("on", 0);                           // on goes back to open
     TEST_ASSERT_EQUAL(150, mock::servoAngle);
-    TEST_ASSERT_EQUAL(IoTService::UNSUPPORTED, iot.command("cor #ffffff", 0));
+    TEST_ASSERT_EQUAL(IoTService::UNSUPPORTED, iot.command("color #ffffff", 0));
 
     actuator("", -1);
     iot.begin();
     TEST_ASSERT_FALSE(mock::servoAttached);
     TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[2]);
 
-    // Servo que não anexa: falha sem escrever
+    // A servo that does not attach: fails without writing
     mock::servoAttachResult = 0;
     mock::servoWrites = 0;
     actuator("servo", 3);
     iot.begin();
-    TEST_ASSERT_TRUE(logHas(logger, "IoT: servo indisponivel"));
-    TEST_ASSERT_EQUAL_STRING("falha", iot.actuatorText());
+    TEST_ASSERT_TRUE(logHas(logger, "IoT: servo unavailable"));
+    TEST_ASSERT_EQUAL_STRING("error", iot.actuatorText());
     TEST_ASSERT_TRUE(contains(json(iot), "\"ok\":false"));
-    iot.command("abrir", 0);
+    iot.command("open", 0);
     TEST_ASSERT_EQUAL(0, mock::servoWrites);
     actuator("", -1);
     iot.begin();
-    TEST_ASSERT_EQUAL(255, mock::pinModeV[3]);         // RX não é pino de boot
+    TEST_ASSERT_EQUAL(255, mock::pinModeV[3]);         // RX is not a boot pin
 }
 
-void test_cor_fita_ws2812() {
-    actuator("fita", 2);
+void test_ws2812_strip_color() {
+    actuator("strip", 2);
     cfg.iot.leds = 12;
     IoTService iot{cfg, logger};
     iot.begin();
@@ -528,45 +531,45 @@ void test_cor_fita_ws2812() {
     TEST_ASSERT_EQUAL_HEX32(0, mock::wsColor);
     TEST_ASSERT_TRUE(contains(json(iot), "\"color\":\"#ffffff\""));
 
-    iot.command("cor #ff8800", 0);
+    iot.command("color #ff8800", 0);
     TEST_ASSERT_EQUAL_HEX32(0xFF8800, mock::wsColor);
-    TEST_ASSERT_EQUAL_STRING("ligado #ff8800 100%", iot.actuatorText());
+    TEST_ASSERT_EQUAL_STRING("on #ff8800 100%", iot.actuatorText());
     TEST_ASSERT_EQUAL_HEX32(0xFF8800, iot.color());
 
-    iot.command("brilho 50", 0);
+    iot.command("brightness 50", 0);
     TEST_ASSERT_EQUAL_HEX32(0x7F4400, mock::wsColor);
-    iot.command("brilho 0", 0);
+    iot.command("brightness 0", 0);
     TEST_ASSERT_FALSE(iot.actuatorOn());
     TEST_ASSERT_EQUAL_HEX32(0, mock::wsColor);
-    iot.command("cor #0000ff", 0);                     // cor com brilho 0 acende a 100%
+    iot.command("color #0000ff", 0);                     // a color at brightness 0 lights at 100%
     TEST_ASSERT_EQUAL_HEX32(0x0000FF, mock::wsColor);
-    iot.command("brilho 0", 0);
-    iot.command("ligar", 0);                           // ligar também
+    iot.command("brightness 0", 0);
+    iot.command("on", 0);                           // on too
     TEST_ASSERT_EQUAL(100, iot.level());
 
-    // Quantidade fora da faixa vira o máximo; soltar apaga a fita
+    // An out-of-range count becomes the maximum; releasing turns the strip off
     cfg.iot.leds = 0;
     iot.begin();
     TEST_ASSERT_EQUAL(IoTService::MAX_LEDS, mock::wsCount);
     cfg.iot.leds = 200;
     iot.begin();
     TEST_ASSERT_EQUAL(IoTService::MAX_LEDS, mock::wsCount);
-    iot.command("ligar", 0);
+    iot.command("on", 0);
     actuator("", -1);
     iot.begin();
     TEST_ASSERT_EQUAL_HEX32(0, mock::wsColor);
     TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[2]);
 }
 
-// ── Estado ao religar ────────────────────────────────────────────────────────
+// ── State at power-up ────────────────────────────────────────────────────────
 
-void test_ao_religar_volta_o_ultimo_comando() {
-    actuator("fita", 1);
+void test_power_up_restores_last_command() {
+    actuator("strip", 1);
     cfg.iot.restore = true;
     IoTService a{cfg, logger};
     a.begin();
-    a.command("cor #102030", 0);
-    a.command("brilho 40", 0);
+    a.command("color #102030", 0);
+    a.command("brightness 40", 0);
 
     IoTService b{cfg, logger};
     b.begin();
@@ -574,7 +577,7 @@ void test_ao_religar_volta_o_ultimo_comando() {
     TEST_ASSERT_EQUAL(40, b.level());
     TEST_ASSERT_EQUAL_HEX32(0x102030, b.color());
 
-    // Valores fora da faixa no arquivo são cortados
+    // Out-of-range values in the file are clamped
     MockFS::put(IoTState::PATH, R"({"m":true,"on":true,"lv":150,"an":200,"c":4294967295})");
     actuator("servo", 2);
     IoTService c{cfg, logger};
@@ -585,7 +588,7 @@ void test_ao_religar_volta_o_ultimo_comando() {
     d.begin();
     TEST_ASSERT_EQUAL(100, d.level());
 
-    // Arquivo estragado ou ausente: desligado
+    // Broken or missing file: off
     MockFS::put(IoTState::PATH, "{");
     IoTService e{cfg, logger};
     e.begin();
@@ -595,26 +598,26 @@ void test_ao_religar_volta_o_ultimo_comando() {
     f.begin();
     TEST_ASSERT_FALSE(f.actuatorOn());
 
-    // Sem a opção, não grava nem lê
+    // Without the option, it neither saves nor reads
     cfg.iot.restore = false;
     IoTService g{cfg, logger};
     g.begin();
-    g.command("ligar", 0);
+    g.command("on", 0);
     TEST_ASSERT_EQUAL(0, (int)MockFS::files.count(IoTState::PATH));
 
-    // Falha ao gravar não derruba o comando
+    // A failed save does not undo the command
     cfg.iot.restore = true;
     MockFS::failWriteOpen = true;
     IoTService h{cfg, logger};
     h.begin();
-    TEST_ASSERT_EQUAL(IoTService::OK, h.command("ligar", 0));
+    TEST_ASSERT_EQUAL(IoTService::OK, h.command("on", 0));
 }
 
-// ── Sensor e atuador: regra ──────────────────────────────────────────────────
+// ── Sensor and actuator: rule ────────────────────────────────────────────────
 
-void test_regra_digital_acompanha_e_manual_tem_prioridade() {
+void test_digital_rule_follows_and_manual_wins() {
     sensor("pir", 2);
-    actuator("rele", 0);
+    actuator("relay", 0);
     cfg.iot.notify = true;
     IoTService iot{cfg, logger};
     iot.begin();
@@ -624,32 +627,32 @@ void test_regra_digital_acompanha_e_manual_tem_prioridade() {
     level(iot, 2, HIGH, 0);
     TEST_ASSERT_TRUE(iot.actuatorOn());
     TEST_ASSERT_EQUAL(LOW, mock::pinOut[0]);
-    TEST_ASSERT_EQUAL_STRING("[sensor] presenca | ligado", iot.message());
-    TEST_ASSERT_TRUE(logHas(logger, "IoT: presenca | ligado"));
+    TEST_ASSERT_EQUAL_STRING("[sensor] motion | on", iot.message());
+    TEST_ASSERT_TRUE(logHas(logger, "IoT: motion | on"));
 
-    // Comando manual: a regra não mexe até "auto"
-    iot.command("desligar", 500);
+    // Manual command: the rule does not touch it until "auto"
+    iot.command("off", 500);
     TEST_ASSERT_TRUE(iot.manual());
     TEST_ASSERT_TRUE(contains(json(iot), "\"mode\":\"manual\""));
     level(iot, 2, LOW, 1000);
     level(iot, 2, HIGH, 2000);
     TEST_ASSERT_FALSE(iot.actuatorOn());
-    TEST_ASSERT_EQUAL_STRING("[sensor] presenca | desligado", iot.message());
+    TEST_ASSERT_EQUAL_STRING("[sensor] motion | off", iot.message());
 
-    iot.command("auto", 3000);                         // volta e aplica a regra
+    iot.command("auto", 3000);                         // goes back and applies the rule
     TEST_ASSERT_FALSE(iot.manual());
     TEST_ASSERT_TRUE(iot.actuatorOn());
 
-    // Pulso em regra: ao terminar, volta ao automático
+    // Pulse under a rule: when it ends, back to automatic
     level(iot, 2, LOW, 4000);
     TEST_ASSERT_FALSE(iot.actuatorOn());
-    iot.command("pulso 1", 5000);
+    iot.command("pulse 1", 5000);
     TEST_ASSERT_TRUE(iot.manual());
     iot.tick(6000);
     TEST_ASSERT_FALSE(iot.manual());
     TEST_ASSERT_FALSE(iot.actuatorOn());
 
-    // Segurança em regra: fica no manual (a regra religaria na hora)
+    // Safety under a rule: stays manual (the rule would turn it right back on)
     cfg.iot.maxOn = 1;
     iot.begin();
     level(iot, 2, HIGH, 0);
@@ -659,19 +662,19 @@ void test_regra_digital_acompanha_e_manual_tem_prioridade() {
     TEST_ASSERT_TRUE(iot.manual());
 }
 
-void test_auto_antes_da_primeira_leitura_e_regra_desligada() {
-    sensor("botao", 2);
-    actuator("rele", 0);
+void test_auto_before_first_reading_and_rule_off() {
+    sensor("button", 2);
+    actuator("relay", 0);
     IoTService iot{cfg, logger};
     iot.begin();
-    iot.command("ligar", 0);
-    iot.command("auto", 0);                            // a regra ainda não decidiu
+    iot.command("on", 0);
+    iot.command("auto", 0);                            // the rule has not decided yet
     TEST_ASSERT_TRUE(iot.actuatorOn());
-    iot.command("pulso 1", 0);
-    iot.tick(1000);                                    // fim do pulso sem decisão
+    iot.command("pulse 1", 0);
+    iot.tick(1000);                                    // end of the pulse with no decision
     TEST_ASSERT_FALSE(iot.actuatorOn());
 
-    // Sem a regra, o sensor só informa
+    // Without the rule, the sensor only reports
     cfg.iot.rule = false;
     iot.begin();
     TEST_ASSERT_FALSE(iot.hasRule());
@@ -680,13 +683,13 @@ void test_auto_antes_da_primeira_leitura_e_regra_desligada() {
     TEST_ASSERT_TRUE(contains(json(iot), "\"mode\":\"manual\""));
 }
 
-void test_regra_digital_alterna_a_cada_acionamento() {
-    sensor("botao", 3);
-    actuator("rele", 0);
+void test_digital_rule_toggles_on_each_activation() {
+    sensor("button", 3);
+    actuator("relay", 0);
     cfg.iot.toggle = true;
     IoTService iot{cfg, logger};
     iot.begin();
-    level(iot, 3, HIGH, 0);                            // 1º estado só arma
+    level(iot, 3, HIGH, 0);                            // the 1st state only arms
     TEST_ASSERT_FALSE(iot.actuatorOn());
     level(iot, 3, LOW, 1000);
     TEST_ASSERT_FALSE(iot.actuatorOn());
@@ -698,16 +701,16 @@ void test_regra_digital_alterna_a_cada_acionamento() {
     TEST_ASSERT_FALSE(iot.actuatorOn());
 }
 
-void test_regra_dht22_com_margem() {
+void test_dht22_rule_with_margin() {
     sensor("dht22", 2);
-    actuator("rele", 0);
+    actuator("relay", 0);
     cfg.iot.above = true;
     cfg.iot.threshold = 40;
     cfg.iot.margin = 2;
     cfg.iot.notify = true;
     IoTService iot{cfg, logger};
     iot.begin();
-    TEST_ASSERT_EQUAL_STRING("aguardando", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("waiting", iot.sensorText());
 
     uint8_t d[5];
     frame(0x01, 0xE7, 0x01, 0x09, d);                  // 48.7% e 26.5 C
@@ -715,28 +718,28 @@ void test_regra_dht22_com_margem() {
     dhtRead(iot, 0);
     TEST_ASSERT_EQUAL_STRING("26.5 C, 48.7%", iot.sensorText());
     TEST_ASSERT_TRUE(iot.actuatorOn());
-    TEST_ASSERT_EQUAL_STRING("[sensor] 26.5 C, 48.7% | ligado", iot.message());
+    TEST_ASSERT_EQUAL_STRING("[sensor] 26.5 C, 48.7% | on", iot.message());
     TEST_ASSERT_TRUE(contains(json(iot), "\"temperature\":26.5,\"humidity\":48.7"));
     uint8_t logged = logger.count();
 
-    iot.tick(IoTService::READ_GAP_MS - 1);             // ainda no intervalo
+    iot.tick(IoTService::READ_GAP_MS - 1);             // still within the interval
     feedDht(2, d);
-    dhtRead(iot, IoTService::READ_GAP_MS);              // igual: não registra
+    dhtRead(iot, IoTService::READ_GAP_MS);              // the same: not logged
     TEST_ASSERT_EQUAL(logged, logger.count());
 
-    frame(0x01, 0x81, 0x01, 0x09, d);                  // 38.5%: dentro da margem
+    frame(0x01, 0x81, 0x01, 0x09, d);                  // 38.5%: inside the margin
     feedDht(2, d);
     dhtRead(iot, IoTService::READ_GAP_MS * 2);
     TEST_ASSERT_TRUE(iot.actuatorOn());
 
-    frame(0x01, 0x72, 0x01, 0x09, d);                  // 37.0%: desliga
+    frame(0x01, 0x72, 0x01, 0x09, d);                  // 37.0%: off
     feedDht(2, d);
     dhtRead(iot, IoTService::READ_GAP_MS * 3);
     TEST_ASSERT_FALSE(iot.actuatorOn());
-    TEST_ASSERT_TRUE(logHas(logger, "| desligado"));
+    TEST_ASSERT_TRUE(logHas(logger, "| off"));
 }
 
-void test_dht_falhas_temperatura_negativa_e_dht11() {
+void test_dht_failures_negative_temperature_and_dht11() {
     sensor("dht22", 2);
     cfg.iot.notify = true;
     IoTService iot{cfg, logger};
@@ -746,9 +749,9 @@ void test_dht_falhas_temperatura_negativa_e_dht11() {
     mock::busPin = 2;
     seg(HIGH, 5000);
     dhtRead(iot, 0);
-    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
-    TEST_ASSERT_TRUE(logHas(logger, "IoT: leitura falhou"));
-    TEST_ASSERT_TRUE(contains(json(iot), "\"status\":\"error\",\"text\":\"falha\"}"));
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
+    TEST_ASSERT_TRUE(logHas(logger, "IoT: reading failed"));
+    TEST_ASSERT_TRUE(contains(json(iot), "\"status\":\"error\",\"text\":\"error\"}"));
     uint8_t logged = logger.count();
 
     mock::busSegs.clear();
@@ -781,7 +784,7 @@ void test_dht_falhas_temperatura_negativa_e_dht11() {
     uint8_t bad[5] = {0x01, 0xE7, 0x01, 0x09, 0x00};
     feedDht(2, bad);
     dhtRead(iot, IoTService::READ_GAP_MS * 5);
-    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
 
     uint8_t neg[5];
     frame(0x01, 0x5E, 0x80, 0x65, neg);                // 35.0% e -10.1 C
@@ -791,7 +794,7 @@ void test_dht_falhas_temperatura_negativa_e_dht11() {
     TEST_ASSERT_EQUAL_STRING("[sensor] -10.1 C, 35.0%", iot.message());
 
     sensor("dht11", 2);
-    actuator("rele", 0);
+    actuator("relay", 0);
     cfg.iot.metric = 1;
     cfg.iot.above = true;
     cfg.iot.threshold = 25;
@@ -803,13 +806,13 @@ void test_dht_falhas_temperatura_negativa_e_dht11() {
     feedDht(2, d11);
     dhtRead(dht11, 0, IoTService::DHT11_WAKE_MS);
     TEST_ASSERT_EQUAL_STRING("26.0 C, 40.0%", dht11.sensorText());
-    TEST_ASSERT_TRUE(dht11.actuatorOn());               // temperatura 26 > 25
+    TEST_ASSERT_TRUE(dht11.actuatorOn());               // temperature 26 > 25
     TEST_ASSERT_FALSE(dht11.pending());
 }
 
-// O pulso de início do DHT não usa delay: o pino fica em LOW entre dois
-// ticks. Antes do mínimo não lê; depois do máximo recomeça o pulso.
-void test_dht_pulso_de_inicio_sem_delay() {
+// The DHT start pulse uses no delay: the pin stays LOW between two ticks.
+// Before the minimum it does not read; after the maximum it restarts the pulse.
+void test_dht_start_pulse_without_delay() {
     const struct { const char* slug; unsigned long wake, max; } cases[] = {
         {"dht11", IoTService::DHT11_WAKE_MS, IoTService::DHT11_WAKE_MAX},
         {"dht22", IoTService::DHT22_WAKE_MS, IoTService::DHT22_WAKE_MAX},
@@ -825,26 +828,26 @@ void test_dht_pulso_de_inicio_sem_delay() {
 
         unsigned long before = micros();
         iot.tick(100);
-        TEST_ASSERT_EQUAL(before, micros());          // não esperou nada
+        TEST_ASSERT_EQUAL(before, micros());          // did not wait at all
         TEST_ASSERT_EQUAL(OUTPUT, mock::pinModeV[2]);
         TEST_ASSERT_EQUAL(LOW, mock::pinOut[2]);
 
-        iot.tick(100 + c.wake - 1);                    // ainda no pulso
-        TEST_ASSERT_EQUAL_STRING("aguardando", iot.sensorText());
+        iot.tick(100 + c.wake - 1);                    // still in the pulse
+        TEST_ASSERT_EQUAL_STRING("waiting", iot.sensorText());
 
-        iot.tick(100 + c.max + 1);                     // loop atrasou: recomeça
-        TEST_ASSERT_EQUAL_STRING("aguardando", iot.sensorText());
+        iot.tick(100 + c.max + 1);                     // the loop ran late: restarts
+        TEST_ASSERT_EQUAL_STRING("waiting", iot.sensorText());
         TEST_ASSERT_EQUAL(LOW, mock::pinOut[2]);
 
-        iot.tick(100 + c.max + 1 + c.wake);            // janela certa: lê
+        iot.tick(100 + c.max + 1 + c.wake);            // right window: reads
         TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[2]);
         TEST_ASSERT_TRUE(contains(std::string(iot.sensorText()), " C, "));
     }
 }
 
-void test_ds18b20_conversao_e_erros() {
+void test_ds18b20_conversion_and_errors() {
     sensor("ds18b20", 2);
-    actuator("rele", 0);
+    actuator("relay", 0);
     cfg.iot.above = true;
     cfg.iot.threshold = 20;
     cfg.iot.notify = true;
@@ -854,9 +857,9 @@ void test_ds18b20_conversao_e_erros() {
     const uint8_t ok[] = {0x90, 0x01, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10, 0x33};
     feedDs(2, true, true, ok, 9);
     iot.tick(0);
-    TEST_ASSERT_EQUAL_STRING("aguardando", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("waiting", iot.sensorText());
     iot.tick(IoTService::DS_CONVERT_MS - 1);
-    TEST_ASSERT_EQUAL_STRING("aguardando", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("waiting", iot.sensorText());
     iot.tick(IoTService::DS_CONVERT_MS);
     TEST_ASSERT_EQUAL_STRING("25.0 C", iot.sensorText());
     TEST_ASSERT_TRUE(iot.actuatorOn());
@@ -865,25 +868,25 @@ void test_ds18b20_conversao_e_erros() {
     iot.tick(IoTService::READ_GAP_MS - 1);
     TEST_ASSERT_EQUAL_STRING("25.0 C", iot.sensorText());
     iot.tick(IoTService::READ_GAP_MS);
-    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
     TEST_ASSERT_TRUE(iot.actuatorOn());
 
     IoTService ausente{cfg, logger};
     ausente.begin();
     feedDs(2, false, true, ok, 9);
     ausente.tick(0);
-    TEST_ASSERT_EQUAL_STRING("falha", ausente.sensorText());
+    TEST_ASSERT_EQUAL_STRING("error", ausente.sensorText());
     uint8_t logged = logger.count();
     ausente.tick(100);
     ausente.tick(IoTService::READ_GAP_MS);
     TEST_ASSERT_EQUAL(logged, logger.count());
 
-    IoTService leitura{cfg, logger};
-    leitura.begin();
+    IoTService reading{cfg, logger};
+    reading.begin();
     feedDs(2, true, false, nullptr, 0);
-    leitura.tick(0);
-    leitura.tick(IoTService::DS_CONVERT_MS);
-    TEST_ASSERT_EQUAL_STRING("falha", leitura.sensorText());
+    reading.tick(0);
+    reading.tick(IoTService::DS_CONVERT_MS);
+    TEST_ASSERT_EQUAL_STRING("error", reading.sensorText());
 
     uint8_t ruim[] = {0x90, 0x01, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10, 0x00};
     IoTService crc{cfg, logger};
@@ -891,7 +894,7 @@ void test_ds18b20_conversao_e_erros() {
     feedDs(2, true, true, ruim, 9);
     crc.tick(0);
     crc.tick(IoTService::DS_CONVERT_MS);
-    TEST_ASSERT_EQUAL_STRING("falha", crc.sensorText());
+    TEST_ASSERT_EQUAL_STRING("error", crc.sensorText());
 
     const uint8_t negativo[] = {0x58, 0xFF, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10, 0xF9};
     cfg.iot.above = false;
@@ -905,12 +908,12 @@ void test_ds18b20_conversao_e_erros() {
     TEST_ASSERT_EQUAL_STRING("-10.5 C", frio.sensorText());
     TEST_ASSERT_TRUE(frio.actuatorOn());
     TEST_ASSERT_FALSE(frio.pending());
-    TEST_ASSERT_TRUE(logHas(logger, "IoT: -10.5 C | ligado"));
+    TEST_ASSERT_TRUE(logHas(logger, "IoT: -10.5 C | on"));
 }
 
-void test_pulsos_na_janela_com_histerese() {
-    sensor("pulsos", 2);
-    actuator("rele", 0);
+void test_pulses_in_window_with_hysteresis() {
+    sensor("pulses", 2);
+    actuator("relay", 0);
     cfg.iot.above = true;
     cfg.iot.threshold = 3;
     cfg.iot.margin = 1;
@@ -922,22 +925,22 @@ void test_pulsos_na_janela_com_histerese() {
     iot.tick(0);
     IoTService::onPulse();
     iot.tick(IoTService::PULSE_WINDOW_MS - 1);
-    TEST_ASSERT_EQUAL_STRING("aguardando", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("waiting", iot.sensorText());
     IoTService::onPulse();
     IoTService::onPulse();
     iot.tick(IoTService::PULSE_WINDOW_MS);
-    TEST_ASSERT_EQUAL_STRING("3 pulsos/10 s", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("3 pulses/10 s", iot.sensorText());
     TEST_ASSERT_TRUE(iot.actuatorOn());
     TEST_ASSERT_TRUE(contains(json(iot), "\"pulses\":3}"));
 
     IoTService::onPulse();
     IoTService::onPulse();
-    iot.tick(IoTService::PULSE_WINDOW_MS * 2);         // 2 ≥ 3 - 1: segue ligado
+    iot.tick(IoTService::PULSE_WINDOW_MS * 2);         // 2 ≥ 3 - 1: stays on
     TEST_ASSERT_TRUE(iot.actuatorOn());
     iot.tick(IoTService::PULSE_WINDOW_MS * 3);
     TEST_ASSERT_FALSE(iot.actuatorOn());
 
-    // Abaixo do limite, com a margem para cima
+    // Below the limit, with the margin upward
     cfg.iot.above = false;
     iot.begin();
     iot.tick(0);
@@ -951,20 +954,20 @@ void test_pulsos_na_janela_com_histerese() {
     iot.tick(IoTService::PULSE_WINDOW_MS * 3);
     TEST_ASSERT_FALSE(iot.actuatorOn());
 
-    // Trocar de sensor solta a interrupção
+    // Changing the sensor releases the interrupt
     sensor("pir", 2);
     iot.begin();
     TEST_ASSERT_EQUAL(255, mock::isrPin);
 }
 
-// ── Janela de horário ────────────────────────────────────────────────────────
+// ── Time window ──────────────────────────────────────────────────────────────
 
 static time_t clockNow = 0;
 static time_t fakeClock() { return clockNow; }
 static const time_t DAY0 = 1704067200;   // 01/01/2024 00:00 UTC
 static void at(int h, int m) { clockNow = DAY0 + h * 3600 + m * 60; }
 
-void test_hora_local_e_janela() {
+void test_local_time_and_window() {
     uint16_t m = 0;
     IoTService none{cfg, logger};
     TEST_ASSERT_FALSE(none.localMinute(m));
@@ -973,17 +976,17 @@ void test_hora_local_e_janela() {
     IoTService iot{cfg, logger, &clock};
     clockNow = 1000;                                   // 1970
     TEST_ASSERT_FALSE(iot.localMinute(m));
-    TEST_ASSERT_TRUE(iot.inHours());                   // janela desligada
+    TEST_ASSERT_TRUE(iot.inHours());                   // window off
 
     at(2, 30);
-    cfg.tz = -180;                                     // volta para o dia anterior
+    cfg.tz = -180;                                     // goes back to the previous day
     TEST_ASSERT_TRUE(iot.localMinute(m));
     TEST_ASSERT_EQUAL(23 * 60 + 30, m);
     cfg.tz = 330;
     TEST_ASSERT_TRUE(iot.localMinute(m));
     TEST_ASSERT_EQUAL(8 * 60, m);
     at(22, 0);
-    cfg.tz = 14 * 60;                                  // passa para o dia seguinte
+    cfg.tz = 14 * 60;                                  // goes on to the next day
     TEST_ASSERT_TRUE(iot.localMinute(m));
     TEST_ASSERT_EQUAL(12 * 60, m);
 
@@ -997,7 +1000,7 @@ void test_hora_local_e_janela() {
         at(c.h, c.m);
         TEST_ASSERT_EQUAL(c.in, iot.inHours());
     }
-    cfg.iot.winStart = 22 * 60;                        // vira a meia-noite
+    cfg.iot.winStart = 22 * 60;                        // wraps past midnight
     cfg.iot.winEnd = 6 * 60;
     iot.begin();
     struct { int h, m; bool in; } night[] = {{21, 59, false}, {22, 0, true}, {23, 0, true},
@@ -1007,12 +1010,12 @@ void test_hora_local_e_janela() {
         TEST_ASSERT_EQUAL(c.in, iot.inHours());
     }
     clockNow = 1000;
-    TEST_ASSERT_FALSE(iot.inHours());                  // relógio em 1970: fora
+    TEST_ASSERT_FALSE(iot.inHours());                  // clock in 1970: outside
 }
 
-void test_regra_so_dentro_do_horario() {
+void test_rule_only_inside_window() {
     sensor("pir", 2);
-    actuator("rele", 0);
+    actuator("relay", 0);
     cfg.iot.notify = true;
     cfg.iot.window = true;
     cfg.iot.winStart = 8 * 60;
@@ -1029,14 +1032,14 @@ void test_regra_so_dentro_do_horario() {
     iot.tick(1000);
     TEST_ASSERT_FALSE(iot.actuatorOn());
     TEST_ASSERT_FALSE(iot.manual());
-    TEST_ASSERT_EQUAL_STRING("[atuador] desligado (fim do horario)", iot.message());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"mode\":\"auto\",\"text\":\"desligado\",\"hours\":false"));
+    TEST_ASSERT_EQUAL_STRING("[actuator] off (window closed)", iot.message());
+    TEST_ASSERT_TRUE(contains(json(iot), "\"mode\":\"auto\",\"text\":\"off\",\"hours\":false"));
     level(iot, 2, LOW, 2000);
-    level(iot, 2, HIGH, 3000);                         // a regra pede, o horário não deixa
+    level(iot, 2, HIGH, 3000);                         // the rule asks, the window does not allow it
     TEST_ASSERT_FALSE(iot.actuatorOn());
 
-    // Comando manual vale fora do horário; "auto" volta a desligar
-    iot.command("ligar", 4000);
+    // A manual command holds outside the window; "auto" turns it off again
+    iot.command("on", 4000);
     iot.tick(5000);
     TEST_ASSERT_TRUE(iot.actuatorOn());
     iot.command("auto", 6000);
@@ -1045,10 +1048,10 @@ void test_regra_so_dentro_do_horario() {
     at(8, 0);
     iot.tick(7000);
     TEST_ASSERT_TRUE(iot.actuatorOn());
-    TEST_ASSERT_EQUAL_STRING("[atuador] ligado (inicio do horario)", iot.message());
+    TEST_ASSERT_EQUAL_STRING("[actuator] on (window opened)", iot.message());
 
-    // Em manual, o horário não mexe
-    iot.command("desligar", 8000);
+    // In manual mode, the window does not touch it
+    iot.command("off", 8000);
     at(19, 0);
     iot.tick(9000);
     at(9, 0);
@@ -1056,26 +1059,26 @@ void test_regra_so_dentro_do_horario() {
     TEST_ASSERT_FALSE(iot.actuatorOn());
     TEST_ASSERT_TRUE(iot.manual());
 
-    // Sem a janela, o JSON não traz "hours"
+    // Without the window, the JSON has no "hours"
     cfg.iot.window = false;
     iot.begin();
     TEST_ASSERT_FALSE(contains(json(iot), "hours"));
 
-    // Só atuador: a janela não tem regra para cercar
+    // Actuator only: the window has no rule to limit
     cfg.iot.window = true;
     cfg.iot.sensorPin = -1;
     iot.begin();
-    iot.command("ligar", 0);
+    iot.command("on", 0);
     at(20, 0);
     iot.tick(100);
     TEST_ASSERT_TRUE(iot.actuatorOn());
     TEST_ASSERT_FALSE(contains(json(iot), "hours"));
 }
 
-// Fora do horário, "auto" e o fim do pulso desligam mesmo sem leitura
-void test_fora_do_horario_sem_leitura() {
-    sensor("botao", 2);
-    actuator("rele", 0);
+// Outside the window, "auto" and the end of a pulse turn it off even without a reading
+void test_outside_window_without_reading() {
+    sensor("button", 2);
+    actuator("relay", 0);
     cfg.iot.window = true;
     cfg.iot.winStart = 8 * 60;
     cfg.iot.winEnd = 9 * 60;
@@ -1085,20 +1088,20 @@ void test_fora_do_horario_sem_leitura() {
     iot.begin();
     iot.tick(0);
     TEST_ASSERT_FALSE(iot.actuatorOn());
-    iot.command("ligar", 0);
+    iot.command("on", 0);
     TEST_ASSERT_TRUE(iot.actuatorOn());
     iot.command("auto", 10);
     TEST_ASSERT_FALSE(iot.actuatorOn());
-    iot.command("pulso 1", 20);
+    iot.command("pulse 1", 20);
     iot.tick(1020);
     TEST_ASSERT_FALSE(iot.actuatorOn());
     TEST_ASSERT_FALSE(iot.manual());
 }
 
-// Intensidade proporcional: fora do horário, a intensidade de desligado
-void test_proporcional_fora_do_horario() {
-    sensor("pulsos", 2);
-    actuator("ventilador", 0);
+// Proportional level: outside the window, the off level
+void test_proportional_outside_window() {
+    sensor("pulses", 2);
+    actuator("fan", 0);
     cfg.iot.linear = true;
     cfg.iot.threshold = 0;
     cfg.iot.thresholdHi = 10;
@@ -1144,13 +1147,13 @@ static std::vector<uint8_t> shtFrame(uint16_t t, uint16_t h) {
     return {t1, t0, shtCrc(t1, t0), h1, h0, shtCrc(h1, h0)};
 }
 
-void test_sht3x_le_temperatura_e_umidade() {
-    TEST_ASSERT_EQUAL_HEX8(0x92, shtCrc(0xBE, 0xEF));    // exemplo da folha de dados
-    sensor("sht3x", 0);                                   // SDA em GPIO0, SCL em GPIO2
-    actuator("rele", 2);                                  // no SCL: fica de fora
+void test_sht3x_reads_temperature_and_humidity() {
+    TEST_ASSERT_EQUAL_HEX8(0x92, shtCrc(0xBE, 0xEF));    // datasheet example
+    sensor("sht3x", 0);                                   // SDA on GPIO0, SCL on GPIO2
+    actuator("relay", 2);                                  // on SCL: left out
     I2cSim sim(0, 2);
     sim.present = {0x44};
-    std::vector<uint8_t> frame = shtFrame(0x6666, 0x8000);   // 25,0 C e 50,0 %
+    std::vector<uint8_t> frame = shtFrame(0x6666, 0x8000);   // 25.0 C and 50.0 %
     sim.reply = [&](uint8_t, const std::vector<uint8_t>&) { return frame; };
     IoTService iot{cfg, logger};
     iot.begin();
@@ -1161,53 +1164,53 @@ void test_sht3x_le_temperatura_e_umidade() {
     TEST_ASSERT_FALSE(iot.sensorUses(1));
     TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[2]);
 
-    iot.tick(0);                                          // pede a medida
+    iot.tick(0);                                          // asks for a measurement
     TEST_ASSERT_TRUE(sim.writes.back() == std::vector<uint8_t>({0x44, 0x24, 0x00}));
     iot.tick(IoTService::SHT_MEASURE_MS - 1);
-    TEST_ASSERT_EQUAL_STRING("aguardando", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("waiting", iot.sensorText());
     iot.tick(IoTService::SHT_MEASURE_MS);
     TEST_ASSERT_EQUAL_STRING("25.0 C, 50.0%", iot.sensorText());
     TEST_ASSERT_TRUE(contains(json(iot), "\"temperature\":25.0,\"humidity\":50.0"));
     size_t asked = sim.writes.size();
-    iot.tick(IoTService::READ_GAP_MS - 1);                // uma medida a cada READ_GAP_MS
+    iot.tick(IoTService::READ_GAP_MS - 1);                // one measurement every READ_GAP_MS
     TEST_ASSERT_EQUAL(asked, sim.writes.size());
 
-    // Abaixo de zero e no fundo da escala
+    // Below zero and at the bottom of the scale
     frame = shtFrame(0x0000, 0xFFFF);
     iot.tick(IoTService::READ_GAP_MS);
     iot.tick(IoTService::READ_GAP_MS + IoTService::SHT_MEASURE_MS);
     TEST_ASSERT_EQUAL_STRING("-45.0 C, 100.0%", iot.sensorText());
 
-    // CRC errado em cada metade e sensor que não responde
+    // Wrong CRC in each half and a sensor that does not answer
     frame = shtFrame(0x6666, 0x8000);
     frame[2] ^= 1;
     unsigned long t = 2 * IoTService::READ_GAP_MS;
     iot.tick(t);
     iot.tick(t + IoTService::SHT_MEASURE_MS);
-    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
     frame = shtFrame(0x6666, 0x8000);
     frame[5] ^= 1;
     t += IoTService::READ_GAP_MS;
     iot.tick(t);
     iot.tick(t + IoTService::SHT_MEASURE_MS);
-    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
     sim.present.clear();
     t += IoTService::READ_GAP_MS;
     iot.tick(t);
-    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
     sim.present = {0x44};
     frame = shtFrame(0x6666, 0x8000);
     t += IoTService::READ_GAP_MS;
-    iot.tick(t);                                          // pede de novo
+    iot.tick(t);                                          // asks again
     sim.present.clear();
-    iot.tick(t + IoTService::SHT_MEASURE_MS);             // sumiu antes da leitura
-    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+    iot.tick(t + IoTService::SHT_MEASURE_MS);             // gone before the read
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
 }
 
-// A regra usa a grandeza escolhida, como no DHT
-void test_sht3x_comanda_pela_temperatura() {
-    sensor("sht3x", 3);                                   // SDA em RX, SCL em TX
-    actuator("ventilador", 0);
+// The rule uses the chosen value, as with the DHT
+void test_sht3x_drives_by_temperature() {
+    sensor("sht3x", 3);                                   // SDA on RX, SCL on TX
+    actuator("fan", 0);
     cfg.iot.metric = 1;
     cfg.iot.above = true;
     cfg.iot.threshold = 24;
@@ -1219,12 +1222,12 @@ void test_sht3x_comanda_pela_temperatura() {
     TEST_ASSERT_TRUE(iot.hasActuator());
     iot.tick(0);
     iot.tick(IoTService::SHT_MEASURE_MS);
-    TEST_ASSERT_TRUE(iot.actuatorOn());                   // 25,0 C acima de 24
+    TEST_ASSERT_TRUE(iot.actuatorOn());                   // 25.0 C above 24
 }
 
-void test_ultrassom_distancia_e_falhas() {
-    sensor("distancia", 2);
-    actuator("rele", 0);
+void test_ultrasonic_distance_and_failures() {
+    sensor("distance", 2);
+    actuator("relay", 0);
     cfg.iot.threshold = 10;
     cfg.iot.notify = true;
     IoTService iot{cfg, logger};
@@ -1246,7 +1249,7 @@ void test_ultrassom_distancia_e_falhas() {
 
     echo(2, 2);
     iot.tick(IoTService::READ_GAP_MS * 2);
-    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
 
     mock::busAt = 0;
     mock::busSegs.clear();
@@ -1258,16 +1261,16 @@ void test_ultrassom_distancia_e_falhas() {
     iot.tick(IoTService::READ_GAP_MS * 4);
     echo(2, 401 * 58);
     iot.tick(IoTService::READ_GAP_MS * 5);
-    TEST_ASSERT_EQUAL_STRING("falha", iot.sensorText());
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
 
     echo(2, 400 * 58);
     iot.tick(IoTService::READ_GAP_MS * 6);
     TEST_ASSERT_EQUAL_STRING("400 cm", iot.sensorText());
 }
 
-void test_intensidade_proporcional() {
+void test_proportional_level() {
     sensor("ds18b20", 2);
-    actuator("ventilador", 0);
+    actuator("fan", 0);
     cfg.iot.linear = true;
     cfg.iot.threshold = 20;
     cfg.iot.thresholdHi = 30;
@@ -1277,11 +1280,11 @@ void test_intensidade_proporcional() {
     iot.begin();
 
     struct { uint8_t lo, hi, crc; int duty; } reads[] = {
-        {0x40, 0x01, 0, 0},     // 20.0 C: no limite, desligado
-        {0x90, 0x01, 0, 50},    // 25.0 C: meio
-        {0xF0, 0x01, 0, 100},   // 31.0 C: acima do limite alto
+        {0x40, 0x01, 0, 0},     // 20.0 C: at the limit, off
+        {0x90, 0x01, 0, 50},    // 25.0 C: halfway
+        {0xF0, 0x01, 0, 100},   // 31.0 C: above the high limit
         {0x90, 0x01, 0, 50},
-        {0x90, 0x01, 0, 50},    // igual: nada muda
+        {0x90, 0x01, 0, 50},    // the same: nothing changes
     };
     unsigned long t = 0;
     for (auto& r : reads) {
@@ -1306,7 +1309,7 @@ void test_intensidade_proporcional() {
     TEST_ASSERT_TRUE(iot.actuatorOn());
     TEST_ASSERT_EQUAL(50, iot.level());
 
-    // Faixa vazia: dois patamares
+    // Empty range: two steps
     cfg.iot.thresholdHi = 20;
     iot.begin();
     uint8_t b25[] = {0x90, 0x01, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10, 0x33};
@@ -1331,20 +1334,20 @@ void test_intensidade_proporcional() {
     iot.tick(IoTService::READ_GAP_MS + IoTService::DS_CONVERT_MS);
     TEST_ASSERT_EQUAL(0, mock::analogValue[0]);
 
-    // Regra comum com intensidade: ligar usa a intensidade de ligar
+    // A plain rule with a level: on uses the on level
     cfg.iot.linear = false;
     cfg.iot.above = true;
     cfg.iot.dutyOn = 60;
     iot.begin();
-    iot.command("nivel 10", 0);
-    iot.command("desligar", 0);
+    iot.command("level 10", 0);
+    iot.command("off", 0);
     iot.command("auto", 0);
     feedDs(2, true, true, b25, 9);
     iot.tick(0);
     iot.tick(IoTService::DS_CONVERT_MS);
     TEST_ASSERT_EQUAL(60, iot.level());
 
-    // Proporcional não vale para sensor digital
+    // Proportional does not apply to a digital sensor
     sensor("pir", 2);
     cfg.iot.linear = true;
     iot.begin();
@@ -1352,9 +1355,9 @@ void test_intensidade_proporcional() {
     TEST_ASSERT_EQUAL(60 * 1023 / 100, mock::analogValue[0]);
 }
 
-// Distância e pulsos não têm décimos; proporcional pedido para relé é ignorado
-void test_proporcional_sem_decimos_e_manual_numerico() {
-    sensor("distancia", 2);
+// Distance and pulses have no tenths; proportional asked for a relay is ignored
+void test_proportional_without_tenths_and_numeric_manual() {
+    sensor("distance", 2);
     actuator("led", 0);
     cfg.iot.linear = true;
     cfg.iot.threshold = 10;
@@ -1365,36 +1368,36 @@ void test_proporcional_sem_decimos_e_manual_numerico() {
     iot.tick(0);
     TEST_ASSERT_EQUAL(50, iot.level());
 
-    // Manual: a leitura muda, a saída não
-    iot.command("desligar", 0);
+    // Manual: the reading changes, the output does not
+    iot.command("off", 0);
     echo(2, 30 * 58);
     iot.tick(IoTService::READ_GAP_MS);
     TEST_ASSERT_FALSE(iot.actuatorOn());
     TEST_ASSERT_EQUAL_STRING("30 cm", iot.sensorText());
 
-    actuator("rele", 0);
+    actuator("relay", 0);
     cfg.iot.above = true;
     iot.begin();
     echo(2, 20 * 58);
     iot.tick(0);
-    TEST_ASSERT_TRUE(iot.actuatorOn());                // 20 ≥ 10: regra comum
+    TEST_ASSERT_TRUE(iot.actuatorOn());                // 20 ≥ 10: plain rule
 }
 
-void test_regra_abre_o_servo() {
+void test_rule_opens_the_servo() {
     sensor("pir", 2);
     actuator("servo", 0);
     cfg.iot.angleOn = 120;
     IoTService iot{cfg, logger};
     iot.begin();
-    iot.command("angulo 45", 0);
-    iot.command("fechar", 0);
+    iot.command("angle 45", 0);
+    iot.command("close", 0);
     iot.command("auto", 0);
     level(iot, 2, HIGH, 0);
     TEST_ASSERT_EQUAL(120, mock::servoAngle);
 }
 
-// Aviso urgente segue urgente até sair, mesmo com leituras no meio
-void test_urgente_se_acumula_ate_o_envio() {
+// An urgent notice stays urgent until it goes out, even with readings in between
+void test_urgent_stays_until_sent() {
     sensor("pir", 2);
     cfg.iot.notify = true;
     IoTService iot{cfg, logger};
@@ -1403,14 +1406,14 @@ void test_urgente_se_acumula_ate_o_envio() {
     TEST_ASSERT_TRUE(iot.urgent());
     level(iot, 2, LOW, 1000);
     TEST_ASSERT_TRUE(iot.urgent());
-    TEST_ASSERT_EQUAL_STRING("[sensor] livre", iot.message());
+    TEST_ASSERT_EQUAL_STRING("[sensor] clear", iot.message());
     iot.ack();
     TEST_ASSERT_FALSE(iot.urgent());
     TEST_ASSERT_FALSE(iot.pending());
 }
 
-// O maior estado gravado cabe no texto lido; arquivo maior é ignorado
-void test_estado_no_limite_do_texto() {
+// The largest saved state fits in the read text; a larger file is ignored
+void test_state_at_the_text_limit() {
     IoTState st;
     st.manual = false;
     st.on     = false;
@@ -1426,7 +1429,7 @@ void test_estado_no_limite_do_texto() {
     TEST_ASSERT_EQUAL(255, back.angle);
     TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFUL, back.rgb);
 
-    // Maior que o texto: cortado, JSON inválido, padrão
+    // Larger than the text: cut, invalid JSON, defaults
     std::string big = R"({"m":true,"on":true,"lv":40,"an":10,"c":1,"x":")";
     big += std::string(IoTState::MAX_TEXT, 'x') + "\"}";
     MockFS::put(IoTState::PATH, big);
@@ -1437,41 +1440,41 @@ void test_estado_no_limite_do_texto() {
 
 int main() {
     UNITY_BEGIN();
-    RUN_TEST(test_catalogo_por_identificador);
-    RUN_TEST(test_pinos_e_parse);
-    RUN_TEST(test_comandos_de_texto);
-    RUN_TEST(test_desligado_nao_mexe_nos_pinos);
-    RUN_TEST(test_json_em_buffer_curto);
-    RUN_TEST(test_tipo_desconhecido_desliga_a_parte);
-    RUN_TEST(test_mesmo_pino_fica_so_com_o_sensor);
-    RUN_TEST(test_so_sensor_publica_com_os_nomes_do_tipo);
-    RUN_TEST(test_nomes_proprios_e_nivel_invertido_sem_ntfy);
-    RUN_TEST(test_liga_desliga_obedece_comandos);
-    RUN_TEST(test_pulso_desliga_sozinho_e_nao_e_gravado);
-    RUN_TEST(test_desligamento_de_seguranca);
-    RUN_TEST(test_intensidade_pwm);
-    RUN_TEST(test_posicao_servo);
-    RUN_TEST(test_cor_fita_ws2812);
-    RUN_TEST(test_ao_religar_volta_o_ultimo_comando);
-    RUN_TEST(test_regra_digital_acompanha_e_manual_tem_prioridade);
-    RUN_TEST(test_auto_antes_da_primeira_leitura_e_regra_desligada);
-    RUN_TEST(test_regra_digital_alterna_a_cada_acionamento);
-    RUN_TEST(test_regra_dht22_com_margem);
-    RUN_TEST(test_dht_falhas_temperatura_negativa_e_dht11);
-    RUN_TEST(test_dht_pulso_de_inicio_sem_delay);
-    RUN_TEST(test_ds18b20_conversao_e_erros);
-    RUN_TEST(test_pulsos_na_janela_com_histerese);
-    RUN_TEST(test_hora_local_e_janela);
-    RUN_TEST(test_regra_so_dentro_do_horario);
-    RUN_TEST(test_fora_do_horario_sem_leitura);
-    RUN_TEST(test_proporcional_fora_do_horario);
-    RUN_TEST(test_sht3x_le_temperatura_e_umidade);
-    RUN_TEST(test_sht3x_comanda_pela_temperatura);
-    RUN_TEST(test_ultrassom_distancia_e_falhas);
-    RUN_TEST(test_intensidade_proporcional);
-    RUN_TEST(test_proporcional_sem_decimos_e_manual_numerico);
-    RUN_TEST(test_regra_abre_o_servo);
-    RUN_TEST(test_urgente_se_acumula_ate_o_envio);
-    RUN_TEST(test_estado_no_limite_do_texto);
+    RUN_TEST(test_catalog_by_identifier);
+    RUN_TEST(test_pins_and_parse);
+    RUN_TEST(test_text_commands);
+    RUN_TEST(test_off_leaves_pins_alone);
+    RUN_TEST(test_json_in_short_buffer);
+    RUN_TEST(test_unknown_type_turns_part_off);
+    RUN_TEST(test_same_pin_stays_with_sensor);
+    RUN_TEST(test_sensor_only_publishes_with_type_names);
+    RUN_TEST(test_custom_names_and_inverted_level_without_ntfy);
+    RUN_TEST(test_on_off_obeys_commands);
+    RUN_TEST(test_pulse_turns_off_by_itself_and_is_not_saved);
+    RUN_TEST(test_safety_shutoff);
+    RUN_TEST(test_pwm_level);
+    RUN_TEST(test_servo_position);
+    RUN_TEST(test_ws2812_strip_color);
+    RUN_TEST(test_power_up_restores_last_command);
+    RUN_TEST(test_digital_rule_follows_and_manual_wins);
+    RUN_TEST(test_auto_before_first_reading_and_rule_off);
+    RUN_TEST(test_digital_rule_toggles_on_each_activation);
+    RUN_TEST(test_dht22_rule_with_margin);
+    RUN_TEST(test_dht_failures_negative_temperature_and_dht11);
+    RUN_TEST(test_dht_start_pulse_without_delay);
+    RUN_TEST(test_ds18b20_conversion_and_errors);
+    RUN_TEST(test_pulses_in_window_with_hysteresis);
+    RUN_TEST(test_local_time_and_window);
+    RUN_TEST(test_rule_only_inside_window);
+    RUN_TEST(test_outside_window_without_reading);
+    RUN_TEST(test_proportional_outside_window);
+    RUN_TEST(test_sht3x_reads_temperature_and_humidity);
+    RUN_TEST(test_sht3x_drives_by_temperature);
+    RUN_TEST(test_ultrasonic_distance_and_failures);
+    RUN_TEST(test_proportional_level);
+    RUN_TEST(test_proportional_without_tenths_and_numeric_manual);
+    RUN_TEST(test_rule_opens_the_servo);
+    RUN_TEST(test_urgent_stays_until_sent);
+    RUN_TEST(test_state_at_the_text_limit);
     return UNITY_END();
 }

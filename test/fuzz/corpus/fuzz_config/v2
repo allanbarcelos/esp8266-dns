@@ -1,1 +1,1 @@
-{"v":2,"webusr":"admin","webpss":"senha","ssid":"rede","pass":"x","cf_records":["a","b"],"sensor":"dht22","sensor_pin":2,"actuator":"rele","actuator_pin":0,"rule":true,"threshold":25,"margin":1,"mqtt_host":"10.0.0.2:1883"}
+{"v":2,"webusr":"admin","webpss":"secret","ssid":"home","pass":"x","cf_records":["a","b"],"sensor":"dht22","sensor_pin":2,"actuator":"relay","actuator_pin":0,"rule":true,"threshold":25,"margin":1,"mqtt_host":"10.0.0.2:1883"}

@@ -18,20 +18,20 @@
 #include "PowerService.h"
 #include "WebService.h"
 
-// Composição de todos os serviços. Os membros são declarados em camadas:
-// cada um depende apenas dos declarados antes dele.
+// Composition of every service. Members are declared in layers: each one
+// depends only on those declared before it.
 class App {
 public:
-    // Camada 0 — sem dependências
+    // Layer 0: no dependencies
     Config config;
     Logger logger;
     Clock  clock;
 
-    // Camada 1 — dependem de Config + Logger
+    // Layer 1: depend on Config + Logger
     ConfigStore configStore{config, logger};
     WiFiService wifi{config, logger};
 
-    // Camada 2 — dependem de WiFi + acima
+    // Layer 2: depend on WiFi and the above
     PublicIPResolver resolver{config, logger, clock};
     CloudflareDNS    dns{config, logger, wifi, clock};
     OTAService       ota{logger, wifi};
@@ -41,7 +41,7 @@ public:
     MqttService      mqtt{config, logger, iot, mqttNet};
     PowerService     power{config, logger};
 
-    // Camada 3 — painel web
+    // Layer 3: web panel
     WebService web{config, logger, configStore, wifi, ota, iot, &ntfy, &mqtt, &power};
 
     void begin() {
@@ -57,20 +57,20 @@ public:
 
         ota.setAutomatic(config.ota_auto);
         ota.begin();
-        logger.log(PSTR("OTA: reserva %u KB, livre %u KB"),
+        logger.log(PSTR("OTA: reserve %u KB, free %u KB"),
                    FlashLayout::OTA_RESERVE / 1024u,
                    ESP.getFreeSketchSpace() / 1024u);
         if (ota.slim()) {
-            logger.log(PSTR("OTA: modo recuperacao"));
+            logger.log(PSTR("OTA: recovery mode"));
         } else {
             web.begin();
             iot.begin();
             power.begin();
         }
 
-        // getResetReason sobrevive ao reboot e diz por que o boot anterior morreu.
+        // getResetReason survives the reboot and says why the previous boot died.
         logger.log(PSTR("Reset: %s"), ESP.getResetReason().c_str());
-        logger.log(PSTR("Sistema inicializado %s"), firmware_version);
+        logger.log(PSTR("System started %s"), firmware_version);
     }
 
     void tick() {
@@ -81,11 +81,11 @@ public:
         wifi.tickRestart(now);
         clock.tick(now);
 
-        // Uma sessão TLS por vez: o fluxo de comandos do ntfy solta a dele
-        // antes de a consulta do IP, o DNS ou o OTA usarem a rede neste tick
+        // One TLS session at a time: the ntfy command stream releases its own
+        // before the IP check, DNS or OTA use the network in this tick
         if (!ota.slim()) ntfy.hold(ota.wantsNet(now) || resolver.due(now) || dns.due(now));
 
-        // O IP novo chega ao DNS no mesmo tick
+        // A new IP reaches DNS in the same tick
         if (!ota.slim() && !ota.busy()) {
             resolver.tick(now);
             dns.tick(now);
@@ -95,9 +95,9 @@ public:
             iot.tick(now);
             power.tick(now);
         }
-        // ntfy abre outra sessão TLS: espera o OTA soltar a dele (heap)
+        // ntfy opens another TLS session: waits for OTA to release its own (heap)
         if (!ota.slim() && !ota.busy()) ntfy.tick(now);
-        // MQTT é TCP simples, sem TLS: só solta durante o download do OTA
+        // MQTT is plain TCP, no TLS: it only lets go during the OTA download
         mqtt.hold(ota.slim() || ota.inProgress());
         mqtt.tick(now);
     }

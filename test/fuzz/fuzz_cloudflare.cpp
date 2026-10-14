@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-// Resposta qualquer da API do Cloudflare ao PATCH do registro. O primeiro
-// byte escolhe o código HTTP.
+// Any Cloudflare API response to the record PATCH. The first
+// byte picks the HTTP code.
 #include "../test_support.h"
 #include "Clock.h"
 #include "Config.h"

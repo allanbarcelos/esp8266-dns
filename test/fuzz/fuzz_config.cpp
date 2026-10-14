@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-// config.json e iot.state quaisquer na flash (arquivo estragado, versão
-// antiga ou mais nova, tipos trocados), seguidos de um boot do IoT.
+// Any config.json and iot.state in flash (broken file, older or newer
+// version, swapped types), followed by an IoT boot.
 #include "../test_support.h"
 #include "Config.h"
 #include "ConfigStore.h"

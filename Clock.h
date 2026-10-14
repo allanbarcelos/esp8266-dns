@@ -5,16 +5,16 @@
 #include <Arduino.h>
 #include <time.h>
 
-// Relógio de parede via SNTP. Necessário para validar a validade dos
-// certificados TLS (BearSSL rejeita certificados se o relógio estiver em 1970).
+// Wall clock over SNTP. Needed to check TLS certificate validity (BearSSL
+// rejects certificates while the clock is in 1970).
 class Clock {
 public:
     using TimeFn = time_t (*)();
 
     explicit Clock(TimeFn fn = _systemTime) : _fn(fn) {}
 
-    // O lwIP sem extras (menos flash) guarda um servidor SNTP só. Sem hora
-    // depois de RETRY_MS, troca para o outro, e assim alterna até sincronizar.
+    // lwIP without extras (less flash) keeps a single SNTP server. With no
+    // time after RETRY_MS it switches to the other, alternating until synced.
     void begin() {
         _alt = false;
         _last = 0;
@@ -31,7 +31,7 @@ public:
     time_t now()    const { return _fn(); }
     bool   synced() const { return now() > MIN_VALID_EPOCH; }
 
-    static constexpr time_t MIN_VALID_EPOCH = 1700000000; // nov/2023
+    static constexpr time_t MIN_VALID_EPOCH = 1700000000; // Nov 2023
     static constexpr unsigned long RETRY_MS = 60000;
 
 private:

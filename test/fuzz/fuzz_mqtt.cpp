@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-// Bytes quaisquer vindos do broker MQTT. O primeiro byte escolhe se antes
-// chega um CONNACK válido (o parser de PUBLISH só roda conectado).
+// Any bytes from the MQTT broker. The first byte picks whether a valid
+// CONNACK comes first (the PUBLISH parser only runs when connected).
 #include "../test_support.h"
 #include "Config.h"
 #include "IoTService.h"
@@ -27,7 +27,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     Logger log;
     Config cfg;
     strlcpy(cfg.mqtt_host, "10.0.0.1", sizeof(cfg.mqtt_host));
-    strlcpy(cfg.iot.actuator, (data[0] & 2) ? "fita" : "rele", sizeof(cfg.iot.actuator));
+    strlcpy(cfg.iot.actuator, (data[0] & 2) ? "strip" : "relay", sizeof(cfg.iot.actuator));
     cfg.iot.actuatorPin = 0;
     strlcpy(cfg.iot.sensor, "pir", sizeof(cfg.iot.sensor));
     cfg.iot.sensorPin = 2;

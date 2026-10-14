@@ -4,10 +4,10 @@
  */
 
 /*
- * Estilo do painel. Vai embutido no firmware em gzip (tools/embed_web.py →
- * WebAssets.h) e sai do próprio aparelho: no modo AP não há internet para
- * buscar um framework. Contraste AA no tema escuro; botão verde escuro para
- * o branco passar 4.5:1.
+ * Panel style. Embedded in the firmware, gzipped (tools/embed_web.py →
+ * WebAssets.h), and served by the device itself: in AP mode there is no
+ * internet to fetch a framework. AA contrast on the dark theme; a dark green
+ * button so white passes 4.5:1.
  */
 
 :root {
@@ -30,7 +30,7 @@ body {
     font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
-/* Cabeçalho e menu */
+/* Header and menu */
 header {
     background: var(--cd);
     border-bottom: 1px solid var(--ln);
@@ -57,7 +57,7 @@ footer, .m { color: var(--mu); font-size: 13px; }
 h1 { font-size: 20px; margin: 0 0 16px; }
 h2 { font-size: 16px; margin: 20px 0 0; }
 
-/* Cartão (.c) com linhas rótulo/valor (.r) */
+/* Card (.c) with label/value rows (.r) */
 .c {
     background: var(--cd);
     border: 1px solid var(--ln);
@@ -84,7 +84,7 @@ h2 { font-size: 16px; margin: 20px 0 0; }
 .r span { color: var(--mu); }
 .r b { text-align: right; overflow-wrap: anywhere; }
 
-/* Formulários */
+/* Forms */
 label { display: block; margin-top: 12px; font-size: 14px; }
 input, select {
     display: block;
@@ -117,7 +117,7 @@ button, .b {
 .b2 { background: none; border: 1px solid var(--ln); color: var(--fg); }
 :focus-visible { outline: 2px solid var(--in); outline-offset: 2px; }
 
-/* Alertas */
+/* Alerts */
 .a {
     background: var(--cd);
     border-left: 4px solid var(--in);
@@ -146,7 +146,7 @@ fieldset { border: 1px solid var(--ln); border-radius: 8px; margin: 0 0 16px; pa
 legend { padding: 0 6px; font-weight: 600; }
 [hidden] { display: none !important; }
 
-/* Controles do cartão "Agora" na página IoT */
+/* Controls on the "Now" card of the IoT page */
 .ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-bottom: 8px; }
 .ctl button, .ctl input { width: auto; margin: 0; }
 .ctl label { margin: 0; }

@@ -8,10 +8,10 @@
 #include <vector>
 #include "Arduino.h"
 
-// Escravos I2C simulados no nível dos pinos: decodificam start, stop,
-// bits e ACK pelas mudanças que o código faz nos pinos (pinMode e
-// digitalWrite) e seguram o SDA em baixo para ACK e dados. Cada endereço
-// presente responde à leitura com reply(endereço, bytes escritos antes).
+// I2C slaves simulated at the pin level: they decode start, stop,
+// bits and ACK from the changes the code makes to the pins (pinMode and
+// digitalWrite) and hold SDA low for ACK and data. Each address that is
+// present answers a read with reply(address, bytes written before).
 struct I2cSim {
     using Reply = std::function<std::vector<uint8_t>(uint8_t addr, const std::vector<uint8_t>& written)>;
 
@@ -19,11 +19,11 @@ struct I2cSim {
     std::set<uint8_t> present;
     Reply reply = [](uint8_t, const std::vector<uint8_t>&) { return std::vector<uint8_t>(); };
 
-    // O que passou no barramento
-    std::vector<std::vector<uint8_t>> writes;   // por endereço: [addr, bytes...]
+    // What went over the bus
+    std::vector<std::vector<uint8_t>> writes;   // per address: [addr, bytes...]
     int starts = 0, stops = 0;
-    int nackAfter = -1;                          // NACK no N-ésimo byte de dados (teste)
-    bool refuseRead = false;                     // NACK no endereço de leitura
+    int nackAfter = -1;                          // NACK on the Nth data byte (test)
+    bool refuseRead = false;                     // NACK on the read address
 
     I2cSim(uint8_t sda, uint8_t scl) : sda(sda), scl(scl) {
         active() = this;
@@ -51,7 +51,7 @@ private:
     uint8_t _shift = 0, _addr = 0;
     std::vector<uint8_t> _tx;
 
-    // Nível que o mestre põe na linha: em baixo só como saída em LOW
+    // Level the master puts on the line: low only as an output at LOW
     static bool _master(uint8_t pin) {
         return !(mock::pinModeV[pin] == OUTPUT && mock::pinOut[pin] == LOW);
     }
@@ -70,7 +70,7 @@ private:
 
     void _edge() {
         bool msda = _master(sda), mscl = _master(scl);
-        if (mscl && _lastScl && msda != _lastSda) {         // SDA muda com SCL alto
+        if (mscl && _lastScl && msda != _lastSda) {         // SDA changes while SCL is high
             if (!msda) {                                     // start
                 starts++;
                 _st = RX;
@@ -104,7 +104,7 @@ private:
 
     void _fall() {
         if (_st == RX) {
-            if (_bit == 8 && !_acking) {                     // fim do byte: ACK?
+            if (_bit == 8 && !_acking) {                     // end of the byte: ACK?
                 if (_isAddr) {
                     _addr = (uint8_t)(_shift >> 1);
                     _rw = _shift & 1;
@@ -121,7 +121,7 @@ private:
                 }
                 _drive = _ack;
                 _acking = true;
-            } else if (_acking) {                            // fim do clock do ACK
+            } else if (_acking) {                            // end of the ACK clock
                 _acking = false;
                 _drive = false;
                 if (!_ack) {
@@ -141,7 +141,7 @@ private:
             if (_bit < 8) {
                 _bit++;
                 if (_bit < 8) _present(_next());
-                else _drive = false;                         // o mestre responde
+                else _drive = false;                         // the master answers
             } else if (_masterAck) {
                 _byte++;
                 _bit = 0;

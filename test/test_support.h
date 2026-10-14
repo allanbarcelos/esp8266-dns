@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 #pragma once
-// Utilitários compartilhados pelas suítes de teste nativas.
+// Helpers shared by the native test suites.
 #include <lwip/udp.h>
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -13,8 +13,8 @@
 #include "Logger.h"
 #include "CloudflareCA.h"
 
-// malloc falha uma vez para o tamanho pedido (link com -Wl,--wrap=malloc
-// no env native). Só o tamanho exato falha: libc e Unity seguem normais.
+// malloc fails once for the requested size (linked with -Wl,--wrap=malloc
+// in the native env). Only that exact size fails: libc and Unity keep working.
 namespace mock { inline size_t failMallocSize = 0; }
 extern "C" void* __real_malloc(size_t n);
 extern "C" void* __wrap_malloc(size_t n) {
@@ -25,7 +25,7 @@ extern "C" void* __wrap_malloc(size_t n) {
     return __real_malloc(n);
 }
 
-// Restaura todos os mocks globais para o estado inicial
+// Restores every global mock to its initial state
 inline void resetMocks() {
     setMillis(0);
     MockHTTP::reset();
@@ -45,7 +45,7 @@ inline void resetMocks() {
     mock::resetBus();
 }
 
-// true se alguma linha do buffer circular contém o trecho
+// true if any line of the ring buffer contains the text
 inline bool logHas(const Logger& log, const char* needle) {
     for (uint8_t i = 0; i < log.count(); i++) {
         if (std::strstr(log.entry(log.startIndex() + i), needle)) return true;
@@ -57,7 +57,7 @@ inline bool contains(const std::string& hay, const char* needle) {
     return hay.find(needle) != std::string::npos;
 }
 
-// A conexão confia exatamente nas raízes de CloudflareCA.h, uma por append
+// The connection trusts exactly the roots in CloudflareCA.h, one per append
 inline bool cloudflareTrust(const MockTLS::Trust& t) {
     return t.first == CLOUDFLARE_DER
         && t.count == sizeof(CLOUDFLARE_LEN) / sizeof(CLOUDFLARE_LEN[0])

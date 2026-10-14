@@ -7,24 +7,25 @@
 #include "Logger.h"
 #include "I2cBus.h"
 
-// De onde vem a energia, pelo medidor de bateria MAX17048 (I2C, 0x36).
+// Where the power comes from, through the MAX17048 battery gauge (I2C, 0x36).
 //
-// O medidor dá a carga (%), a tensão da célula e a taxa de carga (%/h,
-// com sinal). Taxa positiva é a célula enchendo: com bateria e painel, é o
-// solar carregando. Taxa negativa, ou carga abaixo de cheia, é o aparelho
-// na bateria. Cheia e parada é a fonte segurando. Sem medidor configurado,
-// o aparelho está na fonte. O painel mostra a fonte no topo.
+// The gauge gives the charge (%), the cell voltage and the charge rate
+// (%/h, signed). A positive rate is the cell filling up: with a battery and
+// a panel, that is solar charging. A negative rate, or a charge below full,
+// is the device on battery. Full and idle is the supply holding it. With no
+// gauge configured, the device runs on the supply. The panel shows the
+// source at the top.
 //
-// O medidor usa o pino escolhido (SDA) e o do par (SCL). Divide o
-// barramento só com o SHT3x no mesmo par.
+// The gauge uses the chosen pin (SDA) and its pair (SCL). It shares the bus
+// only with an SHT3x on the same pair.
 class PowerService {
 public:
     enum Source : uint8_t { MAINS, BATTERY, CHARGING, UNKNOWN };
 
     static constexpr uint8_t       ADDR        = 0x36;
     static constexpr unsigned long READ_MS     = 10000;
-    static constexpr int16_t       CHARGE_RATE = 3;    // 3 × 0,208 %/h: carregando ou gastando
-    static constexpr uint8_t       FULL        = 98;   // % a partir da qual "cheia"
+    static constexpr int16_t       CHARGE_RATE = 3;    // 3 × 0.208 %/h: charging or draining
+    static constexpr uint8_t       FULL        = 98;   // % from which it counts as "full"
 
     PowerService(Config& cfg, Logger& log) : _cfg(cfg), _log(log) {}
 
@@ -48,18 +49,18 @@ public:
         if (ok) {
             _soc = soc >> 8 > 100 ? 100 : (uint8_t)(soc >> 8);
             _rate = (int16_t)rate;
-            _mv = (uint16_t)((uint32_t)cell * 5 / 64);   // 78,125 µV por unidade
+            _mv = (uint16_t)((uint32_t)cell * 5 / 64);   // 78.125 µV per unit
         }
         _ok = ok;
         Source s = source();
         if (s == _logged) return;
         _logged = s;
-        _log.log(PSTR("Energia: %s"), name(s));
+        _log.log(PSTR("Power: %s"), name(s));
     }
 
-    // Situação em texto (log e Status)
+    // State as text (log and Status)
     static const char* name(Source s) {
-        static const char* const NAMES[] = {"na fonte", "na bateria", "carregando", "medidor sem resposta"};
+        static const char* const NAMES[] = {"on supply", "on battery", "charging", "gauge not answering"};
         return NAMES[s];
     }
 
@@ -73,11 +74,11 @@ public:
 
     uint8_t  percent()    const { return _soc; }
     uint16_t millivolts() const { return _mv; }
-    // Taxa em décimos de %/h (0,208 %/h por unidade)
+    // Rate in tenths of %/h (0.208 %/h per unit)
     int16_t  rateTenths() const { return (int16_t)((int32_t)_rate * 208 / 100); }
 
-    // Pinos livres para o medidor com este IoT: nada no SDA nem no SCL,
-    // a não ser o SHT3x no mesmo par (o barramento é o mesmo)
+    // Pins free for the gauge with this IoT setup: nothing on SDA or SCL,
+    // except an SHT3x on the same pair (it is the same bus)
     static bool pinsFree(int8_t sda, const IoTConfig& t) {
         if (sda < 0) return true;
         int8_t scl = I2cBus::sclFor(sda);
@@ -92,7 +93,7 @@ private:
     bool          _read = false;
     bool          _ok = false;
     static constexpr uint8_t NONE = 0xFF;
-    uint8_t       _logged = NONE;    // situação que já foi ao log
+    uint8_t       _logged = NONE;    // state already logged
     unsigned long _last = 0;
     uint8_t       _soc = 0;
     int16_t       _rate = 0;

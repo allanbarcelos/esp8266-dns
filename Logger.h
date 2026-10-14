@@ -14,8 +14,8 @@ public:
         memset(_buf, 0, sizeof(_buf));
     }
 
-    // fmt fica na flash (PSTR): no ESP8266 strings literais comuns ocupam
-    // RAM, e a heap é o que o TLS do OTA precisa. vsnprintf_P lê também RAM.
+    // fmt lives in flash (PSTR): on the ESP8266 plain string literals take
+    // RAM, and the heap is what the OTA TLS needs. vsnprintf_P reads RAM too.
     void log(PGM_P fmt, ...) {
         char msg[LOG_LINE_SIZE];
         va_list args;
@@ -23,7 +23,7 @@ public:
         vsnprintf_P(msg, sizeof(msg), fmt, args);
         va_end(args);
 
-        // Prefixo de tempo (sempre cabe) e a mensagem, cortada se for longa
+        // Time prefix (always fits) and the message, cut if it is long
         size_t k = (size_t)snprintf_P(_buf[_head], LOG_LINE_SIZE, PSTR("[%lus] "), millis() / 1000);
         strlcpy(_buf[_head] + k, msg, LOG_LINE_SIZE - k);
         Serial.println(_buf[_head]);

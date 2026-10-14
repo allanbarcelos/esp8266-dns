@@ -8,7 +8,7 @@
 #define HTTP_CODE_OK 200
 #define HTTPC_FORCE_FOLLOW_REDIRECTS 1
 
-// ── Stream que serve o body da resposta para ArduinoJson ─────────────────────
+// ── Stream that serves the response body to ArduinoJson ──────────────────────
 class MockStream {
     std::string _data;
     size_t      _pos = 0;
@@ -18,7 +18,7 @@ public:
     int read() { return _pos < _data.size() ? (uint8_t)_data[_pos++] : -1; }
 };
 
-// ── Cliente que entrega o body como stream de bytes (download OTA) ───────────
+// ── Client that delivers the body as a byte stream (OTA download) ────────────
 class MockBodyClient : public WiFiClient {
 public:
     std::string data;

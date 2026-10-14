@@ -5,12 +5,11 @@
 #include <Arduino.h>
 #include "IoTCatalog.h"
 
-// Comandos de texto, iguais no painel, na API local e no ntfy:
-//   ligar | desligar | alternar | pulso 5[s] | 50% | nivel 50 | brilho 50
-//   angulo 90 | abrir | fechar | cor #ff8800 | auto | status
-// Maiúsculas e minúsculas tanto faz; há sinônimos em inglês (on, off,
-// toggle, pulse, level, angle, color, open, close). "abrir" e "fechar"
-// são ligar e desligar: o servo vai para o ângulo aberto ou fechado.
+// Text commands, the same on the panel, the local API, ntfy and MQTT:
+//   on | off | toggle | pulse 5[s] | 50% | level 50[%] | brightness 50
+//   angle 90 | open | close | color #ff8800 | auto | status
+// Case does not matter. "open" and "close" are on and off: the servo goes
+// to its open or closed angle.
 namespace iot {
 
 enum Op : uint8_t {
@@ -20,30 +19,26 @@ enum Op : uint8_t {
 
 struct Command {
     uint8_t  op    = OP_NONE;
-    uint32_t value = 0;   // segundos, %, graus ou 0xRRGGBB
+    uint32_t value = 0;   // seconds, %, degrees or 0xRRGGBB
 };
 
-// Na flash: a tabela inteira ficaria ~400 bytes na RAM que o TLS usa
-struct _Word { char word[12]; uint8_t op; };
+// In flash: the RAM is what TLS needs
+struct _Word { char word[11]; uint8_t op; };
 
-// UTF-8 nos acentos: o app do ntfy manda o que a pessoa digitou
 static const _Word _WORDS[] PROGMEM = {
-    {"ligar", OP_ON}, {"liga", OP_ON}, {"on", OP_ON}, {"abrir", OP_ON}, {"open", OP_ON},
-    {"desligar", OP_OFF}, {"desliga", OP_OFF}, {"off", OP_OFF},
-    {"fechar", OP_OFF}, {"close", OP_OFF},
-    {"alternar", OP_TOGGLE}, {"toggle", OP_TOGGLE},
-    {"pulso", OP_PULSE}, {"pulse", OP_PULSE},
-    {"nivel", OP_LEVEL}, {"n\xc3\xadvel", OP_LEVEL}, {"level", OP_LEVEL},
-    {"brilho", OP_LEVEL}, {"brightness", OP_LEVEL},
-    {"potencia", OP_LEVEL}, {"pot\xc3\xaancia", OP_LEVEL},
-    {"angulo", OP_ANGLE}, {"\xc3\xa2ngulo", OP_ANGLE}, {"angle", OP_ANGLE},
-    {"cor", OP_COLOR}, {"color", OP_COLOR},
-    {"auto", OP_AUTO}, {"automatico", OP_AUTO}, {"autom\xc3\xa1tico", OP_AUTO},
-    {"status", OP_STATUS}, {"estado", OP_STATUS},
+    {"on", OP_ON}, {"open", OP_ON},
+    {"off", OP_OFF}, {"close", OP_OFF},
+    {"toggle", OP_TOGGLE},
+    {"pulse", OP_PULSE},
+    {"level", OP_LEVEL}, {"brightness", OP_LEVEL},
+    {"angle", OP_ANGLE},
+    {"color", OP_COLOR},
+    {"auto", OP_AUTO},
+    {"status", OP_STATUS},
 };
 
-// Faixa de cada valor; o mínimo e o máximo valem para o que vier depois
-// da palavra. COLOR é lido à parte (hexadecimal).
+// Range of each value, for what comes after the word. COLOR is read
+// separately (hexadecimal).
 inline bool _range(uint8_t op, uint32_t& lo, uint32_t& hi) {
     switch (op) {
         case OP_PULSE: lo = 1; hi = 3600; return true;
@@ -53,7 +48,7 @@ inline bool _range(uint8_t op, uint32_t& lo, uint32_t& hi) {
     }
 }
 
-// Decimal sem sinal, com sufixo opcional (s ou %). Recusa vazio e lixo.
+// Unsigned decimal with an optional suffix (s or %). Rejects empty input and junk.
 inline bool _number(const char* s, char suffix, uint32_t& out) {
     uint32_t v = 0;
     int digits = 0;
@@ -85,20 +80,20 @@ inline bool _hexColor(const char* s, uint32_t& out) {
     return true;
 }
 
-// Texto → comando. Falso se a palavra ou o valor não valem.
+// Text → command. False if the word or the value is not valid.
 inline bool parseCommand(const char* text, Command& out) {
     char buf[40];
     size_t n = 0;
     while (*text == ' ') text++;
     for (; *text && n < sizeof(buf) - 1; text++) buf[n++] = (char)tolower((unsigned char)*text);
-    if (*text) return false;               // longo demais
+    if (*text) return false;               // too long
     while (n && (buf[n - 1] == ' ' || buf[n - 1] == '\n' || buf[n - 1] == '\r')) n--;
     buf[n] = '\0';
     if (n == 0) return false;
 
     char* arg = strchr(buf, ' ');
 
-    // "50%" sozinho é o nível
+    // "50%" alone is the level
     if (!arg && buf[n - 1] == '%') {
         uint32_t v = 0;
         if (!_number(buf, '%', v) || v > 100) return false;
@@ -130,14 +125,14 @@ inline bool parseCommand(const char* text, Command& out) {
         char suffix = op == OP_PULSE ? 's' : (op == OP_LEVEL ? '%' : '\0');
         if (!arg || !_number(arg, suffix, value) || value < lo || value > hi) return false;
     } else if (arg) {
-        return false;                       // "ligar 5" não existe
+        return false;                       // there is no "on 5"
     }
     out.op = op;
     out.value = value;
     return true;
 }
 
-// O comando faz sentido para esta capacidade?
+// Does the command make sense for this capability?
 inline bool commandAllowed(uint8_t cap, uint8_t op) {
     if (cap == C_NONE) return false;
     if (op == OP_LEVEL) return cap == C_LEVEL || cap == C_COLOR;

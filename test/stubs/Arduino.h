@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 #pragma once
-// Não definimos ARDUINO aqui para evitar ativar polyfills PROGMEM do ArduinoJson.
-// O suporte a String e Stream é habilitado via build_flags no platformio.ini:
+// ARDUINO is not defined here, so ArduinoJson's PROGMEM polyfills stay off.
+// String and Stream support is enabled through build_flags in platformio.ini:
 //   -DARDUINOJSON_ENABLE_ARDUINO_STRING=1
 //   -DARDUINOJSON_ENABLE_PROGMEM=0
 
@@ -18,7 +18,7 @@
 #include <algorithm>
 #include <vector>
 
-// ── Relógio controlável nos testes ──────────────────────────────────────────
+// ── Clock the tests control ─────────────────────────────────────────────────
 namespace mock {
     inline unsigned long _millis = 0;
     inline unsigned long _micros = 0;
@@ -44,7 +44,7 @@ inline void configTime(int, int, const char* s1, const char* = nullptr, const ch
     mock::ntpServer1 = s1 ? s1 : "";
 }
 
-// ── strlcpy portátil (nem toda libc do host oferece) ─────────────────────────
+// ── Portable strlcpy (not every host libc has it) ────────────────────────────
 inline size_t mock_strlcpy(char* dst, const char* src, size_t size) {
     size_t n = std::strlen(src);
     if (size) {
@@ -56,7 +56,7 @@ inline size_t mock_strlcpy(char* dst, const char* src, size_t size) {
 }
 #define strlcpy mock_strlcpy
 
-// ── PROGMEM (no-op no host) ──────────────────────────────────────────────────
+// ── PROGMEM (no-op on the host) ──────────────────────────────────────────────
 #define PROGMEM
 #define pgm_read_ptr(p)  (*(p))
 #define strcpy_P(d, s)   strcpy((d), (s))
@@ -111,8 +111,8 @@ namespace mock {
     inline uint8_t isrPin = 255;
     inline int isrMode = -1;
 
-    // Barramento simulado (test/i2c_sim.h): vê cada mudança de pino e
-    // responde à leitura; -1 deixa a leitura com o pinIn
+    // Simulated bus (test/i2c_sim.h): sees every pin change and
+    // answers reads; -1 leaves the read to pinIn
     inline void (*pinHook)() = nullptr;
     inline int  (*readHook)(uint8_t pin) = nullptr;
 
@@ -212,7 +212,7 @@ public:
     }
 
     const char* c_str()   const { return _s.c_str(); }
-    char*       begin()         { return &_s[0]; }   // escrita no lugar (ArduinoJson)
+    char*       begin()         { return &_s[0]; }   // in-place writes (ArduinoJson)
     size_t      length()  const { return _s.size(); }
     bool        isEmpty() const { return _s.empty(); }
     bool        reserve(size_t n)     { _s.reserve(n); return true; }
@@ -246,7 +246,7 @@ public:
 
 inline String operator+(const char* a, const String& b) { return String(a) + b; }
 
-// ── Print / Stream (necessários para ArduinoJson reconhecer os tipos) ────────
+// ── Print / Stream (needed for ArduinoJson to recognize the types) ───────────
 class Print {
 public:
     virtual ~Print() {}
@@ -263,7 +263,7 @@ struct SerialClass {
     int  baud = 0;
     void begin(int b)             { baud = b; }
     void println(const char* s)   { std::printf("%s\n", s); }
-    std::string last;   // última saída do printf
+    std::string last;   // last printf output
     int         printfCalls = 0;
     void printf(const char* fmt, ...) {
         char b[256];
@@ -290,7 +290,7 @@ struct EspClass {
     void        restart()               { _restarts++; }
     uint32_t    random()                { return _rand = _rand * 1103515245u + 12345u; }
 
-    // Controláveis nos testes
+    // Controlled by the tests
     uint32_t _heap     = 50000;
     uint32_t _maxBlock = 40000;
     uint32_t _freeSketch = 300000;

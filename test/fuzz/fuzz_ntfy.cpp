@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-// Fluxo qualquer do tópico de comandos do ntfy, depois de o servidor
-// responder 200: linhas de JSON, lixo, linhas longas, bytes nulos.
+// Any stream from the ntfy command topic, after the server
+// answers 200: JSON lines, junk, long lines, null bytes.
 #include "../test_support.h"
 #include "Clock.h"
 #include "Config.h"
@@ -16,7 +16,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     Logger log;
     Config cfg;
     strlcpy(cfg.ntfy_cmd, "cmd-abc", sizeof(cfg.ntfy_cmd));
-    strlcpy(cfg.iot.actuator, "rele", sizeof(cfg.iot.actuator));
+    strlcpy(cfg.iot.actuator, "relay", sizeof(cfg.iot.actuator));
     cfg.iot.actuatorPin = 0;
 
     Clock        clock{fakeTime};

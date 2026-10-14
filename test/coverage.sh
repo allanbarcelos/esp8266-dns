@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-# Roda os testes nativos com instrumentação e exige 100% de cobertura
-# (linhas e funções) nos headers do firmware. Requer gcc, PlatformIO e gcovr.
+# Runs the native tests with instrumentation and requires 100% coverage
+# (lines, functions and branches) of the firmware headers. Needs gcc, PlatformIO and gcovr.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Num build do zero o PlatformIO limpa o diretório após a primeira suíte,
-# descartando os dados dela. A primeira execução só aquece o build; a
-# segunda (sem recompilar) produz a cobertura completa.
+# On a clean build PlatformIO wipes the directory after the first suite,
+# dropping its data. The first run only warms up the build; the
+# second (with no rebuild) produces the full coverage.
 pio test -e coverage
 find .pio/build/coverage -name '*.gcda' -delete
 pio test -e coverage

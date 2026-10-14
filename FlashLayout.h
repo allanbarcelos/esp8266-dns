@@ -4,9 +4,9 @@
 #pragma once
 #include <stdint.h>
 
-// Layout 1M64 com buraco OTA de 400 KB. O linker usa
-// ld/eagle.flash.1m64.ota.ld (IROM 0x85ff0) e recusa sketch nessa faixa.
-// Números iguais em .github/scripts/package_ota.py.
+// 1M64 layout with a 400 KB OTA hole. The linker uses
+// ld/eagle.flash.1m64.ota.ld (IROM 0x85ff0) and rejects a sketch in that range.
+// The same numbers are in .github/scripts/package_ota.py.
 struct FlashLayout {
     static constexpr uint32_t FS_START    = 0xEB000;
     static constexpr uint32_t OTA_RESERVE = 0x64000;  // 400 KiB
@@ -15,9 +15,9 @@ struct FlashLayout {
 };
 
 static_assert(FlashLayout::IROM_LEN + FlashLayout::OTA_RESERVE == 0xE9FF0,
-              "IROM + reserva = IROM stock 1M64");
+              "IROM + reserve = stock 1M64 IROM");
 static_assert(FlashLayout::MAX_SKETCH == 0x1010 + FlashLayout::IROM_LEN,
-              "sketch máximo = stub + IROM");
+              "max sketch = stub + IROM");
 static_assert(FlashLayout::FS_START ==
                   FlashLayout::MAX_SKETCH + FlashLayout::OTA_RESERVE,
-              "FS começa no fim da reserva OTA");
+              "FS starts at the end of the OTA reserve");

@@ -29,7 +29,7 @@ static std::string label(const std::string& name) {
     return out + '\0';
 }
 
-// Resposta a uma pergunta: cabeçalho de resposta + registros
+// Answer to a query: answer header + records
 static std::string answer(const std::string& q, const std::string& records, uint16_t count,
                           uint8_t rcode = 0) {
     std::string r = q;
@@ -40,7 +40,7 @@ static std::string answer(const std::string& q, const std::string& records, uint
     return r + records;
 }
 
-// Registro com o nome apontando para a pergunta (0xC00C)
+// Record whose name points to the query (0xC00C)
 static std::string record(uint16_t type, const std::string& rdata) {
     std::string r = {(char)0xC0, 0x0C, 0, (char)type, 0, 1, 0, 0, 0x0E, 0x10};
     r += (char)(rdata.size() >> 8);
@@ -49,78 +49,78 @@ static std::string record(uint16_t type, const std::string& rdata) {
 }
 
 static std::string parsed(const std::string& msg, uint16_t id, size_t len = 64) {
-    char out[64] = "lixo";
+    char out[64] = "junk";
     bool ok = ReverseDNS::parse((const uint8_t*)msg.data(), msg.size(), id, out, len);
     return ok ? std::string(out) : std::string("!") + out;
 }
 
-// ── pergunta ─────────────────────────────────────────────────────────────────
+// ── query ────────────────────────────────────────────────────────────────────
 
-void test_pergunta_ptr() {
+void test_ptr_query() {
     std::string q = ask("200.10.5.1", 0x1234);
     std::string expect = std::string("\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00", 12) +
                          label("1.5.10.200.in-addr.arpa") + std::string("\x00\x0c\x00\x01", 4);
     TEST_ASSERT_TRUE(q == expect);
 
-    TEST_ASSERT_EQUAL(46, (int)ask("255.255.255.255", 1).size());   // maior possível
+    TEST_ASSERT_EQUAL(46, (int)ask("255.255.255.255", 1).size());   // largest possible
     uint8_t small[45];
     TEST_ASSERT_EQUAL(0, (int)ReverseDNS::query("1.2.3.4", 1, small, sizeof(small)));
     TEST_ASSERT_EQUAL(0, (int)ask("1.2.3", 1).size());
 }
 
-// ── resposta ─────────────────────────────────────────────────────────────────
+// ── answer ───────────────────────────────────────────────────────────────────
 
-void test_resposta_com_nome() {
+void test_answer_with_name() {
     std::string q = ask("1.2.3.4", 7);
     std::string r = answer(q, record(12, label("host-1-2-3-4.isp.example.net")), 1);
     TEST_ASSERT_EQUAL_STRING("host-1-2-3-4.isp.example.net", parsed(r, 7).c_str());
 }
 
-// Outro registro antes (CNAME de delegação) e nome comprimido no PTR
-void test_pula_outro_tipo_e_segue_ponteiro() {
+// Another record first (delegation CNAME) and a compressed name in the PTR
+void test_skips_other_type_and_follows_pointer() {
     std::string q = ask("1.2.3.4", 7);
     std::string ptr = std::string("\x04host", 5) + std::string("\xC0\x14", 2);  // + "in-addr.arpa"
     std::string r = answer(q, record(5, label("x.y")) + record(12, ptr), 2);
-    TEST_ASSERT_EQUAL((char)7, q[0x14]);   // 0x14: rótulo "in-addr" na pergunta
+    TEST_ASSERT_EQUAL((char)7, q[0x14]);   // 0x14: the "in-addr" label in the query
     TEST_ASSERT_EQUAL_STRING("host.in-addr.arpa", parsed(r, 7).c_str());
 }
 
-void test_resposta_recusada() {
+void test_rejected_answer() {
     std::string q = ask("1.2.3.4", 7);
     std::string ok = answer(q, record(12, label("a.b")), 1);
     TEST_ASSERT_EQUAL_STRING("a.b", parsed(ok, 7).c_str());
 
-    TEST_ASSERT_EQUAL_STRING("!lixo", parsed(ok.substr(0, 11), 7).c_str());     // curta
-    TEST_ASSERT_EQUAL_STRING("!lixo", parsed(ok, 8).c_str());                   // outra pergunta
-    TEST_ASSERT_EQUAL_STRING("!lixo", parsed(q, 7).c_str());                    // não é resposta
-    TEST_ASSERT_EQUAL_STRING("!lixo", parsed(answer(q, "", 0, 3), 7).c_str());  // NXDOMAIN
-    TEST_ASSERT_EQUAL_STRING("!lixo", parsed(answer(q, "", 0), 7).c_str());     // sem registros
-    TEST_ASSERT_EQUAL_STRING("!lixo", parsed(answer(q, record(1, "\x01\x02\x03\x04"), 1), 7).c_str());
-    // Cortada no meio do registro e no meio dos dados
-    TEST_ASSERT_EQUAL_STRING("!lixo", parsed(ok.substr(0, q.size() + 6), 7).c_str());
-    TEST_ASSERT_EQUAL_STRING("!lixo", parsed(ok.substr(0, ok.size() - 1), 7).c_str());
-    // Nome da pergunta sem fim
+    TEST_ASSERT_EQUAL_STRING("!junk", parsed(ok.substr(0, 11), 7).c_str());     // short
+    TEST_ASSERT_EQUAL_STRING("!junk", parsed(ok, 8).c_str());                   // another query
+    TEST_ASSERT_EQUAL_STRING("!junk", parsed(q, 7).c_str());                    // not an answer
+    TEST_ASSERT_EQUAL_STRING("!junk", parsed(answer(q, "", 0, 3), 7).c_str());  // NXDOMAIN
+    TEST_ASSERT_EQUAL_STRING("!junk", parsed(answer(q, "", 0), 7).c_str());     // no records
+    TEST_ASSERT_EQUAL_STRING("!junk", parsed(answer(q, record(1, "\x01\x02\x03\x04"), 1), 7).c_str());
+    // Cut in the middle of the record and in the middle of the data
+    TEST_ASSERT_EQUAL_STRING("!junk", parsed(ok.substr(0, q.size() + 6), 7).c_str());
+    TEST_ASSERT_EQUAL_STRING("!junk", parsed(ok.substr(0, ok.size() - 1), 7).c_str());
+    // Query name with no end
     std::string open = q.substr(0, 14);
     open[5] = 1;
     open[7] = 1;
-    TEST_ASSERT_EQUAL_STRING("!lixo", parsed(answer(open, "", 1).substr(0, 14), 7).c_str());
+    TEST_ASSERT_EQUAL_STRING("!junk", parsed(answer(open, "", 1).substr(0, 14), 7).c_str());
 }
 
-void test_nome_malformado() {
+void test_malformed_name() {
     std::string q = ask("1.2.3.4", 7);
     auto with = [&](const std::string& rdata) { return parsed(answer(q, record(12, rdata), 1), 7); };
-    TEST_ASSERT_EQUAL_STRING("!", with(std::string("\0", 1)).c_str());                 // vazio
-    TEST_ASSERT_EQUAL_STRING("!", with(std::string("\x05" "ab", 3)).c_str());          // rótulo além do fim
-    TEST_ASSERT_EQUAL_STRING("!", with(std::string("\x02" "ab\xC0", 4)).c_str());      // ponteiro cortado
-    TEST_ASSERT_EQUAL_STRING("!", with(std::string("\x02" "ab", 3)).c_str());          // sem terminador
-    // Ponteiro para si mesmo: para depois de 8 saltos
+    TEST_ASSERT_EQUAL_STRING("!", with(std::string("\0", 1)).c_str());                 // empty
+    TEST_ASSERT_EQUAL_STRING("!", with(std::string("\x05" "ab", 3)).c_str());          // label past the end
+    TEST_ASSERT_EQUAL_STRING("!", with(std::string("\x02" "ab\xC0", 4)).c_str());      // truncated pointer
+    TEST_ASSERT_EQUAL_STRING("!", with(std::string("\x02" "ab", 3)).c_str());          // no terminator
+    // Pointer to itself: stops after 8 jumps
     std::string loop = answer(q, record(12, ""), 1);
     size_t at = loop.size();
     loop += (char)(0xC0 | (at >> 8));
     loop += (char)at;
     loop[loop.size() - 3] = 2;   // rdlen = 2
     TEST_ASSERT_EQUAL_STRING("!", parsed(loop, 7).c_str());
-    // Não cabe na saída
+    // Does not fit in the output
     std::string r = answer(q, record(12, label("abcdef.gh")), 1);
     TEST_ASSERT_EQUAL_STRING("!", parsed(r, 7, 8).c_str());
     TEST_ASSERT_EQUAL_STRING("abcdef.gh", parsed(r, 7, 10).c_str());
@@ -128,9 +128,9 @@ void test_nome_malformado() {
 
 // ── UDP ──────────────────────────────────────────────────────────────────────
 
-void test_pergunta_ao_dns_da_rede_e_le_a_resposta() {
+void test_asks_network_dns_and_reads_answer() {
     ReverseDNS r;
-    char host[64] = "anterior";
+    char host[64] = "previous";
     r.lookup("1.2.3.4", host, sizeof(host), 100);
     TEST_ASSERT_EQUAL_STRING("", host);
     TEST_ASSERT_TRUE(r.pending());
@@ -139,15 +139,15 @@ void test_pergunta_ao_dns_da_rede_e_le_a_resposta() {
     TEST_ASSERT_TRUE(MockUDP::sent == ask("1.2.3.4", 1));
     TEST_ASSERT_EQUAL(0, MockUDP::pbufs);
 
-    MockUDP::deliver(answer(MockUDP::sent, record(12, label("casa.isp.net")), 1));
-    TEST_ASSERT_EQUAL_STRING("casa.isp.net", host);
+    MockUDP::deliver(answer(MockUDP::sent, record(12, label("home.isp.net")), 1));
+    TEST_ASSERT_EQUAL_STRING("home.isp.net", host);
     TEST_ASSERT_FALSE(r.pending());
     TEST_ASSERT_EQUAL(0, MockUDP::live);
     TEST_ASSERT_EQUAL(0, MockUDP::pbufs);
 }
 
-// Uma pergunta por vez; a anterior é descartada
-void test_nova_pergunta_e_resposta_em_pedacos() {
+// One query at a time; the previous one is dropped
+void test_new_query_and_answer_in_pieces() {
     ReverseDNS r;
     char host[64];
     r.lookup("1.2.3.4", host, sizeof(host), 0);
@@ -161,7 +161,7 @@ void test_nova_pergunta_e_resposta_em_pedacos() {
     TEST_ASSERT_EQUAL(0, MockUDP::pbufs);
 }
 
-void test_sem_resposta_desiste() {
+void test_no_answer_gives_up() {
     ReverseDNS r;
     char host[64];
     r.lookup("1.2.3.4", host, sizeof(host), 100);
@@ -173,12 +173,12 @@ void test_sem_resposta_desiste() {
     TEST_ASSERT_EQUAL(0, MockUDP::live);
 }
 
-void test_nao_pergunta_sem_condicoes() {
+void test_does_not_ask_without_conditions() {
     char host[64];
     {
         ReverseDNS r;
-        r.lookup("1.2.3", host, sizeof(host), 0);   // IP inválido
-        WiFi._dns = IPAddress(0);                   // sem DNS da rede
+        r.lookup("1.2.3", host, sizeof(host), 0);   // invalid IP
+        WiFi._dns = IPAddress(0);                   // no network DNS
         r.lookup("1.2.3.4", host, sizeof(host), 0);
         TEST_ASSERT_TRUE(MockUDP::sent.empty());
         WiFi._dns = IPAddress(0x0101A8C0);
@@ -196,19 +196,19 @@ void test_nao_pergunta_sem_condicoes() {
         r.lookup("1.2.3.4", host, sizeof(host), 0);
         TEST_ASSERT_EQUAL(1, MockUDP::live);
     }
-    TEST_ASSERT_EQUAL(0, MockUDP::live);   // destrutor fecha
+    TEST_ASSERT_EQUAL(0, MockUDP::live);   // destructor closes
 }
 
 int main() {
     UNITY_BEGIN();
-    RUN_TEST(test_pergunta_ptr);
-    RUN_TEST(test_resposta_com_nome);
-    RUN_TEST(test_pula_outro_tipo_e_segue_ponteiro);
-    RUN_TEST(test_resposta_recusada);
-    RUN_TEST(test_nome_malformado);
-    RUN_TEST(test_pergunta_ao_dns_da_rede_e_le_a_resposta);
-    RUN_TEST(test_nova_pergunta_e_resposta_em_pedacos);
-    RUN_TEST(test_sem_resposta_desiste);
-    RUN_TEST(test_nao_pergunta_sem_condicoes);
+    RUN_TEST(test_ptr_query);
+    RUN_TEST(test_answer_with_name);
+    RUN_TEST(test_skips_other_type_and_follows_pointer);
+    RUN_TEST(test_rejected_answer);
+    RUN_TEST(test_malformed_name);
+    RUN_TEST(test_asks_network_dns_and_reads_answer);
+    RUN_TEST(test_new_query_and_answer_in_pieces);
+    RUN_TEST(test_no_answer_gives_up);
+    RUN_TEST(test_does_not_ask_without_conditions);
     return UNITY_END();
 }

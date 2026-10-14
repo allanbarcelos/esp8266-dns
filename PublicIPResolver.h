@@ -10,21 +10,21 @@
 #include "CloudflareCA.h"
 #include "ReverseDNS.h"
 
-// O connect do WiFiClientSecure usa o timeout do contexto BearSSL (_owned).
-// HTTPClient::setTimeout grava só no wrapper, e o contexto fica nos 15 s
-// do core: cada host inacessível trava o loop por esse tempo.
+// WiFiClientSecure's connect uses the BearSSL context timeout (_owned).
+// HTTPClient::setTimeout only sets the wrapper, and the context keeps the
+// core's 15 s: each unreachable host blocks the loop for that long.
 class TlsClient : public WiFiClientSecure {
 public:
-    // O buffer padrão do BearSSL é 16 KB. Neste aparelho sobram ~30 KB de
-    // heap: a alocação fragmenta a memória, o watchdog reinicia o ESP e,
-    // sem bloco contíguo, o handshake gera Exception.
+    // BearSSL's default buffer is 16 KB. This device has ~30 KB of heap
+    // left: that allocation fragments memory, the watchdog restarts the ESP
+    // and, without a contiguous block, the handshake raises an Exception.
     static constexpr uint16_t RX_BUF = 4096;
     static constexpr uint16_t TX_BUF = 512;
 
-    // Só ECDHE com AES-GCM, que todos os servidores usados aceitam
-    // (Cloudflare, GitHub, ntfy.sh, ipify, icanhazip, ifconfig.co). As
-    // demais cifras nem estão no firmware (TlsTrim.h): anunciar uma delas
-    // deixaria o servidor escolher o que o aparelho não sabe fazer.
+    // Only ECDHE with AES-GCM, which every server in use accepts
+    // (Cloudflare, GitHub, ntfy.sh, ipify, icanhazip, ifconfig.co). The other
+    // ciphers are not even in the firmware (TlsTrim.h): announcing one would
+    // let the server pick something the device cannot do.
     static constexpr int SUITE_COUNT = 4;
 
     bool prepare(unsigned long ms, uint16_t rx = RX_BUF, uint16_t tx = TX_BUF) {
@@ -36,19 +36,19 @@ public:
     }
 
 private:
-    // ECDHE_ECDSA e ECDHE_RSA, AES_128_GCM_SHA256 e AES_256_GCM_SHA384
+    // ECDHE_ECDSA and ECDHE_RSA, AES_128_GCM_SHA256 and AES_256_GCM_SHA384
     static constexpr uint16_t _SUITES[SUITE_COUNT] = {0xC02B, 0xC02F, 0xC02C, 0xC030};
 };
 
-// IP público por HTTPS. Os três provedores devolvem só o IPv4 e usam a
-// cadeia WE1 → GTS Root R4 — a mesma já validada em campo por
-// api.cloudflare.com, com as raízes de CloudflareCA.h. Serviço fora
-// dessa cadeia não entra: o TLS falharia neste aparelho.
+// Public IP over HTTPS. The three providers return only the IPv4 and use
+// the WE1 → GTS Root R4 chain, the same one api.cloudflare.com already
+// validates in the field with the roots in CloudflareCA.h. A service outside
+// that chain is not used: TLS would fail on this device.
 //
-// Consulta a cada CHECK_INTERVAL, com ou sem DNS e ntfy configurados; a
-// primeira resposta IPv4 válida encerra a busca (uma sessão TLS por
-// ciclo). O resultado fica no Config: DNS, ntfy e painel leem dali. O log
-// só recebe mudanças: IP novo, ou passar a falhar.
+// Checks every CHECK_INTERVAL, with or without DNS and ntfy set up; the
+// first valid IPv4 answer ends the search (one TLS session per cycle). The
+// result goes to Config: DNS, ntfy and the panel read it from there. The
+// log only gets changes: a new IP, or starting to fail.
 static const char _IP_SVC_0[] PROGMEM = "https://api4.ipify.org";
 static const char _IP_SVC_1[] PROGMEM = "https://icanhazip.com";
 static const char _IP_SVC_2[] PROGMEM = "https://ifconfig.co/ip";
@@ -71,20 +71,20 @@ public:
         _check(now);
     }
 
-    // A próxima chamada de tick vai usar a rede (TLS)
+    // The next tick call will use the network (TLS)
     bool due(unsigned long now) const {
         return WiFi.isConnected() && _clock.synced() &&
                (!_checked || now - _lastCheck >= (_failing ? RETRY_INTERVAL : CHECK_INTERVAL));
     }
 
     static constexpr unsigned long CHECK_INTERVAL  = 300000UL;  // 5 min
-    static constexpr unsigned long RETRY_INTERVAL  = 60000UL;   // depois de falhar
+    static constexpr unsigned long RETRY_INTERVAL  = 60000UL;   // after a failure
     static constexpr unsigned long CONNECT_TIMEOUT = 4000UL;
     static constexpr uint32_t      MIN_TLS_HEAP    = 18000;
     static constexpr uint32_t      MIN_TLS_BLOCK   = 8192;
 
-    // Heap baixo ou sem bloco contíguo: o BearSSL não consegue o handshake
-    // e o core gera Exception em vez de devolver erro.
+    // Low heap or no contiguous block: BearSSL cannot do the handshake and
+    // the core raises an Exception instead of returning an error.
     static bool memoryOk() {
         return ESP.getFreeHeap() >= MIN_TLS_HEAP &&
                ESP.getMaxFreeBlockSize() >= MIN_TLS_BLOCK;
@@ -102,14 +102,14 @@ private:
     void _check(unsigned long now) {
         char ip[16];
         if (!memoryOk()) {
-            _fail(PSTR("IP publico: memoria insuficiente"));
+            _fail(PSTR("Public IP: not enough memory"));
             return;
         }
         BearSSL::X509List trust;
         cloudflareRoots(trust);
         for (uint8_t i = 0;; i++) {
             if (i == NUM_IP_SERVICES) {
-                _fail(PSTR("IP publico: nenhum servico respondeu"));
+                _fail(PSTR("Public IP: no service answered"));
                 return;
             }
             char url[48];
@@ -122,15 +122,15 @@ private:
         _cfg.ipChecked = now;
         if (strcmp(ip, _cfg.publicIP) == 0) return;
         if (_cfg.publicIP[0])
-            _log.log(PSTR("IP publico mudou: %s -> %s"), _cfg.publicIP, ip);
+            _log.log(PSTR("Public IP changed: %s -> %s"), _cfg.publicIP, ip);
         else
-            _log.log(PSTR("IP publico: %s"), ip);
+            _log.log(PSTR("Public IP: %s"), ip);
         strlcpy(_cfg.publicIP, ip, sizeof(_cfg.publicIP));
         _cfg.ipChanged = now;
         _rdns.lookup(ip, _cfg.publicHost, sizeof(_cfg.publicHost), now);
     }
 
-    // Só a primeira falha depois de um acerto vai ao log
+    // Only the first failure after a success goes to the log
     void _fail(PGM_P msg) {
         if (!_failing) _log.log(msg);
         _failing = true;

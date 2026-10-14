@@ -19,45 +19,46 @@ public:
 
         WiFi.mode(WIFI_STA);
         _keepRadioAwake();
-        WiFi.persistent(false); // credenciais ficam no LittleFS; evita desgaste da flash
+        WiFi.persistent(false); // credentials live in LittleFS; avoids flash wear
         WiFi.setAutoReconnect(true);
-        if (_cfg.hostname[0]) WiFi.hostname(_cfg.hostname);   // antes do DHCP
+        if (_cfg.hostname[0]) WiFi.hostname(_cfg.hostname);   // before DHCP
         WiFi.begin(_cfg.ssid.c_str(), _cfg.pass.c_str());
 
-        _log.log(PSTR("Conectando ao Wi-Fi: %s"), _cfg.ssid.c_str());
-        // Sem esperar aqui: o tick() acompanha a associação e o loop segue.
+        _log.log(PSTR("Connecting to Wi-Fi: %s"), _cfg.ssid.c_str());
+        // No waiting here: tick() follows the association and the loop keeps going.
         _connecting = true;
         _connectSince = millis();
     }
 
     void registerEvents() {
-        // onEvent() no core 3.1.2 só aceita ponteiro de função (sem captura).
-        // Os handlers específicos por evento aceitam std::function e capturam this.
+        // onEvent() in core 3.1.2 only takes a function pointer (no capture).
+        // The per-event handlers take std::function and capture this.
         _evtGotIP = WiFi.onStationModeGotIP([this](const WiFiEventStationModeGotIP&) {
-            _log.log(PSTR("Wi-Fi conectado: %s"), WiFi.localIP().toString().c_str());
+            _log.log(PSTR("Wi-Fi connected: %s"), WiFi.localIP().toString().c_str());
             notifySuccess();
             if (_configMode) {
                 WiFi.mode(WIFI_STA);
                 _keepRadioAwake();
                 _configMode = false;
-                _log.log(PSTR("Modo AP desligado"));
+                _log.log(PSTR("AP mode off"));
             }
         });
 
         _evtDisconnected = WiFi.onStationModeDisconnected(
             [this](const WiFiEventStationModeDisconnected&) {
-                _log.log(PSTR("Wi-Fi desconectado"));
+                _log.log(PSTR("Wi-Fi disconnected"));
             }
         );
     }
 
-    // Chamado a cada loop() — verifica a associação e processa reconexão.
-    // Em modo de configuração nada é feito: forçar WIFI_STA derrubaria o AP.
+    // Called on every loop(): checks the association and handles reconnection.
+    // Nothing happens in setup mode: forcing WIFI_STA would drop the AP.
     //
-    // Não há sonda de internet. Perda de associação reconecta e, após 5
-    // falhas, reinicia. WAN fora do ar fica com quem precisa dela (busca de
-    // IP, DNS, ntfy), que tenta de novo no ciclo seguinte. Reiniciar porque
-    // um host externo não responde derrubaria aparelhos com a rede saudável.
+    // There is no internet probe. A lost association reconnects and, after 5
+    // failures, restarts. A WAN outage is handled by whoever needs the WAN
+    // (IP check, DNS, ntfy), which tries again on the next cycle. Restarting
+    // because an outside host does not answer would take down devices on a
+    // healthy network.
     void tick(unsigned long now) {
         if (_connecting) {
             _tickConnect(now);
@@ -71,7 +72,7 @@ public:
         if (now - _lastStatusCheck >= STATUS_INTERVAL) {
             _lastStatusCheck = now;
             if (WiFi.status() != WL_CONNECTED) {
-                _log.log(PSTR("Wi-Fi desconectado"));
+                _log.log(PSTR("Wi-Fi disconnected"));
                 _startReconnect(now);
             }
         }
@@ -79,7 +80,7 @@ public:
         _processReconnect(now);
     }
 
-    // Verifica restart agendado e watchdogs de memória/uptime
+    // Checks a scheduled restart and the memory/uptime watchdogs
     void tickRestart(unsigned long now) {
         if (!_restartPending && !_otaInProgress) {
             if (now - _lastMemCheck >= MEM_CHECK_INTERVAL) {
@@ -87,7 +88,7 @@ public:
                 _checkMemory();
             }
             if (now > DAILY_RESTART) {
-                _log.log(PSTR("Reinicio diario agendado"));
+                _log.log(PSTR("Daily restart scheduled"));
                 scheduleRestart(1000);
             }
         }
@@ -99,7 +100,7 @@ public:
 
     void scheduleRestart(unsigned long delayMs = 1000) {
         if (_restartPending) return;
-        _log.log(PSTR("Reinicio agendado em %lu ms"), delayMs);
+        _log.log(PSTR("Restart scheduled in %lu ms"), delayMs);
         _restartPending = true;
         _restartAt = millis() + delayMs;
     }
@@ -108,7 +109,7 @@ public:
 
     void notifyFailure() {
         if (++_failCount >= MAX_FAILURES) {
-            _log.log(PSTR("Falhas repetidas de Wi-Fi, reiniciando"));
+            _log.log(PSTR("Repeated Wi-Fi failures, restarting"));
             scheduleRestart(1000);
         }
     }
@@ -117,10 +118,10 @@ public:
     bool restartPending() const { return _restartPending; }
     bool inConfigMode()   const { return _configMode; }
 
-    // Senha do AP de configuração: sorteada no primeiro boot pelo RNG de
-    // hardware e guardada em /ap.key. Uma senha fixa e pública deixaria
-    // quem estiver perto entrar no AP e definir a senha do painel antes do
-    // dono. Sai na serial e no painel (Status). -DAP_PASSWORD fixa uma.
+    // Setup AP password: drawn on the first boot by the hardware RNG and
+    // kept in /ap.key. A fixed, public password would let anyone nearby join
+    // the AP and set the panel password before the owner. It shows on the
+    // serial port and on the panel (Status). -DAP_PASSWORD sets a fixed one.
     const char* apPassword() {
 #ifdef AP_PASSWORD
         return AP_PASSWORD;
@@ -134,7 +135,7 @@ public:
     static constexpr size_t        AP_KEY_LEN     = 12;
     static constexpr unsigned long AP_ANNOUNCE_MS = 30000UL;
 
-    // Sinaliza que há OTA em progresso (inibe watchdogs de memória e uptime)
+    // Flags an OTA in progress (holds off the memory and uptime watchdogs)
     void setOTAInProgress(bool v) { _otaInProgress = v; }
 
     static constexpr unsigned long CONNECT_TIMEOUT    = 10000UL;
@@ -170,23 +171,23 @@ private:
     WiFiEventHandler _evtGotIP{};
     WiFiEventHandler _evtDisconnected{};
 
-    // O padrão do STA é modem sleep. Em vários roteadores (inclusive CPE 4G)
-    // o rádio dorme entre os beacons e a resposta do handshake se perde:
-    // o connect estoura o timeout mesmo com a associação de pé.
+    // STA defaults to modem sleep. With many routers (4G CPEs included) the
+    // radio sleeps between beacons and the handshake reply gets lost: the
+    // connect times out even with the association up.
     void _keepRadioAwake() { WiFi.setSleepMode(WIFI_NONE_SLEEP); }
 
-    // Primeira associação após o boot: espera até CONNECT_TIMEOUT sem
-    // bloquear. Sem conexão, AP + STA: o painel fica acessível e a estação
-    // segue tentando em segundo plano (autoReconnect).
+    // First association after boot: waits up to CONNECT_TIMEOUT without
+    // blocking. With no connection, AP + STA: the panel stays reachable and
+    // the station keeps trying in the background (autoReconnect).
     void _tickConnect(unsigned long now) {
         if (WiFi.status() == WL_CONNECTED) {
             _connecting = false;
-            _log.log(PSTR("Conectado! IP: %s"), WiFi.localIP().toString().c_str());
+            _log.log(PSTR("Connected! IP: %s"), WiFi.localIP().toString().c_str());
             return;
         }
         if (now - _connectSince < CONNECT_TIMEOUT) return;
         _connecting = false;
-        _log.log(PSTR("Falha na conexao"));
+        _log.log(PSTR("Connection failed"));
         _startConfigMode(WIFI_AP_STA);
     }
 
@@ -195,19 +196,20 @@ private:
         _keepRadioAwake();
         WiFi.softAP(AP_SSID, apPassword());
         _configMode = true;
-        _log.log(PSTR("Modo AP iniciado: %s"), AP_SSID);
+        _log.log(PSTR("AP mode started: %s"), AP_SSID);
         _announceAp(millis());
     }
 
-    // Na serial (não no log do painel), ao subir o AP e a cada 30 s: quem
-    // abrir o monitor ou o instalador web depois ainda vê a senha
+    // On the serial port (not the panel log), when the AP comes up and every
+    // 30 s: someone who opens the monitor or the web installer later still
+    // sees the password
     void _announceAp(unsigned long now) {
         _lastAnnounce = now;
-        Serial.printf("AP %s, senha: %s\n", AP_SSID, apPassword());
+        Serial.printf("AP %s, password: %s\n", AP_SSID, apPassword());
     }
 
 #ifndef AP_PASSWORD
-    // Sorteia 12 caracteres de 32 (60 bits), sem os ambíguos l, o, 0 e 1
+    // Draws 12 characters out of 32 (60 bits), without the ambiguous l, o, 0 and 1
     void _loadApKey() {
         File in = LittleFS.open(AP_KEY_PATH, "r");
         if (in) {
@@ -227,17 +229,17 @@ private:
         _apPass[AP_KEY_LEN] = '\0';
         File out = LittleFS.open(AP_KEY_PATH, "w");
         if (!out) {
-            _log.log(PSTR("AP: senha nao gravada"));   // vale até o próximo boot
+            _log.log(PSTR("AP: password not saved"));   // valid until the next boot
             return;
         }
         out.write((const uint8_t*)_apPass, AP_KEY_LEN);
         out.close();
-        _log.log(PSTR("AP: senha nova gerada"));
+        _log.log(PSTR("AP: new password generated"));
     }
 #endif
 
-    // Só reinicia se a memória ficar crítica em verificações consecutivas;
-    // picos momentâneos (ex.: handshake TLS) não disparam reboot.
+    // Only restarts if memory stays critical on consecutive checks;
+    // momentary spikes (e.g. a TLS handshake) do not trigger a reboot.
     void _checkMemory() {
         bool critical = ESP.getFreeHeap() < MIN_FREE_HEAP ||
                         ESP.getHeapFragmentation() > MAX_FRAGMENTATION;
@@ -246,7 +248,7 @@ private:
             return;
         }
         if (++_memStrikes >= MEM_STRIKES) {
-            _log.log(PSTR("Memoria critica detectada (heap %u, frag %u%%)"),
+            _log.log(PSTR("Critical memory (heap %u, frag %u%%)"),
                      ESP.getFreeHeap(), ESP.getHeapFragmentation());
             scheduleRestart(1000);
         }
@@ -258,13 +260,13 @@ private:
         WiFi.disconnect();
         _reconnecting = true;
         _reconnectAt = now + RECONNECT_DELAY;
-        _log.log(PSTR("Iniciando reconexao Wi-Fi"));
+        _log.log(PSTR("Starting Wi-Fi reconnection"));
     }
 
     void _processReconnect(unsigned long now) {
         if (!_reconnecting) return;
         if ((long)(now - _reconnectAt) < 0) return;
-        _log.log(PSTR("Tentando reconectar Wi-Fi"));
+        _log.log(PSTR("Trying to reconnect Wi-Fi"));
         WiFi.mode(WIFI_STA);
         _keepRadioAwake();
         WiFi.begin(_cfg.ssid.c_str(), _cfg.pass.c_str());

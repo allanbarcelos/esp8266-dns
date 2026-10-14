@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 #pragma once
-// UDP cru do lwIP, simulado: guarda o que foi enviado e deixa o teste
-// entregar a resposta pelo callback registrado.
+// Simulated raw lwIP UDP: keeps what was sent and lets the test
+// deliver the answer through the registered callback.
 #include <cstdint>
 #include <algorithm>
 #include <cstdlib>
@@ -31,8 +31,8 @@ struct udp_pcb {
 namespace MockUDP {
     inline bool        failNew   = false;
     inline bool        failAlloc = false;
-    inline int         live      = 0;    // pcbs abertos
-    inline int         pbufs     = 0;    // pbufs não liberadas
+    inline int         live      = 0;    // open pcbs
+    inline int         pbufs     = 0;    // pbufs not freed
     inline udp_pcb*    last      = nullptr;
     inline std::string sent;
     inline uint32_t    to        = 0;
@@ -74,8 +74,8 @@ inline void pbuf_free(pbuf* p) {
 }
 
 namespace MockUDP {
-    // Resposta do servidor DNS chegando ao pcb aberto; tot_len maior que
-    // len simula uma resposta em várias pbufs
+    // DNS server answer arriving at the open pcb; tot_len larger than
+    // len simulates an answer in several pbufs
     inline void deliver(const std::string& data, u16_t extra = 0) {
         pbuf* p = pbuf_alloc(PBUF_TRANSPORT, (u16_t)data.size(), PBUF_RAM);
         std::copy(data.begin(), data.end(), static_cast<char*>(p->payload));
