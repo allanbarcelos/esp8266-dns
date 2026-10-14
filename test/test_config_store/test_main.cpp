@@ -309,7 +309,7 @@ void test_full_round_trip() {
     config.webusr = "user";
     config.webpss = "secret123";
     config.ssid   = "MinhaRede";
-    config.pass   = "Senha123";
+    config.pass   = "Pass1234";
     strlcpy(config.cf_token,   "tok_abc123",       sizeof(config.cf_token));
     strlcpy(config.cf_zone,    "zone_xyz",         sizeof(config.cf_zone));
     strlcpy(config.cf_host,    "home.example.com", sizeof(config.cf_host));
@@ -338,7 +338,7 @@ void test_full_round_trip() {
     TEST_ASSERT_EQUAL_STRING("user",             config.webusr.c_str());
     TEST_ASSERT_EQUAL_STRING("secret123",        config.webpss.c_str());
     TEST_ASSERT_EQUAL_STRING("MinhaRede",        config.ssid.c_str());
-    TEST_ASSERT_EQUAL_STRING("Senha123",         config.pass.c_str());
+    TEST_ASSERT_EQUAL_STRING("Pass1234",         config.pass.c_str());
     TEST_ASSERT_EQUAL_STRING("tok_abc123",       config.cf_token);
     TEST_ASSERT_EQUAL_STRING("zone_xyz",         config.cf_zone);
     TEST_ASSERT_EQUAL_STRING("home.example.com", config.cf_host);
