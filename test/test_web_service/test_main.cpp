@@ -392,11 +392,11 @@ void test_gzipped_css_and_js() {
 
 void test_embedded_gzipped_svg_pinout() {
     Fixture f;
-    TEST_ASSERT_TRUE(f.get("/pinout.svg"));
+    TEST_ASSERT_TRUE(f.get("/pinout.svg?v=" ASSET_PINOUT_TAG));
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL_STRING("image/svg+xml", f.srv.contentType.c_str());
     TEST_ASSERT_EQUAL_STRING("gzip", f.srv.headers["Content-Encoding"].c_str());
-    TEST_ASSERT_EQUAL_STRING("max-age=604800", f.srv.headers["Cache-Control"].c_str());   // no hash in the URL
+    TEST_ASSERT_EQUAL_STRING("max-age=31536000, immutable", f.srv.headers["Cache-Control"].c_str());   // hash in the URL
     TEST_ASSERT_EQUAL(sizeof(ASSET_PINOUT_GZ), f.out().size());
     TEST_ASSERT_EQUAL_HEX8(0x1f, (uint8_t)f.out()[0]);   // gzip signature
     TEST_ASSERT_EQUAL_HEX8(0x8b, (uint8_t)f.out()[1]);
@@ -1135,7 +1135,7 @@ void test_iot_page_with_nothing_set() {
     f.get("/iot");
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "<h1>IoT</h1>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "/pinout.svg"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<img src='/pinout.svg?v=" ASSET_PINOUT_TAG "'"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='role' value='n' checked>Nothing"));
     TEST_ASSERT_TRUE(contains(f.out(), "<legend>What does this device do?</legend>"));
     TEST_ASSERT_TRUE(contains(f.out(), "<optgroup label='Temperature and humidity'>"));

@@ -242,7 +242,7 @@ private:
             if (!strcmp_P(p, PSTR("/i18n.js")))
                 return _asset("text/javascript", WEB_I18N_GZ, sizeof(WEB_I18N_GZ), true, true);
             if (!strcmp_P(p, PSTR("/pinout.svg")))
-                return _asset("image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ), true);
+                return _asset("image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ), true, true);
         } else if (_server.method() == HttpServer::POST) {
             if (!strcmp_P(p, PSTR("/save")))            return _handleSave();
             if (!strcmp_P(p, PSTR("/config/save")))     return _handleConfigSave();
@@ -1043,8 +1043,9 @@ private:
     }
 
     // Served straight from flash; the cache avoids resending on every page.
-    // CSS and JS carry the content hash in the URL (hashed): a new version is
-    // another URL, so the browser keeps them for a year without asking again.
+    // CSS, JS and the pinout carry the content hash in the URL (hashed): a
+    // new version is another URL, so the browser keeps them for a year
+    // without asking again.
     // The type is in RAM: it goes into the header's %s, which does not read
     // from flash.
     void _asset(const char* type, const uint8_t* data, size_t len, bool gz, bool hashed = false) {
@@ -1386,7 +1387,8 @@ private:
             _p(PSTR("<p id='msg' class='m' role='status' aria-live='polite'></p>"));
         }
 
-        _p(PSTR("<figure><img src='/pinout.svg' width='1040' height='700' "
+        // Drawing in English; i18n.js redraws it in the panel language
+        _p(PSTR("<figure><img src='/pinout.svg?v=" ASSET_PINOUT_TAG "' width='1040' height='700' "
                 "alt='" L_PINOUT_ALT "'></figure>"));
 
         bool hs = t.sensor[0] && t.sensorPin >= 0;

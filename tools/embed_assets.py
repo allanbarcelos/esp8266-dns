@@ -7,12 +7,15 @@ In AP mode there is no internet, so the panel cannot fetch images elsewhere.
 - docs/esp-01.jpg: cropped at the white edges, 264 px, WebP quality 40
   (shown at 220 px; the extra keeps it sharp on high-density screens).
 - docs/esp01-pinout.svg: spaces between tags removed, then gzipped (served
-  with Content-Encoding: gzip).
+  with Content-Encoding: gzip). Its URL carries a hash of the content (?v=),
+  so the browser keeps it for a year and a new drawing is another URL. The
+  text stays in English; web/i18n.js translates it with web/i18n.tsv.
 
 Usage: python tools/embed_assets.py   (needs Pillow with WebP support)
 The generated Assets.h goes into the repository: the build does not need Pillow.
 """
 import gzip
+import hashlib
 import io
 import os
 import re
@@ -40,7 +43,7 @@ def pinout():
     with open(os.path.join(ROOT, "docs", "esp01-pinout.svg"), "rb") as f:
         svg = re.sub(rb"<!--.*?-->", b"", f.read(), flags=re.S)  # license header
         svg = re.sub(rb">\s+<", b"><", svg).strip()
-    return gzip.compress(svg, 9, mtime=0)
+    return gzip.compress(svg, 9, mtime=0), hashlib.sha256(svg).hexdigest()[:8]
 
 
 def array(name, data):
@@ -52,7 +55,7 @@ def array(name, data):
 
 def main():
     jpg, (w, h) = photo()
-    svg = pinout()
+    svg, svg_tag = pinout()
     text = (
         "// SPDX-License-Identifier: MIT\n"
         "// Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: "
@@ -63,6 +66,7 @@ def main():
         f"// ESP-01 photo, WebP {w}x{h} ({len(jpg)} bytes)\n"
         + array("ASSET_PHOTO", jpg) +
         f"\n// ESP-01 pinout, gzipped SVG ({len(svg)} bytes)\n"
+        f'#define ASSET_PINOUT_TAG "{svg_tag}"\n'
         + array("ASSET_PINOUT_GZ", svg)
     )
     with open(os.path.join(ROOT, "Assets.h"), "w", encoding="utf-8", newline="\n") as f:

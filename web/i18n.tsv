@@ -294,3 +294,19 @@ J_RULE_ABOVE	Turns the {0} on when the value goes above {1} {2} and off when it 
 J_RULE_BELOW	Turns the {0} on when the value goes below {1} {2} and off when it goes back above {3} {2}.	Liga {0} quando o valor fica abaixo de {1} {2} e desliga quando volta acima de {3} {2}.	Enciende {0} cuando el valor baja de {1} {2} y lo apaga cuando vuelve por encima de {3} {2}.	Allume {0} quand la valeur passe sous {1} {2} et l'éteint quand elle remonte au-dessus de {3} {2}.
 J_RULE_WINDOW	Only between {0} and {1} (local time); off outside it.	Só entre {0} e {1} (hora local); desligado fora disso.	Solo entre {0} y {1} (hora local); apagado fuera de ese horario.	Seulement entre {0} et {1} (heure locale) ; éteint en dehors.
 J_NO_ANSWER	No answer from the device	O aparelho não respondeu	El dispositivo no respondió	L'appareil ne répond pas
+# Pinout drawing (docs/esp01-pinout.svg): translated by its English text
+P_TITLE	ESP-01 pins, top view, antenna on the left	Pinos do ESP-01, vista de cima, antena à esquerda	Pines del ESP-01, vista superior, antena a la izquierda	Broches de l'ESP-01, vue de dessus, antenne à gauche
+P_VIEW	top view · antenna on the left	vista de cima · antena à esquerda	vista superior · antena a la izquierda	vue de dessus · antenne à gauche
+P_ANTENNA	antenna	antena	antena	antenne
+P_3V3	3.3 V	3,3 V	3,3 V	3,3 V
+P_GREEN	Green	Verde	Verde	Vert
+P_ORANGE	Orange	Laranja	Naranja
+P_BLUE	Blue	Azul	Azul	Bleu
+P_GRAY	Gray	Cinza	Gris	Gris
+P_SENSOR_MODULE	sensor or module	sensor ou módulo	sensor o módulo	capteur ou module
+P_VCC	VCC is 3.3 V	VCC é 3,3 V	VCC es 3,3 V	VCC est à 3,3 V
+P_CHPD	CH_PD stays at 3.3 V	CH_PD fica em 3,3 V	CH_PD queda en 3,3 V	CH_PD reste à 3,3 V
+P_GND	GND, common ground	GND, terra comum	GND, tierra común	GND, masse commune
+P_BOOT	GPIO0 and GPIO2 are high at boot. The relay must be off with the pin high.	GPIO0 e GPIO2 ficam altos no boot. O relé deve ficar desligado com o pino alto.	GPIO0 y GPIO2 están en alto al arrancar. El relé debe quedar apagado con el pin en alto.	GPIO0 et GPIO2 sont au niveau haut au démarrage. Le relais doit être éteint quand la broche est haute.
+P_TXRX	TX and RX also work as GPIO after flashing. This board only reads digital inputs.	TX e RX também servem de GPIO depois da gravação. Esta placa só lê entradas digitais.	TX y RX también sirven como GPIO después de grabar. Esta placa solo lee entradas digitales.	TX et RX servent aussi de GPIO après le flashage. Cette carte ne lit que des entrées numériques.
+P_ORDER	Pins 1 to 8 in the module's physical order. The sensor and the module use different pins.	Pinos 1 a 8 na ordem física do módulo. O sensor e o módulo usam pinos diferentes.	Pines 1 a 8 en el orden físico del módulo. El sensor y el módulo usan pines distintos.	Broches 1 à 8 dans l'ordre physique du module. Le capteur et le module utilisent des broches différentes.

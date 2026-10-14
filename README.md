@@ -59,7 +59,7 @@ Each service is a header with dependencies injected by reference, composed in la
 
 ### Panel language
 
-The panel speaks **English, Portuguese, Spanish and French**. It opens in the browser's language (English when that is none of the four); **Settings → Language** fixes one for every browser. The text of the four languages sits in the firmware as one compressed table (`/i18n.js`), so it works in setup mode and without internet. The device sends short markers instead of the text and the browser writes the page; it caches the table and downloads it again only after an update that changes the text. The panel needs JavaScript. Logs, the API, MQTT and ntfy stay in English.
+The panel speaks **English, Portuguese, Spanish and French**. It opens in the browser's language (English when that is none of the four); **Settings → Language** fixes one for every browser. The text of the four languages sits in the firmware as one compressed table (`/i18n.js`), so it works in setup mode and without internet. The device sends short markers instead of the text and the browser writes the page, and redraws the pin drawing with its labels translated (the drawing itself stays in English, for opening it directly); it caches the table and downloads it again only after an update that changes the text. The panel needs JavaScript. Logs, the API, MQTT and ntfy stay in English.
 
 Reserve the device's IP in your router (DHCP reservation): the panel and the local API are reached by IP. Name discovery over mDNS (`.local`) was measured and does not fit (see [Flash budget](#-flash-budget)).
 
@@ -301,7 +301,7 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 | Item | Size |
 | --- | --- |
 | Firmware | ~498 KB of 549 KB (about 51 KB free); **limit 500,000 bytes** |
-| Panel text, 4 languages | 288 texts, 31 KB as text, 11 KB in flash |
+| Panel text, 4 languages | 303 texts (the pin drawing included), 34 KB as text, 12 KB in flash |
 | Signed OTA package | ~358 KB of 400 KB (about 42 KB free) |
 | Embedded images | 4.7 KB photo (WebP) + 1.2 KB pinout (gzipped SVG) |
 | Configuration filesystem | 64 KB, unchanged |

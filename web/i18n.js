@@ -69,6 +69,21 @@ function IX(s) {
             if (v && v.indexOf('`') >= 0) e.setAttribute(k, IX(v));
         });
     });
+    // Drawings (SVG images) keep their text in English: in another language
+    // the browser reads the file (already in its cache), translates each
+    // text it knows and shows the copy. Hidden meanwhile, so the English
+    // does not flash; on any failure the original shows.
+    if (IL) document.querySelectorAll('img[src*=".svg"]').forEach(function (img) {
+        img.style.visibility = 'hidden';
+        fetch(img.src).then(function (r) { return r.text(); }).then(function (s) {
+            var d = new DOMParser().parseFromString(s, 'image/svg+xml'), w = d.createTreeWalker(d.documentElement, 4), n, t;
+            while ((n = w.nextNode())) {
+                t = n.nodeValue.trim();
+                if (IE[t] != null) n.nodeValue = n.nodeValue.replace(t, IT[IE[t]]);
+            }
+            img.src = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(d)], { type: 'image/svg+xml' }));
+        }).catch(function () {}).then(function () { img.style.visibility = ''; });
+    });
     // Values in the rows (states and statuses from the device)
     document.querySelectorAll('.r b').forEach(function (b) {
         b.textContent = b.id == 'ns' || b.id == 'na' ? LV(b.textContent) : L(b.textContent);
