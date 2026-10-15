@@ -140,6 +140,19 @@ jobs:
           sudo apt-get install -y -qq cppcheck
           tools/static_check.sh
 
+      # The remote access Worker (relay/), on Node with the Workers runtime
+      # pieces imitated by the test; 100% coverage, like the firmware
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Relay Worker tests (100% lines/functions/branches)
+        run: >-
+          node --test --experimental-test-coverage
+          --test-coverage-include=relay/worker.mjs
+          --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100
+          relay/worker.test.mjs
+
   # ── Builds the firmware: compiles, measures and packages ─────────────────
   # Runs before the tests: green tests with a firmware over the limit are
   # worth nothing, the device can still hang.

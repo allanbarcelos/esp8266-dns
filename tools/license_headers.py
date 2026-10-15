@@ -26,7 +26,7 @@ MARK = "SPDX-License-Identifier:"
 
 # Extension (or file name) → how to comment.
 LINE = {
-    ".h": "// {}", ".cpp": "// {}", ".ino": "// {}", ".js": "// {}",
+    ".h": "// {}", ".cpp": "// {}", ".ino": "// {}", ".js": "// {}", ".mjs": "// {}",
     ".py": "# {}", ".sh": "# {}", ".yml": "# {}", ".yaml": "# {}",
     ".ini": "; {}",
 }
