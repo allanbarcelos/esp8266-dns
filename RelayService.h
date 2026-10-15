@@ -11,6 +11,7 @@
 #include "CloudflareCA.h"
 #include "HttpServer.h"
 #include "IoTService.h"
+#include "NtfyNotifier.h"
 #include "PublicIPResolver.h"  // memoryOk
 #include "RelayScript.h"
 #include "TlsClient.h"
@@ -28,13 +29,17 @@
 //   'E' id                  device → Worker: the answer is complete
 //   'H' json                device → Worker: hello, after connecting
 //   'S' json                device → Worker: the state of /api/state
+//   'C' json                Worker → device: a message of the ntfy command topic
 // plus the text "ping" every PING_MS (the Worker answers "pong" without
 // waking up). The Worker checks the shared secret on connect; a protocol
 // version it does not speak gets 426, and the device redeploys it.
 //
 // One TLS session at a time fits in RAM: hold() closes the connection
 // while DNS, OTA or an ntfy post need theirs, and the Worker waits for the
-// device to come back before giving up on a request.
+// device to come back before giving up on a request. For the same reason
+// the Worker polls the ntfy command topic for the device (the hello says
+// which, with the token, the interval and the last message seen); if the
+// relay stays down longer than GRACE_MS, the ntfy stream takes over.
 class RelayService {
 public:
     static constexpr uint8_t       PROTOCOL      = 1;
@@ -46,9 +51,11 @@ public:
     static constexpr unsigned long TELE_MS       = 300000UL;  // and every 5 min even without a change
     static constexpr uint16_t      BACKOFF_MAX_S = 300;
     static constexpr int           FRAMES_PER_TICK = 4;
+    static constexpr unsigned long GRACE_MS      = 60000UL;   // down this long: ntfy on its own
 
-    RelayService(Config& cfg, Logger& log, Clock& clock, HttpServer& http, IoTService* iot = nullptr)
-        : _cfg(cfg), _log(log), _clock(clock), _http(http), _iot(iot) {}
+    RelayService(Config& cfg, Logger& log, Clock& clock, HttpServer& http, IoTService* iot = nullptr,
+                 NtfyNotifier* ntfy = nullptr)
+        : _cfg(cfg), _log(log), _clock(clock), _http(http), _iot(iot), _ntfy(ntfy) {}
 
     ~RelayService() { _close(); }
 
@@ -84,6 +91,14 @@ public:
     }
 
     bool up() const       { return _open; }
+
+    // The next tick will open the connection (TLS)
+    bool due(unsigned long now) const {
+        return configured() && !_held && !_open && (long)(now - _next) >= 0 && WiFi.status() == WL_CONNECTED;
+    }
+
+    // The ntfy commands come through the relay: it is up, or was until moments ago
+    bool carries(unsigned long now) const { return _open || (configured() && now - _downAt < GRACE_MS); }
     bool outdated() const { return _outdated; }   // the Worker refused this version (426)
 
     const char* status() const {
@@ -116,6 +131,7 @@ private:
     Clock&             _clock;
     HttpServer&        _http;
     IoTService*        _iot;
+    NtfyNotifier*      _ntfy;
     TlsClient          _tls;
     WsClient           _ws{_tls};
     Link               _link{*this};
@@ -125,12 +141,12 @@ private:
     bool          _held = false;
     bool          _outdated = false;
     unsigned long _next = 0;
-    unsigned long _lastIn = 0, _lastPing = 0, _lastState = 0, _stateSent = 0;
+    unsigned long _lastIn = 0, _lastPing = 0, _lastState = 0, _stateSent = 0, _downAt = 0;
     uint16_t      _backoff = 5;
     uint16_t      _id = 0;
     uint32_t      _ip = 0;
     uint32_t      _sum = 0;      // of the last state sent
-    uint32_t      _apiSum = 0;   // of the API token the hello carried
+    uint32_t      _helloSum = 0; // of what the hello carried
 
     void _connect(unsigned long now) {
         if (!_clock.synced()) {
@@ -195,7 +211,7 @@ private:
         }
         if (now - _lastState >= STATE_MS) {
             _lastState = now;
-            if (_tokenSum() != _apiSum) _hello();   // a new API token
+            if (_settingsSum() != _helloSum) _hello();   // a new API token or ntfy settings
             _sendState(now - _stateSent >= TELE_MS, now);
         }
     }
@@ -210,10 +226,18 @@ private:
             _ws.skip();
             _log.log(PSTR("relay: closed by the Worker"));
             _close();
-        } else if (op == WsClient::BINARY && _ws.next() == 'R') {
-            _request();
-        } else {
+        } else if (op != WsClient::BINARY) {
             _ws.skip();
+        } else if (int type = _ws.next(); type == 'R') {
+            _request();
+        } else if (type != 'C' || !_ntfy) {
+            _ws.skip();
+        } else {
+            // An ntfy message; one longer than a stream line is no command
+            char line[NtfyNotifier::LINE_LEN];
+            bool whole = _ws.left() < sizeof(line);
+            _ws.read(line, sizeof(line));
+            if (whole) _ntfy->deliver(line, millis());
         }
     }
 
@@ -248,14 +272,31 @@ private:
             br_hmac_out(&hc, d);
             for (int i = 0; i < 20; i++) snprintf(mac + 2 * i, 3, "%02x", d[i]);
         }
-        char b[96];
-        int n = snprintf_P(b, sizeof(b), PSTR("H{\"v\":%u,\"fw\":\"%s\",\"api\":\"%s\"}"),
+        // The ntfy commands: topic, token, interval and the last message seen
+        // (the IDs are letters and digits, the rest is checked on the panel)
+        char b[320];
+        int n = snprintf_P(b, sizeof(b), PSTR("H{\"v\":%u,\"fw\":\"%s\",\"api\":\"%s\""),
                            (unsigned)PROTOCOL, firmware_version, mac);
+        if (_ntfy && _ntfy->wantsCommands()) {
+            const char* since = _ntfy->lastId();
+            n += snprintf_P(b + n, sizeof(b) - n, PSTR(",\"topic\":\"%s\",\"token\":\"%s\",\"poll\":%u,\"since\":\"%s\""),
+                            _cfg.ntfy_cmd, _cfg.ntfy_token, (unsigned)_cfg.ntfy_poll,
+                            strspn(since, "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") == strlen(since)
+                                ? since : "");
+        }
+        b[n++] = '}';
         _ws.send(WsClient::BINARY, b, (size_t)n);
-        _apiSum = _tokenSum();
+        _helloSum = _settingsSum();
     }
 
-    uint32_t _tokenSum() const { return _fnv(_cfg.api_token, strlen(_cfg.api_token)); }
+    // What the hello carries that can change while connected
+    uint32_t _settingsSum() const {
+        bool cmd = _ntfy && _ntfy->wantsCommands();
+        return _fnv(_cfg.api_token, strlen(_cfg.api_token)) ^
+               (cmd ? _fnv(_cfg.ntfy_cmd, strlen(_cfg.ntfy_cmd)) * 3 + _fnv(_cfg.ntfy_token, strlen(_cfg.ntfy_token)) +
+                          _cfg.ntfy_poll
+                    : 0);
+    }
 
     static uint32_t _fnv(const char* p, size_t n) {
         uint32_t sum = 2166136261UL;
@@ -287,6 +328,7 @@ private:
     }
 
     void _close() {
+        if (_open) _downAt = millis();
         if (_trust) _tls.stop();   // there is only a session after the roots are allocated
         delete _trust;
         _trust = nullptr;

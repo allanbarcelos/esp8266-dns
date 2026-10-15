@@ -323,6 +323,9 @@ private:
     static constexpr char S_MAX63[] PROGMEM = "maxlength='63'";
     static constexpr char S_CURRENT_PASS_AC[] PROGMEM = "autocomplete='current-password' ";
 
+    // The relay Worker's intervals for the ntfy commands, in seconds (relay/worker.mjs POLLS)
+    static constexpr uint8_t POLLS[] = {2, 5, 10, 30};
+
     static const Route ROUTES[];
     static const Asset ASSETS[];
     static const size_t ROUTE_COUNT, ASSET_COUNT;
@@ -1378,6 +1381,19 @@ private:
         _passwordInput(PSTR(L_NTFY_TOKEN " <span class='m'>" L_OPTIONAL_KEEPS "</span>"), PSTR("token"),
                        PSTR("maxlength='47' placeholder='tk_...'"));
         _switch(PSTR("token_clear"), PSTR(L_DELETE_TOKEN), false);
+        // With remote access on, how often the Worker checks the command topic
+        _selectOpen(PSTR(L_POLL), PSTR("poll"));
+        for (uint8_t s : POLLS) {
+            char v[4];
+            snprintf(v, sizeof(v), "%u", (unsigned)s);
+            _p(PSTR("<option value='"));
+            _s(v);
+            _p(s == _cfg.ntfy_poll ? PSTR("' selected>") : S_TAG_END);
+            _s(v);
+            _p(PSTR(" s</option>"));
+        }
+        _selectEnd();
+        _p(PSTR("<p class='m'>" L_POLL_HELP "</p>"));
         _button(S_SAVE);
         _pageEnd();
     }
@@ -1423,6 +1439,25 @@ private:
             _errorPage(PSTR(L_INVALID_NTFY_TOKEN), P_NTFY);
             return;
         }
+        // The interval: one of the offered ones; missing keeps the current one
+        String poll = _server.arg("poll");
+        uint8_t every = _cfg.ntfy_poll;
+        if (poll.length()) {
+            bool offered = false;
+            for (uint8_t s : POLLS) {
+                char v[4];
+                snprintf(v, sizeof(v), "%u", (unsigned)s);
+                if (strcmp(poll.c_str(), v) == 0) {
+                    every = s;
+                    offered = true;
+                }
+            }
+            if (!offered) {
+                _errorPage(PSTR(L_INVALID_VALUE), P_NTFY);
+                return;
+            }
+        }
+        _cfg.ntfy_poll = every;
         strlcpy(_cfg.ntfy_topic, topic.c_str(), sizeof(_cfg.ntfy_topic));
         strlcpy(_cfg.ntfy_cmd, cmd.c_str(), sizeof(_cfg.ntfy_cmd));
         if (_flag("token_clear")) _cfg.ntfy_token[0] = '\0';

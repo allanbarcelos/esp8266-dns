@@ -28,6 +28,10 @@
 // since=<last id>, and ntfy (which keeps messages for 12 h) delivers what
 // arrived meanwhile. The ntfy.sh certificate is validated: a command forged
 // on the way would turn the equipment on.
+//
+// With the remote access relay on, its Worker polls the command topic
+// instead and sends each message down the relay (deliver()); the stream
+// stays closed, and opens again if the relay stays down (relayed(false)).
 class NtfyNotifier {
 public:
     NtfyNotifier(Config& cfg, Logger& log, Clock& clock, IoTService* iot = nullptr)
@@ -58,9 +62,27 @@ public:
         if (on) _closeStream();
     }
 
+    // The relay's Worker brings the commands: the stream stays closed
+    void relayed(bool on) {
+        _relayed = on;
+        if (on) _closeStream();
+    }
+
+    // A message line from the command topic that came another way (the relay)
+    void deliver(const char* line, unsigned long now) {
+        if (!_wantStream()) return;
+        strlcpy(_line, line, sizeof(_line));
+        _onEvent(now);
+    }
+
+    // Commands wanted (an actuator and a command topic), and where they left off
+    bool        wantsCommands() const { return _wantStream(); }
+    const char* lastId() const        { return _lastId; }
+
     // Command stream state, for the panel
     const char* commandStatus() const {
         if (!_wantStream()) return "off";
+        if (_relayed) return "relay";
         if (_state == ST_BODY) return "connected";
         return _held ? "paused" : "connecting";
     }
@@ -101,6 +123,7 @@ private:
     BearSSL::X509List* _trust = nullptr;
     uint8_t       _state = ST_IDLE;
     bool          _held = false;
+    bool          _relayed = false;
     bool          _overflow = false;
     bool          _waiting = false;
     size_t        _len = 0;
@@ -241,7 +264,7 @@ private:
     }
 
     void _tickStream(unsigned long now) {
-        if (_held || !_wantStream() || WiFi.status() != WL_CONNECTED) {
+        if (_held || _relayed || !_wantStream() || WiFi.status() != WL_CONNECTED) {
             _closeStream();
             return;
         }

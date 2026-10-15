@@ -34,12 +34,14 @@ struct Rig {
     Clock        clock{fakeTime};
     HttpServer   http{80};
     IoTService   iot{cfg, logger};
+    NtfyNotifier ntfy{cfg, logger, clock, &iot};
     RelayService relay;
     std::string  lastPath, lastBody;
     uint32_t     lastIp = 0;
     size_t       at = 0;   // frames already read from the wire
 
-    explicit Rig(bool withIot = false) : relay(cfg, logger, clock, http, withIot ? &iot : nullptr) {
+    explicit Rig(bool withIot = false, bool withNtfy = false)
+        : relay(cfg, logger, clock, http, withIot ? &iot : nullptr, withNtfy ? &ntfy : nullptr) {
         http.begin(&Rig::handle, this);
     }
 
@@ -456,6 +458,120 @@ void test_state_needs_a_sensor_or_actuator() {
     TEST_ASSERT_EQUAL('S', frames[1].payload[0]);
 }
 
+// ── ntfy commands through the relay ──────────────────────────────────────────
+
+static std::string ntfyLine(const char* id, const char* text) {
+    char b[200];
+    snprintf(b, sizeof(b), "{\"event\":\"message\",\"id\":\"%s\",\"time\":%ld,\"message\":\"%s\"}", id,
+             (long)fakeNow, text);
+    return b;
+}
+
+static void commandsOn() {
+    strlcpy(cfg.iot.actuator, "relay", sizeof(cfg.iot.actuator));
+    cfg.iot.actuatorPin = 0;
+    strlcpy(cfg.ntfy_cmd, "cmd-abc", sizeof(cfg.ntfy_cmd));
+    strlcpy(cfg.ntfy_token, "tk_x", sizeof(cfg.ntfy_token));
+    cfg.ntfy_poll = 10;
+}
+
+// The hello tells the Worker which topic to poll for the device, and from where
+void test_hello_carries_the_ntfy_commands() {
+    commandsOn();
+    Rig r(true, true);
+    r.iot.begin();
+    r.ntfy.deliver(ntfyLine("abc123", "off").c_str(), 0);
+    r.open();
+    TEST_ASSERT_EQUAL_STRING(
+        "H{\"v\":1,\"fw\":\"dev\",\"api\":\"\",\"topic\":\"cmd-abc\",\"token\":\"tk_x\",\"poll\":10,\"since\":\"abc123\"}",
+        r.next().payload.c_str());
+
+    // New ntfy settings go up in a new hello
+    cfg.ntfy_poll = 30;
+    r.relay.tick(RelayService::STATE_MS);
+    bool hello = false;
+    for (auto& f : r.drain()) hello = hello || contains(f.payload, "\"poll\":30");
+    TEST_ASSERT_TRUE(hello);
+
+    // An ID that is not letters and digits is not passed on
+    Rig q(true, true);
+    q.iot.begin();
+    q.ntfy.deliver(ntfyLine("a-b", "off").c_str(), 0);
+    q.at = MockTLS::wire.size();
+    q.open();
+    TEST_ASSERT_TRUE(contains(q.next().payload, "\"since\":\"\"}"));
+}
+
+// Without commands wanted, the hello says nothing about ntfy
+void test_hello_without_commands() {
+    strlcpy(cfg.ntfy_cmd, "cmd-abc", sizeof(cfg.ntfy_cmd));   // but no actuator
+    Rig r(true, true);
+    r.open();
+    TEST_ASSERT_FALSE(contains(r.next().payload, "topic"));
+}
+
+void test_command_frame_reaches_the_actuator() {
+    commandsOn();
+    Rig r(true, true);
+    r.iot.begin();
+    r.open();
+    r.drain();
+    r.inject(serverFrame(WsClient::BINARY, "C" + ntfyLine("m1", "on")));
+    r.relay.tick(100);
+    TEST_ASSERT_TRUE(r.iot.actuatorOn());
+    TEST_ASSERT_EQUAL_STRING("m1", r.ntfy.lastId());
+
+    // Longer than a stream line: skipped, as the stream does
+    r.inject(serverFrame(WsClient::BINARY, "C" + ntfyLine("m2", "on").substr(0, 40) + std::string(300, 'x') + "\"}"));
+    r.relay.tick(200);
+    TEST_ASSERT_EQUAL_STRING("m1", r.ntfy.lastId());
+    TEST_ASSERT_TRUE(r.relay.up());
+
+    // Without ntfy: skipped
+    Rig n(true);
+    n.iot.begin();
+    n.open();
+    n.inject(serverFrame(WsClient::BINARY, "C" + ntfyLine("m3", "off")));
+    n.relay.tick(100);
+    TEST_ASSERT_TRUE(n.relay.up());
+}
+
+// The next tick will connect: the ntfy stream lets go first
+void test_due_says_a_connection_is_next() {
+    Rig r;
+    TEST_ASSERT_TRUE(r.relay.due(0));
+    r.relay.hold(true);
+    TEST_ASSERT_FALSE(r.relay.due(0));
+    r.relay.hold(false);
+    WiFi._status = WL_DISCONNECTED;
+    TEST_ASSERT_FALSE(r.relay.due(0));
+    WiFi._status = WL_CONNECTED;
+    r.open();
+    TEST_ASSERT_FALSE(r.relay.due(1));                    // already open
+    MockTLS::failConnect = true;
+    r.relay.reconnect();
+    r.relay.tick(10);                                     // fails: waits 5 s
+    TEST_ASSERT_FALSE(r.relay.due(10 + 4999));
+    TEST_ASSERT_TRUE(r.relay.due(10 + 5000));
+    cfg.relay_host[0] = '\0';
+    TEST_ASSERT_FALSE(r.relay.due(10 + 5000));
+}
+
+// The relay carries the ntfy commands while up, and for GRACE_MS after it drops
+void test_carries_the_commands_until_down_a_while() {
+    Rig r;
+    TEST_ASSERT_TRUE(r.relay.carries(0));                 // just started: give it a chance
+    TEST_ASSERT_FALSE(r.relay.carries(RelayService::GRACE_MS));
+    setMillis(100000);
+    r.open(100000);
+    TEST_ASSERT_TRUE(r.relay.carries(500000));
+    r.relay.hold(true);                                   // drops at 100000
+    TEST_ASSERT_TRUE(r.relay.carries(100000 + RelayService::GRACE_MS - 1));
+    TEST_ASSERT_FALSE(r.relay.carries(100000 + RelayService::GRACE_MS));
+    cfg.relay_ver = 0;
+    TEST_ASSERT_FALSE(r.relay.carries(100001));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_off_until_deployed_for_this_version);
@@ -481,5 +597,10 @@ int main() {
     RUN_TEST(test_silent_worker_is_dropped);
     RUN_TEST(test_state_goes_up_on_change_and_every_five_minutes);
     RUN_TEST(test_state_needs_a_sensor_or_actuator);
+    RUN_TEST(test_hello_carries_the_ntfy_commands);
+    RUN_TEST(test_hello_without_commands);
+    RUN_TEST(test_command_frame_reaches_the_actuator);
+    RUN_TEST(test_due_says_a_connection_is_next);
+    RUN_TEST(test_carries_the_commands_until_down_a_while);
     return UNITY_END();
 }

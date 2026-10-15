@@ -144,13 +144,13 @@ void test_tick_runs_the_relay() {
     setMillis(1000);
     app.tick();                                    // public IP first: the relay waits
     TEST_ASSERT_EQUAL_STRING("paused", app.relay.status());
-    TEST_ASSERT_EQUAL_STRING("paused", app.ntfy.commandStatus());
+    TEST_ASSERT_EQUAL_STRING("relay", app.ntfy.commandStatus());   // its Worker brings the commands
 
     MockHTTP::rawHttp = "HTTP/1.1 101 Switching Protocols\r\n\r\n";
     setMillis(2000);
     app.tick();
     TEST_ASSERT_EQUAL_STRING("connected", app.relay.status());
-    TEST_ASSERT_EQUAL_STRING("paused", app.ntfy.commandStatus());
+    TEST_ASSERT_EQUAL_STRING("relay", app.ntfy.commandStatus());
 
     std::string r = std::string("R\x00\x01\x00\x00\x00\x00", 7) +
                     "GET /login HTTP/1.1\r\nHost: esp-pump.example.com\r\n\r\n";
@@ -224,6 +224,34 @@ void test_tick_redeploys_an_outdated_relay() {
     TEST_ASSERT_TRUE(contains(MockHTTP::lastRaw, app.config.relay_secret));
 }
 
+// The relay cannot connect: after GRACE_MS the ntfy stream takes over the
+// commands, and lets go again whenever the relay tries once more
+void test_tick_falls_back_to_the_ntfy_stream() {
+    MockFS::put("/config.json", R"({"v":2,"ssid":"Home","pass":"12345678","webpss":"strong-pass",
+        "ota_auto":false,"ntfy_cmd":"cmd-x","actuator":"relay","actuator_pin":0,
+        "relay_host":"esp-pump.example.com","relay_ver":1,"relay_key":"00"})");
+    App app;
+    app.begin();
+    MockTLS::failConnect = true;
+    setMillis(1000);
+    app.tick();                                    // public IP first
+    setMillis(2000);
+    app.tick();                                    // the relay tries, and fails
+    TEST_ASSERT_EQUAL_STRING("relay", app.ntfy.commandStatus());
+
+    // Past the grace: while the relay is about to try again the stream
+    // waits; between tries it runs
+    bool waited = false;
+    for (unsigned long t = RelayService::GRACE_MS + 1000; t < RelayService::GRACE_MS + 1004; t++) {
+        setMillis(t);
+        app.tick();
+        waited = waited || strcmp(app.ntfy.commandStatus(), "paused") == 0;
+    }
+    TEST_ASSERT_TRUE(waited);
+    TEST_ASSERT_EQUAL_STRING("connecting", app.ntfy.commandStatus());
+    TEST_ASSERT_TRUE(MockTLS::connectCalls >= 3);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_begin_starts_services);
@@ -238,5 +266,6 @@ int main() {
     RUN_TEST(test_tick_runs_the_relay);
     RUN_TEST(test_tick_runs_the_cloudflare_setup);
     RUN_TEST(test_tick_redeploys_an_outdated_relay);
+    RUN_TEST(test_tick_falls_back_to_the_ntfy_stream);
     return UNITY_END();
 }

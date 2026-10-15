@@ -1354,6 +1354,28 @@ void test_ntfy_save() {
     TEST_ASSERT_EQUAL_STRING("", cfg.ntfy_topic);
 }
 
+// How often the relay Worker checks the command topic: one of the offered values
+void test_ntfy_poll_interval() {
+    Fixture f;
+    f.get("/ntfy");
+    TEST_ASSERT_TRUE(contains(f.out(), "name='poll'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value='5' selected>5 s</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value='30'>30 s</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "100,000 daily requests"));
+
+    f.post("/ntfy/save", {{"topic", ""}, {"poll", "10"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL(10, cfg.ntfy_poll);
+    const char* bad[] = {"7", "05", "10s", "-2"};
+    for (const char* b : bad) {
+        f.post("/ntfy/save", {{"topic", ""}, {"poll", b}});
+        TEST_ASSERT_EQUAL_MESSAGE(400, f.srv.code, b);
+    }
+    f.post("/ntfy/save", {{"topic", ""}});                // missing: kept
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL(10, cfg.ntfy_poll);
+}
+
 void test_ntfy_save_write_fails() {
     Fixture f;
     MockFS::failWriteOpen = true;
@@ -3279,6 +3301,7 @@ int main() {
     RUN_TEST(test_remote_off);
     RUN_TEST(test_ntfy_page);
     RUN_TEST(test_ntfy_save);
+    RUN_TEST(test_ntfy_poll_interval);
     RUN_TEST(test_ntfy_save_write_fails);
     RUN_TEST(test_password_page_first_access_without_auth);
     RUN_TEST(test_password_page_with_password);

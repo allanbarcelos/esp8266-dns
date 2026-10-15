@@ -756,6 +756,41 @@ void test_no_path_uses_tls_without_validation() {
     TEST_ASSERT_EQUAL(0, MockTLS::insecureCalls);
 }
 
+// ── Commands through the relay ───────────────────────────────────────────────
+
+// The relay's Worker brings the commands: the stream closes and stays closed
+void test_relayed_commands_close_the_stream() {
+    Cmd c;
+    c.open();
+    TEST_ASSERT_EQUAL_STRING("connected", c.ntfy.commandStatus());
+    TEST_ASSERT_TRUE(c.ntfy.wantsCommands());
+    c.ntfy.relayed(true);
+    TEST_ASSERT_EQUAL_STRING("relay", c.ntfy.commandStatus());
+    int before = MockTLS::connectCalls;
+    c.ntfy.tick(10);
+    TEST_ASSERT_EQUAL(before, MockTLS::connectCalls);
+
+    // A message delivered the other way: the same command, the same resume point
+    c.ntfy.deliver(message("r1", "on").c_str(), 20);
+    TEST_ASSERT_TRUE(c.iot.actuatorOn());
+    TEST_ASSERT_EQUAL_STRING("r1", c.ntfy.lastId());
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy: command \"on\""));
+
+    // The relay went down a while ago: the stream opens again, from r1
+    c.ntfy.relayed(false);
+    MockHTTP::rawHttp = OK_HDR;
+    c.ntfy.tick(30);
+    TEST_ASSERT_TRUE(contains(MockHTTP::lastRaw, "GET /cmd-abc/json?since=r1 HTTP/1.0"));
+}
+
+// Without an actuator or a command topic, nothing to deliver to
+void test_delivery_needs_commands() {
+    Fix f;
+    TEST_ASSERT_FALSE(f.ntfy.wantsCommands());
+    f.ntfy.deliver(message("x1", "on").c_str(), 0);
+    TEST_ASSERT_EQUAL_STRING("", f.ntfy.lastId());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_no_post_without_topic);
@@ -791,5 +826,7 @@ int main() {
     RUN_TEST(test_post_rejected_certificate_retries);
     RUN_TEST(test_post_without_memory_before_clock);
     RUN_TEST(test_no_path_uses_tls_without_validation);
+    RUN_TEST(test_relayed_commands_close_the_stream);
+    RUN_TEST(test_delivery_needs_commands);
     return UNITY_END();
 }

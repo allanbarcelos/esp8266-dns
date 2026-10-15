@@ -80,6 +80,7 @@ void test_load_defaults() {
     TEST_ASSERT_EQUAL_STRING("", config.pass.c_str());
     TEST_ASSERT_EQUAL_STRING("", config.cf_record);
     TEST_ASSERT_TRUE(config.ota_auto);
+    TEST_ASSERT_EQUAL(5, config.ntfy_poll);
     const IoTConfig& t = config.iot;
     TEST_ASSERT_EQUAL_STRING("", t.sensor);
     TEST_ASSERT_EQUAL(-1, t.sensorPin);
@@ -325,6 +326,7 @@ void test_full_round_trip() {
     strlcpy(config.relay_secret, "0123abcd", sizeof(config.relay_secret));
     strlcpy(config.cf_account, "01a7362d577a6c3019a474fd6f485823", sizeof(config.cf_account));
     config.relay_ver = 1;
+    config.ntfy_poll = 30;
     strlcpy(config.relay_name, "esp-pump", sizeof(config.relay_name));
     strlcpy(config.relay_zone, "023e105f4ecef8ad9ca31a8372d0c353", sizeof(config.relay_zone));
     config.tz = -180;
@@ -350,6 +352,7 @@ void test_full_round_trip() {
     TEST_ASSERT_EQUAL_STRING("0123abcd", config.relay_secret);
     TEST_ASSERT_EQUAL_STRING("01a7362d577a6c3019a474fd6f485823", config.cf_account);
     TEST_ASSERT_EQUAL(1, config.relay_ver);
+    TEST_ASSERT_EQUAL(30, config.ntfy_poll);
     TEST_ASSERT_EQUAL_STRING("esp-pump", config.relay_name);
     TEST_ASSERT_EQUAL_STRING("023e105f4ecef8ad9ca31a8372d0c353", config.relay_zone);
     TEST_ASSERT_EQUAL(-180, config.tz);

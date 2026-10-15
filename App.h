@@ -48,7 +48,7 @@ public:
     WebService web{config, logger, configStore, wifi, ota, iot, &ntfy, &mqtt, &power, &cfsetup};
 
     // Layer 4: remote access, through the panel's server
-    RelayService relay{config, logger, clock, web.server(), &iot};
+    RelayService relay{config, logger, clock, web.server(), &iot, &ntfy};
 
     void begin() {
         Serial.begin(115200);
@@ -90,13 +90,17 @@ public:
 
         // One TLS session at a time: the ntfy command stream and the relay
         // release theirs before the IP check, DNS, OTA or an ntfy post use
-        // the network in this tick. While the relay is set up, it holds the
-        // session and the command stream waits.
+        // the network in this tick. While the relay is up or about to
+        // connect, it has the session; its Worker brings the ntfy commands
+        // until it has been down a while, and then the stream takes over.
         // After an update with another relay protocol, the Worker goes up again
         if (!ota.slim()) cfsetup.redeploy(now);
         bool net = !ota.slim() && (ota.wantsNet(now) || resolver.due(now) || dns.due(now) || cfsetup.due());
-        if (!ota.slim()) ntfy.hold(net || relay.configured());
         relay.hold(ota.slim() || ota.busy() || net || ntfy.postDue(now));
+        if (!ota.slim()) {
+            ntfy.hold(net || relay.up() || relay.due(now));
+            ntfy.relayed(relay.carries(now));
+        }
 
         // A new IP reaches DNS in the same tick
         if (!ota.slim() && !ota.busy()) {
