@@ -135,6 +135,12 @@ public:
         }
         if (who != NetArbiter::RELAY || go) relay.tick(now);
         mqtt.tick(now);
+
+        // A TLS handshake blocks the loop for seconds: the slowest one is logged
+        unsigned long before = net.worst();
+        net.loop(millis() - now);
+        if (net.worst() > before)
+            logger.log(PSTR("Slowest loop so far: %lu ms (%s)"), net.worst(), NetArbiter::name(net.worstWho()));
     }
 
 private:

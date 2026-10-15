@@ -85,6 +85,25 @@ void test_new_owner_clears_the_wait() {
     TEST_ASSERT_FALSE(n.starved());
 }
 
+void test_slowest_loop() {
+    NetArbiter n;
+    n.loop(NetArbiter::SLOW_MS - 1);
+    TEST_ASSERT_EQUAL(0, n.slow());
+    TEST_ASSERT_EQUAL(0UL, n.worst());
+    n.want(NetArbiter::RELAY);
+    n.grant();
+    n.loop(1500);
+    n.want(NetArbiter::IP);
+    n.grant();
+    n.loop(900);
+    TEST_ASSERT_EQUAL(2, n.slow());
+    TEST_ASSERT_EQUAL(1500UL, n.worst());
+    TEST_ASSERT_EQUAL(NetArbiter::RELAY, n.worstWho());
+    TEST_ASSERT_EQUAL_STRING("relay", NetArbiter::name(n.worstWho()));
+    for (int i = 0; i < 70000; i++) n.loop(NetArbiter::SLOW_MS);
+    TEST_ASSERT_EQUAL(0xFFFF, n.slow());                   // the count stops, it does not wrap
+}
+
 void test_names() {
     const char* want[] = {"ota", "ip", "dns", "cloudflare", "ntfy post", "relay", "ntfy stream", "-"};
     for (int i = 0; i <= NetArbiter::COUNT; i++)
@@ -108,6 +127,7 @@ int main() {
     RUN_TEST(test_turn_waits_for_the_heap);
     RUN_TEST(test_running_session_goes_on);
     RUN_TEST(test_new_owner_clears_the_wait);
+    RUN_TEST(test_slowest_loop);
     RUN_TEST(test_names);
     return UNITY_END();
 }

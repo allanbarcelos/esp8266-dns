@@ -1156,6 +1156,8 @@ private:
         if (_net) {
             char q[NetArbiter::QUEUE_LEN];
             _row(PSTR(L_NET_TURN), _net->queue(q));
+            _rowf(PSTR(L_SLOWEST_LOOP), PSTR("%lu ms (%s)"), _net->worst(), NetArbiter::name(_net->worstWho()));
+            _rowf(PSTR(L_SLOW_LOOPS), PSTR("%u"), (unsigned)_net->slow());
         }
         _boxEnd();
 

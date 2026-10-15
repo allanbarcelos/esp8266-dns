@@ -593,14 +593,17 @@ void test_status_public_ip() {
     TEST_ASSERT_TRUE(contains(f.out(), "Last check</span><b>0h 01m 00s ago</b>"));
 }
 
-// Who has the network
+// Who has the network, and the slowest loop
 void test_status_network_and_loops() {
     Fixture f;
     f.net.want(NetArbiter::DNS);
     f.net.want(NetArbiter::RELAY);
     f.net.grant();
+    f.net.loop(1234);
     f.get("/status");
     TEST_ASSERT_TRUE(contains(f.out(), "Network turn</span><b>dns, waiting: relay</b>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Slowest loop</span><b>1234 ms (dns)</b>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Loops over 200 ms</span><b>1</b>"));
 
     f.web.setNet(nullptr);
     f.get("/status");

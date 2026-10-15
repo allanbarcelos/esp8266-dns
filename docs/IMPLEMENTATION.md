@@ -104,3 +104,6 @@ The panel and the API from anywhere at the user's own HTTPS address, with no ope
 | `7b87752` | Remote access page | 493,664 |
 | `ca395c5` | ntfy commands through the relay, with the device's own stream as the fallback; poll interval on the ntfy page | 495,104 |
 | Token length | Cloudflare tokens of the new format (`cfut_`, 53 characters) fit: the field took 47 | 495,200 |
+| `9fb5361` | More heap for the OTA check: the relay and the ntfy stream allocate their TLS client only while connected; MQTT pauses during the check too | 495,168 |
+| `c1df65a` | One arbiter for the network turn (`NetArbiter.h`): priority, waiting for the heap instead of failing, the turn on Status | 496,016 |
+| Loop stalls | The slowest loop and the count over 200 ms on Status; each new worst in the log, with the service that held the turn | 496,320 |

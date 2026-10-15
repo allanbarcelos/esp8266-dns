@@ -16,12 +16,16 @@
 // the service runs anyway and its own fallback applies (OTA restarts into
 // recovery). While a turn waits, App also pauses MQTT, whose buffers are
 // heap too.
+//
+// It also keeps the slowest loop seen (a TLS handshake blocks for seconds),
+// for the panel and the log.
 class NetArbiter {
 public:
     // In priority order
     enum Who : uint8_t { OTA, IP, DNS, SETUP, POST, RELAY, STREAM, COUNT, NONE = COUNT };
 
     static constexpr unsigned long WAIT_MS  = 30000UL;   // longest wait for the heap
+    static constexpr unsigned long SLOW_MS  = 200UL;     // a loop this long is a stall
 
     // The heap a turn needs: total, and the largest block
     struct Need {
@@ -67,7 +71,20 @@ public:
     // Waiting for the heap: other users of it (MQTT) let go
     bool starved() const { return _starved; }
 
-    uint16_t late() const { return _late; }   // turns that ran without the heap
+    // One loop took ms
+    void loop(unsigned long ms) {
+        if (ms < SLOW_MS) return;
+        if (_slow < 0xFFFF) _slow++;
+        if (ms > _worst) {
+            _worst = ms;
+            _worstWho = _owner;
+        }
+    }
+
+    unsigned long worst() const    { return _worst; }
+    uint16_t      slow() const     { return _slow; }
+    uint16_t      late() const     { return _late; }   // turns that ran without the heap
+    Who           worstWho() const { return _worstWho; }
 
     static const char* name(Who w) {
         static const char* const NAMES[] = {"ota", "ip", "dns", "cloudflare", "ntfy post", "relay", "ntfy stream", "-"};
@@ -89,8 +106,8 @@ public:
 
 private:
     uint8_t       _wants = 0, _queue = 0;
-    Who           _owner = NONE;
+    Who           _owner = NONE, _worstWho = NONE;
     bool          _starved = false;
-    unsigned long _waitFrom = 0;
-    uint16_t      _late = 0;
+    unsigned long _waitFrom = 0, _worst = 0;
+    uint16_t      _slow = 0, _late = 0;
 };

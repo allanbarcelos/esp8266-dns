@@ -8,10 +8,10 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 | | |
 | --- | --- |
-| Firmware | 495,168 of 500,000 bytes (4,832 to spare) |
+| Firmware | 496,320 of 500,000 bytes (3,680 to spare) |
 | Signed OTA package | ~354 KB of 400 KB |
-| Static RAM | 38,640 bytes |
-| Native tests | 571, with 100 % of lines, functions and branches |
+| Static RAM | 38,744 bytes |
+| Native tests | 582, with 100 % of lines, functions and branches |
 | Relay Worker tests | 23 on Node, 100 % of lines, functions and branches, on the source and on the embedded script |
 | In CI | no compiler warnings, ASan and UBSan, cppcheck, fuzzing of 9 inputs |
 
@@ -21,6 +21,8 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 - **ntfy commands through the relay.** Only one TLS session fits, so the Worker polls the command topic for the device (2, 5, 10 or 30 s) and sends the commands down the relay; if the relay stays down a minute, the device's own stream takes over.
 - **Cloudflare from the token alone.** The page lists the token's domains and picks the DDNS record by name, created if missing. No IDs to copy.
 - **Cost:** +20 KB of firmware, of which 4.2 KB is the Worker itself (byte-pair encoded) and 1.9 KB the new panel text in four languages. About 1.2 KB more static RAM.
+
+- **One arbiter for the network** (`NetArbiter.h`): the services that need the single TLS session queue by priority (OTA, public IP, DNS, Cloudflare setup, ntfy post, relay, ntfy stream), everyone else closes before the turn runs, and a new session waits up to 30 s for the heap it needs (MQTT paused meanwhile) instead of failing. Status shows who has the network and who waits, the slowest loop and how many passed 200 ms.
 
 **Not verified on a device yet:** the whole round. The Cloudflare API calls (zone list, record creation, Worker upload with its Durable Object migration, custom domain, workers.dev) and the relay's heap with MQTT connected need the [on-device checklist](HARDWARE-TEST.md), section 10c, with a real Cloudflare account.
 
@@ -104,12 +106,12 @@ Safe order:
 
 ## Next steps
 
-In order, with an effort estimate. Items that change the firmware need room first: 4.8 KB are left.
+In order, with an effort estimate. Items that change the firmware need room first: 3.7 KB are left.
 
 1. **Run the on-device test** and fix what comes up, remote access included (section 10c, with a Cloudflare account). 3 to 5 hours of testing, plus whatever needs fixing.
 2. **Make room.** The long help texts of the Cloudflare, remote access and ntfy pages (four languages each) and the Worker's own size are the first candidates. Half a day.
 3. **Version check that survives the rename** (see above), then the rename itself. Half a day; about the same flash.
-4. **Measure main-loop stalls.** TLS connections and the MQTT one hold the loop for a few seconds; meanwhile the panel does not answer and the actuator pulse can run past what was asked. Measure first (a log warning when a cycle goes past, say, 200 ms), then decide. Half a day.
+4. **Act on the loop measurements.** Status now shows the slowest loop and how many passed 200 ms, and the log names the service of each new worst. With field numbers, decide what to shorten (the TLS handshakes are the expected culprits). Half a day.
 5. **Stable release channel.** Automatic OTA installs only versions marked as stable; the others stay as beta, for whoever wants them. About 1 day; ~0.2 KB.
 6. **End-to-end test in CI.** Bring the Mosquitto and Home Assistant test, manual today, into CI. About 1 day; does not change the firmware.
 7. **Field diagnostics.** Keep the last crash (address and stack) and show it on the panel; publish heap, Wi-Fi signal and uptime over MQTT. About 1 day; the size depends on how much goes in.

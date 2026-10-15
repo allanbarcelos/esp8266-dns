@@ -303,8 +303,9 @@ void test_tick_waits_for_memory_before_a_check() {
     TEST_ASSERT_EQUAL(NetArbiter::NONE, app.net.owner());
 }
 
-// The relay waits for the heap too
-void test_tick_relay_waits_for_memory() {
+// The relay waits for the heap too; a handshake that hangs shows as the
+// slowest loop
+void test_tick_relay_waits_and_slow_loops_are_logged() {
     MockFS::put("/config.json", R"({"ssid":"Home","pass":"12345678","webpss":"strong-pass",
         "ota_auto":false,"relay_host":"esp-pump.example.com","relay_ver":1,"relay_key":"00"})");
     App app;
@@ -327,6 +328,10 @@ void test_tick_relay_waits_for_memory() {
     setMillis(3000 + NetArbiter::WAIT_MS);
     app.tick();
     TEST_ASSERT_EQUAL(1, MockTLS::connectCalls);
+    TEST_ASSERT_TRUE(app.net.worst() >= WsClient::BYTE_MS);
+    TEST_ASSERT_EQUAL(NetArbiter::RELAY, app.net.worstWho());
+    TEST_ASSERT_TRUE(logHas(app.logger, "Slowest loop so far: "));
+    TEST_ASSERT_TRUE(logHas(app.logger, " ms (relay)"));
 }
 
 // An open command stream keeps its turn when the heap runs short: it holds it already
@@ -368,7 +373,7 @@ int main() {
     RUN_TEST(test_tick_falls_back_to_the_ntfy_stream);
     RUN_TEST(test_tick_pauses_mqtt_for_the_version_check);
     RUN_TEST(test_tick_waits_for_memory_before_a_check);
-    RUN_TEST(test_tick_relay_waits_for_memory);
+    RUN_TEST(test_tick_relay_waits_and_slow_loops_are_logged);
     RUN_TEST(test_tick_open_stream_goes_on);
     return UNITY_END();
 }
