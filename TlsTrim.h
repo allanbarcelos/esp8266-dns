@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 #pragma once
-// Removes from the firmware the part of BearSSL the device never uses (~29 KB).
+// Removes from the firmware the part of BearSSL the device never uses (~29 KB),
+// and two pieces of the C runtime it never needs (~10 KB, at the end).
 //
 // The core's WiFiClientSecure installs every cipher and curve, and the linker
 // pulls all of it in. Here the sketch defines the same functions, empty; the
@@ -23,7 +24,10 @@
 //   - Client certificate (RSA/ECDSA signing): the device does not use it.
 // Everything that stays runs as before: P-256 keeps the fast implementation,
 // and SHA-224 and SHA-512 share their objects with SHA-256 and SHA-384.
+#include <Arduino.h>
 #include <bearssl/bearssl.h>
+#include <cstdarg>
+#include <cstdio>
 #include <cstring>
 
 extern "C" {
@@ -92,5 +96,31 @@ const br_ec_impl br_ec_all_m15 = {
     (uint32_t)((1u << BR_EC_secp256r1) | (1u << BR_EC_secp384r1) | (1u << BR_EC_secp521r1)),
     &_ecGenerator, &_ecOrder, &_ecXoff, &_ecMul, &_ecMulgen, &_ecMuladd,
 };
+
+// ── C runtime ────────────────────────────────────────────────────────────────
+
+// The core registers the exception frames at boot, which links the libgcc
+// unwinder (~4.2 KB). The firmware is built with -fno-exceptions: nothing
+// ever unwinds, and the crash dump does not use it.
+void __register_frame_info(const void*, void*) {}
+
+// printf/vprintf (lwIP and SDK diagnostics) pull newlib's whole FILE layer
+// (stdout buffering, fflush, fvwrite: ~6 KB) that nothing else uses. They go
+// through vsnprintf, already in the firmware, and the ROM's serial output.
+// The only difference: a line is cut at 127 characters.
+int vprintf(const char* fmt, va_list ap) {
+    char buf[128];
+    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    ets_printf("%s", buf);
+    return n;
+}
+
+int printf(const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vprintf(fmt, ap);
+    va_end(ap);
+    return n;
+}
 
 }  // extern "C"
