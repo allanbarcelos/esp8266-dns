@@ -18,6 +18,7 @@
 #include "MqttService.h"
 #include "PowerService.h"
 #include "CloudflareSetup.h"
+#include "RelayService.h"
 #include "Assets.h"
 #include "WebAssets.h"
 #include "I18n.h"
@@ -142,6 +143,9 @@ public:
     // For the remote access relay, which hands requests to the same server
     HttpServer& server() { return _server; }
 
+    // The relay, built after the panel (it uses server()): for its status
+    void setRelay(RelayService* relay) { _relay = relay; }
+
     // Boot token (sign-in and first setup) and the token of the forms of
     // the current session (the boot one while there is none)
     const char* csrfToken() const { return _csrfToken; }
@@ -203,6 +207,7 @@ private:
     MqttService*     _mqtt;
     PowerService*    _power;
     CloudflareSetup* _cf;
+    RelayService*    _relay = nullptr;
     // Wrong password, code or token: the first mistakes pass; after that each
     // one doubles the wait (2 s up to 5 min), and nothing is tried meanwhile
     // (429). Getting it right resets the count.
@@ -279,6 +284,9 @@ private:
     static constexpr char P_CLOUDFLARE_DDNS[] PROGMEM = "/cloudflare/ddns";
     static constexpr char P_NTFY_SAVE[] PROGMEM = "/ntfy/save";
     static constexpr char P_MQTT_SAVE[] PROGMEM = "/mqtt/save";
+    static constexpr char P_REMOTE[] PROGMEM = "/remote";
+    static constexpr char P_REMOTE_SAVE[] PROGMEM = "/remote/save";
+    static constexpr char P_REMOTE_OFF[] PROGMEM = "/remote/off";
     static constexpr char P_PASSWORD_SAVE[] PROGMEM = "/password/save";
     static constexpr char P_LOGOUT[] PROGMEM = "/logout";
     static constexpr char P_MFA_RESET[] PROGMEM = "/mfa/reset";
@@ -1426,6 +1434,97 @@ private:
         _savedPage(PSTR(L_NTFY_SAVED), P_NTFY);
     }
 
+    // ── Remote access ────────────────────────────────────────────────────────
+
+    // The relay: the device sets up its Worker with the Cloudflare token and
+    // keeps a connection to it (RelayService). The page follows the deploy.
+    void _handleRemote() {
+        if (!_guard()) return;
+        uint8_t st = _cf && _cf->last() == CloudflareSetup::DEPLOY ? _cf->state() : CloudflareSetup::IDLE;
+        _pageBegin(st == CloudflareSetup::WORKING ? 3 : 0);
+        _title(PSTR(L_REMOTE));
+        _p(PSTR("<p class='m'>" L_REMOTE_HELP "</p>"));
+        if (st == CloudflareSetup::WORKING) _alertP(S_WARNING, PSTR(L_CF_WORKING));
+        else if (st == CloudflareSetup::FAILED) _alert(S_DANGER, String(L_CF_FAILED ": ") + _cf->message());
+        if (_cfg.relay_host[0]) {
+            _box(PSTR(L_CONNECTION));
+            _row(S_STATE, _relay ? _relay->status() : "-");
+            _p(PSTR("<p><a href='https://"));
+            _e(_cfg.relay_host);
+            _p(PSTR("'>https://"));
+            _e(_cfg.relay_host);
+            _p(PSTR("</a></p>"));
+            _boxEnd();
+        }
+        if (!_cf || !_cfg.cf_token[0]) {
+            _alertP(S_WARNING, PSTR(L_REMOTE_NEEDS_TOKEN));
+            _pageEnd();
+            return;
+        }
+        _p(PSTR("<form action='/remote/save' method='POST'>"));
+        _csrfField();
+        _selectOpen(PSTR(L_ADDRESS), PSTR("zone"));
+        CloudflareSetup::Zone z;
+        File f = LittleFS.open(CloudflareSetup::ZONES_PATH, "r");
+        while (f && CloudflareSetup::next(f, z)) _zoneOption(z.id, z.name, strcmp(z.id, _cfg.relay_zone) == 0);
+        if (f) f.close();
+        _option("", PSTR("workers.dev"), !_cfg.relay_zone[0]);
+        _selectEnd();
+        _input(PSTR(L_REMOTE_NAME), PSTR("name"), _cfg.relay_name,
+               PSTR("required maxlength='32' placeholder='esp-pump' pattern='[a-z0-9\\-]+'"));
+        _input(PSTR(L_WD_NAME), PSTR("wd"), "", PSTR("maxlength='63' pattern='[a-z0-9\\-]*'"));
+        _button(PSTR(L_REMOTE_ON));
+        if (_cfg.relay_host[0]) {
+            _p(PSTR("<form action='/remote/off' method='POST'>"));
+            _csrfField();
+            _button(PSTR(L_REMOTE_OFF));
+        }
+        _pageEnd();
+    }
+
+    // A DNS label: lowercase letters, digits and dashes, not at the ends
+    static bool _label(const char* s, size_t max) {
+        size_t n = strlen(s);
+        return n && n <= max && s[0] != '-' && s[n - 1] != '-' &&
+               strspn(s, "abcdefghijklmnopqrstuvwxyz0123456789-") == n;
+    }
+
+    void _handleRemoteSave() {
+        if (!_guard()) return;
+        if (!_checkCSRF()) return;
+        String name = _server.arg("name");
+        String zone = _server.arg("zone");
+        String wd = _server.arg("wd");
+        name.trim();
+        wd.trim();
+        if (!_label(name.c_str(), sizeof(_cfg.relay_name) - 1) || (wd.length() && !_label(wd.c_str(), 63))) {
+            _errorPage(PSTR(L_INVALID_REMOTE_NAME), P_REMOTE);
+            return;
+        }
+        CloudflareSetup::Zone z;
+        if (!_cf || (zone.length() && (zone.length() != 32 || !CloudflareSetup::find(zone.c_str(), z)))) {
+            _errorPage(PSTR(L_UNKNOWN_ZONE), P_REMOTE);
+            return;
+        }
+        _cf->deploy(name.c_str(), zone.c_str(), wd.c_str());
+        _go("/remote");
+    }
+
+    // Off: the device stops connecting; the Worker stays in the account
+    // (with no device behind it, it answers that the device is offline)
+    void _handleRemoteOff() {
+        if (!_guard()) return;
+        if (!_checkCSRF()) return;
+        _cfg.relay_host[0] = '\0';
+        _cfg.relay_secret[0] = '\0';
+        _cfg.relay_ver = 0;
+        if (!_store.save()) {
+            _errorPage(S_SAVE_FAILED, P_REMOTE);
+            return;
+        }
+        _savedPage(PSTR(L_REMOTE_OFF_DONE), P_REMOTE);
+    }
+
     // ── MQTT ─────────────────────────────────────────────────────────────────
 
     void _handleMqtt() {
@@ -2482,6 +2581,9 @@ inline const WebService::Route WebService::ROUTES[] PROGMEM = {
     {HttpServer::POST, P_CLOUDFLARE_DDNS, [](WebService& w) { w._handleCloudflareDdns(); }},
     {HttpServer::POST, P_NTFY_SAVE, [](WebService& w) { w._handleNtfySave(); }},
     {HttpServer::POST, P_MQTT_SAVE, [](WebService& w) { w._handleMqttSave(); }},
+    {HttpServer::GET, P_REMOTE, [](WebService& w) { w._handleRemote(); }},
+    {HttpServer::POST, P_REMOTE_SAVE, [](WebService& w) { w._handleRemoteSave(); }},
+    {HttpServer::POST, P_REMOTE_OFF, [](WebService& w) { w._handleRemoteOff(); }},
     {HttpServer::POST, P_PASSWORD_SAVE, [](WebService& w) { w._handlePasswordSave(); }},
     {HttpServer::POST, P_LOGIN, [](WebService& w) { w._handleLoginPost(); }},
     {HttpServer::POST, P_LOGOUT, [](WebService& w) { w._handleLogout(); }},

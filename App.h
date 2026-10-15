@@ -69,6 +69,7 @@ public:
         if (ota.slim()) {
             logger.log(PSTR("OTA: recovery mode"));
         } else {
+            web.setRelay(&relay);
             web.begin();
             iot.begin();
             power.begin();

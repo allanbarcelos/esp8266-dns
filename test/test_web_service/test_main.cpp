@@ -39,11 +39,13 @@ struct Fixture {
     PowerService     power{cfg, logger};
     CloudflareSetup  cf{cfg, logger, store, clock};
     WebService  web;
+    RelayService relay{cfg, logger, clock, web.server()};
     MockBrowser srv{[this]() { web.tick(); }};
 
     explicit Fixture(bool withNtfy = true, bool withMqtt = true, bool withPower = true, bool withCf = true)
         : web(cfg, logger, store, wifi, ota, iot, withNtfy ? &ntfy : nullptr,
               withMqtt ? &mqtt : nullptr, withPower ? &power : nullptr, withCf ? &cf : nullptr) {
+        web.setRelay(&relay);
         web.begin();
         // The sign-in stores the spent code in /config.json; the tests start
         // from the file system they set up
@@ -219,7 +221,7 @@ void test_without_password_redirects_to_set_password() {
 void test_authentication_required() {
     Fixture f;
     f.srv.authOk = false;
-    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/ntfy", "/mqtt", "/password",
+    const char* paths[] = {"/", "/status", "/log", "/cloudflare", "/remote", "/ntfy", "/mqtt", "/password",
                            "/update", "/iot", "/config", "/mfa"};
     for (const char* p : paths) {
         f.get(p);
@@ -227,7 +229,7 @@ void test_authentication_required() {
         TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
         TEST_ASSERT_EQUAL(0u, f.srv.headers.count("WWW-Authenticate"));
     }
-    const char* posts[] = {"/save", "/cloudflare/save", "/cloudflare/ddns", "/ntfy/save", "/mqtt/save", "/password/save",
+    const char* posts[] = {"/save", "/cloudflare/save", "/cloudflare/ddns", "/remote/save", "/remote/off", "/ntfy/save", "/mqtt/save", "/password/save",
                            "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd",
                            "/iot/token", "/iot/clear", "/config/save", "/mfa", "/mfa/reset"};
     for (const char* p : posts) {
@@ -304,7 +306,7 @@ void test_session_authentication() {
 
 void test_invalid_csrf_rejected_on_every_post() {
     Fixture f;
-    const char* posts[] = {"/save", "/cloudflare/save", "/cloudflare/ddns", "/ntfy/save", "/mqtt/save", "/password/save",
+    const char* posts[] = {"/save", "/cloudflare/save", "/cloudflare/ddns", "/remote/save", "/remote/off", "/ntfy/save", "/mqtt/save", "/password/save",
                            "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd",
                            "/iot/token", "/iot/clear", "/config/save", "/login", "/logout", "/mfa/reset"};
     for (const char* p : posts) {
@@ -1176,6 +1178,151 @@ void test_cloudflare_ddns_off() {
 
     MockFS::failWriteOpen = true;
     f.post("/cloudflare/ddns", {{"zone", ""}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+}
+
+// ── /remote ──────────────────────────────────────────────────────────────────
+
+void test_remote_needs_the_token() {
+    Fixture f;
+    f.get("/remote");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Remote access"));
+    TEST_ASSERT_TRUE(contains(f.out(), "No port to open"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Set the Cloudflare token first"));
+    TEST_ASSERT_FALSE(contains(f.out(), "/remote/save"));
+    TEST_ASSERT_FALSE(contains(f.out(), "https://"));
+}
+
+void test_remote_form() {
+    cfZones();
+    strlcpy(cfg.cf_token, "tok", sizeof(cfg.cf_token));
+    strlcpy(cfg.relay_zone, CF_Z2, sizeof(cfg.relay_zone));
+    strlcpy(cfg.relay_name, "esp-pump", sizeof(cfg.relay_name));
+    Fixture f;
+    f.get("/remote");
+    TEST_ASSERT_TRUE(contains(f.out(), "action='/remote/save'"));
+    TEST_ASSERT_TRUE(contains(f.out(), (std::string("<option value='") + CF_Z1 + "'>example.com</option>").c_str()));
+    TEST_ASSERT_TRUE(contains(f.out(), (std::string("<option value='") + CF_Z2 + "' selected>").c_str()));
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value=''>workers.dev</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='name' value='esp-pump'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='wd' value=''"));
+    TEST_ASSERT_FALSE(contains(f.out(), "/remote/off"));
+
+    // On workers.dev, without a zone list
+    MockFS::reset();
+    cfg.relay_zone[0] = '\0';
+    f.get("/remote");
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value='' selected>workers.dev</option>"));
+}
+
+void test_remote_shows_the_relay() {
+    strlcpy(cfg.cf_token, "tok", sizeof(cfg.cf_token));
+    strlcpy(cfg.relay_host, "esp-pump.exa'mple.com", sizeof(cfg.relay_host));
+    Fixture f;
+    f.get("/remote");
+    TEST_ASSERT_TRUE(contains(f.out(), "<a href='https://esp-pump.exa&#39;mple.com'>https://esp-pump.exa&#39;mple.com</a>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<b>off</b>"));            // not deployed for this protocol
+    TEST_ASSERT_TRUE(contains(f.out(), "action='/remote/off'"));
+    strlcpy(cfg.relay_secret, "s", sizeof(cfg.relay_secret));
+    cfg.relay_ver = RelayService::PROTOCOL;
+    f.get("/remote");
+    TEST_ASSERT_TRUE(contains(f.out(), "<b>connecting</b>"));
+
+    // Without the relay service: no state to show
+    Fixture g(true, true, true, true);
+    g.web.setRelay(nullptr);
+    g.get("/remote");
+    TEST_ASSERT_TRUE(contains(g.out(), "<b>-</b>"));
+}
+
+void test_remote_follows_the_deploy() {
+    cfZones();
+    strlcpy(cfg.cf_token, "tok", sizeof(cfg.cf_token));
+    Fixture f;
+    f.cf.scan();                                          // another job: not shown here
+    f.get("/remote");
+    TEST_ASSERT_FALSE(contains(f.out(), "Working with Cloudflare"));
+
+    f.cf.deploy("esp-pump", CF_Z1, "");
+    f.get("/remote");
+    TEST_ASSERT_TRUE(contains(f.out(), "Working with Cloudflare"));
+    TEST_ASSERT_TRUE(contains(f.out(), "http-equiv='refresh' content='3"));
+
+    webNow = Clock::MIN_VALID_EPOCH + 100;
+    MockHTTP::push(403, R"({"success":false,"errors":[{"message":"no <workers> access"}]})");
+    f.cf.tick(0);
+    f.get("/remote");
+    TEST_ASSERT_TRUE(contains(f.out(), "Cloudflare refused: no &lt;workers&gt; access"));
+    webNow = 0;
+}
+
+void test_remote_save_starts_the_deploy() {
+    cfZones();
+    strlcpy(cfg.cf_token, "tok", sizeof(cfg.cf_token));
+    Fixture f;
+    f.post("/remote/save", {{"zone", CF_Z1}, {"name", " esp-pump "}, {"wd", ""}});
+    TEST_ASSERT_EQUAL(303, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/remote", f.srv.headers["Location"].c_str());
+    TEST_ASSERT_EQUAL(CloudflareSetup::WORKING, f.cf.state());
+    TEST_ASSERT_EQUAL(CloudflareSetup::DEPLOY, f.cf.last());
+
+    // workers.dev, naming the account's subdomain; then the requests it makes
+    strlcpy(cfg.cf_account, CF_A1, sizeof(cfg.cf_account));
+    f.post("/remote/save", {{"zone", ""}, {"name", "e1"}, {"wd", "my-acc"}});
+    TEST_ASSERT_EQUAL(303, f.srv.code);
+    webNow = Clock::MIN_VALID_EPOCH + 100;
+    MockHTTP::push(500, "");
+    f.cf.tick(0);
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests.back().url, "/workers/scripts/e1/settings"));
+    webNow = 0;
+}
+
+void test_remote_save_refusals() {
+    cfZones();
+    strlcpy(cfg.cf_token, "tok", sizeof(cfg.cf_token));
+    Fixture f;
+    std::string longName(33, 'a');
+    const char* names[] = {"", "-a", "a-", "Esp", "a_b", "a.b", longName.c_str()};
+    for (const char* n : names) {
+        f.post("/remote/save", {{"zone", CF_Z1}, {"name", n}});
+        TEST_ASSERT_EQUAL_MESSAGE(400, f.srv.code, n);
+        TEST_ASSERT_TRUE(contains(f.out(), "Invalid name"));
+    }
+    f.post("/remote/save", {{"zone", ""}, {"name", "ok"}, {"wd", "Bad_Name"}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    const char* zones[] = {"9999105f4ecef8ad9ca31a8372d0c353", "023e"};
+    for (const char* z : zones) {
+        f.post("/remote/save", {{"zone", z}, {"name", "ok"}});
+        TEST_ASSERT_EQUAL_MESSAGE(400, f.srv.code, z);
+        TEST_ASSERT_TRUE(contains(f.out(), "Pick a domain from the list"));
+    }
+    TEST_ASSERT_EQUAL(CloudflareSetup::IDLE, f.cf.state());
+
+    Fixture g(true, true, true, false);                   // no setup service
+    g.post("/remote/save", {{"zone", ""}, {"name", "ok"}});
+    TEST_ASSERT_EQUAL(400, g.srv.code);
+    g.get("/remote");
+    TEST_ASSERT_TRUE(contains(g.out(), "Set the Cloudflare token first"));
+}
+
+void test_remote_off() {
+    strlcpy(cfg.relay_host, "esp-pump.example.com", sizeof(cfg.relay_host));
+    strlcpy(cfg.relay_secret, "secret", sizeof(cfg.relay_secret));
+    strlcpy(cfg.relay_name, "esp-pump", sizeof(cfg.relay_name));
+    cfg.relay_ver = RelayService::PROTOCOL;
+    Fixture f;
+    f.post("/remote/off");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Remote access off"));
+    TEST_ASSERT_EQUAL_STRING("", cfg.relay_host);
+    TEST_ASSERT_EQUAL_STRING("", cfg.relay_secret);
+    TEST_ASSERT_EQUAL(0, cfg.relay_ver);
+    TEST_ASSERT_EQUAL_STRING("esp-pump", cfg.relay_name);   // kept for the form
+    TEST_ASSERT_FALSE(f.relay.configured());
+
+    MockFS::failWriteOpen = true;
+    f.post("/remote/off");
     TEST_ASSERT_EQUAL(400, f.srv.code);
 }
 
@@ -3123,6 +3270,13 @@ int main() {
     RUN_TEST(test_cloudflare_ddns_record_by_name);
     RUN_TEST(test_cloudflare_ddns_refuses_odd_names_and_zones);
     RUN_TEST(test_cloudflare_ddns_off);
+    RUN_TEST(test_remote_needs_the_token);
+    RUN_TEST(test_remote_form);
+    RUN_TEST(test_remote_shows_the_relay);
+    RUN_TEST(test_remote_follows_the_deploy);
+    RUN_TEST(test_remote_save_starts_the_deploy);
+    RUN_TEST(test_remote_save_refusals);
+    RUN_TEST(test_remote_off);
     RUN_TEST(test_ntfy_page);
     RUN_TEST(test_ntfy_save);
     RUN_TEST(test_ntfy_save_write_fails);

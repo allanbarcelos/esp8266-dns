@@ -142,7 +142,7 @@ function QR(s) {
     // The menu, where the device sends <nav id='mn'>, and the footer's
     // credit and repository link (the version is already there)
     var mn = document.getElementById('mn'), ft = document.querySelector('footer'), h = '', i,
-        ln = ['/', 'Home', '/status', 'Status', '/log', 'Logs', '/cloudflare', 'Cloudflare', '/ntfy', 'Ntfy',
+        ln = ['/', 'Home', '/status', 'Status', '/log', 'Logs', '/cloudflare', 'Cloudflare', '/remote', 'Remote access', '/ntfy', 'Ntfy',
               '/mqtt', 'MQTT', '/iot', 'IoT', '/config', 'Settings', '/update', 'Update', '/password', 'Password'];
     for (i = 0; i < ln.length; i += 2) h += '<a href=' + ln[i] + '>' + L(ln[i + 1]) + '</a>';
     if (mn) { mn.setAttribute('aria-label', L('Menu')); mn.insertAdjacentHTML('afterbegin', h); }
