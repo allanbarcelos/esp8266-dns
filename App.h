@@ -97,6 +97,9 @@ public:
         if (!ota.slim()) cfsetup.redeploy(now);
         bool net = !ota.slim() && (ota.wantsNet(now) || resolver.due(now) || dns.due(now) || cfsetup.due());
         relay.hold(ota.slim() || ota.busy() || net || ntfy.postDue(now));
+        // MQTT is plain TCP, no TLS, but its buffers are heap the GitHub
+        // session needs: it lets go while OTA checks or downloads
+        mqtt.hold(ota.slim() || ota.busy());
         if (!ota.slim()) {
             ntfy.hold(net || relay.up() || relay.due(now));
             ntfy.relayed(relay.carries(now));
@@ -117,8 +120,6 @@ public:
         // ntfy opens another TLS session: waits for OTA to release its own (heap)
         if (!ota.slim() && !ota.busy()) ntfy.tick(now);
         relay.tick(now);
-        // MQTT is plain TCP, no TLS: it only lets go during the OTA download
-        mqtt.hold(ota.slim() || ota.inProgress());
         mqtt.tick(now);
     }
 };

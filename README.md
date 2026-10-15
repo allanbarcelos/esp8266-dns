@@ -293,7 +293,7 @@ GitHub Releases ──(vN)──► ESP8266
 - The gzip is padded (FNAME field) to a multiple of 4 bytes: the core `Updater` hashes in 4-byte reads and silently fails on a tail of another size.
 - PlatformIO embeds `public.key` before compilation (`pre:tools/embed_pubkey.py`), the same way arduino-cli does in CI. The link fails if the ELF lacks the verifier and that key.
 - The linker script `ld/eagle.flash.1m64.ota.ld` shortens IROM by **400 KB**. That hole sits against the filesystem and the sketch can never occupy it; a firmware that grows past the cap fails at link time. `package_ota.py` also rejects a gzip/signature larger than the reserve.
-- The download is aborted if Wi-Fi drops, a flash write fails, or no data arrives for 60 s. GitHub TLS uses a 16 KB buffer. DNS, ntfy and the ntfy command stream pause during the download. If the heap cannot fit the session, the device writes `/ota.pending` and reboots into recovery (IoT off) to finish OTA. A version rejected by `Update.end()` is remembered in `/ota.rejected` and only a manual install downloads it again.
+- The download is aborted if Wi-Fi drops, a flash write fails, or no data arrives for 60 s. GitHub TLS uses a 16 KB buffer. DNS, ntfy, the ntfy command stream, the remote access relay and MQTT pause while OTA checks or downloads. If the heap cannot fit the session, the device writes `/ota.pending` and reboots into recovery (IoT off) to finish OTA. A version rejected by `Update.end()` is remembered in `/ota.rejected` and only a manual install downloads it again.
 
 ### Signing key
 
@@ -315,7 +315,7 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 495,200 of 500,000 bytes (4,800 to spare) |
+| Firmware | 495,168 of 500,000 bytes (4,832 to spare) |
 | Panel text, 4 languages | 337 texts (the pin drawing included), 45 KB as text, 16 KB in flash |
 | Relay Worker | 7.8 KB of script, 4.2 KB in flash (byte-pair encoded) |
 | Signed OTA package | ~354 KB of 400 KB (about 46 KB free) |

@@ -252,6 +252,22 @@ void test_tick_falls_back_to_the_ntfy_stream() {
     TEST_ASSERT_TRUE(MockTLS::connectCalls >= 3);
 }
 
+// A version check needs the heap MQTT's buffers take: MQTT lets go before it
+void test_tick_pauses_mqtt_for_the_version_check() {
+    MockFS::put("/config.json", R"({"ssid":"Home","pass":"12345678","webpss":"strong-pass",
+        "ota_auto":false,"mqtt_host":"192.168.1.10"})");
+    App app;
+    app.begin();
+    setMillis(1000);
+    app.tick();
+    TEST_ASSERT_EQUAL_STRING("connecting", app.mqtt.status());
+    app.ota.requestCheck();
+    MockHTTP::push(200, R"({"tag_name":"v1"})");
+    setMillis(2000);
+    app.tick();
+    TEST_ASSERT_EQUAL_STRING("paused", app.mqtt.status());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_begin_starts_services);
@@ -267,5 +283,6 @@ int main() {
     RUN_TEST(test_tick_runs_the_cloudflare_setup);
     RUN_TEST(test_tick_redeploys_an_outdated_relay);
     RUN_TEST(test_tick_falls_back_to_the_ntfy_stream);
+    RUN_TEST(test_tick_pauses_mqtt_for_the_version_check);
     return UNITY_END();
 }

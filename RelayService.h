@@ -114,12 +114,12 @@ private:
     class Link : public HttpLink {
     public:
         explicit Link(RelayService& r) : _r(r) {}
-        int  available() override { return _r._ws.left() && _r._tls.available() > 0; }
-        int  read() override { return _r._ws.next(); }
-        bool connected() override { return _r._ws.left() && _r._tls.connected(); }
+        int  available() override { return _r._s->ws.left() && _r._s->tls.available() > 0; }
+        int  read() override { return _r._s->ws.next(); }
+        bool connected() override { return _r._s->ws.left() && _r._s->tls.connected(); }
         void write(const uint8_t* p, size_t n) override {
             uint8_t h[3] = {'D', (uint8_t)(_r._id >> 8), (uint8_t)_r._id};
-            _r._ws.send(WsClient::BINARY, h, sizeof(h), p, n);
+            _r._s->ws.send(WsClient::BINARY, h, sizeof(h), p, n);
         }
         uint32_t remoteIP() override { return _r._ip; }
     private:
@@ -132,10 +132,15 @@ private:
     HttpServer&        _http;
     IoTService*        _iot;
     NtfyNotifier*      _ntfy;
-    TlsClient          _tls;
-    WsClient           _ws{_tls};
+    // Only while connected: the TLS client and its roots take heap even
+    // when idle, and OTA needs every byte of it
+    struct Session {
+        BearSSL::X509List trust;
+        TlsClient         tls;
+        WsClient          ws{tls};
+    };
+    Session*           _s = nullptr;
     Link               _link{*this};
-    BearSSL::X509List* _trust = nullptr;
 
     bool          _open = false;
     bool          _held = false;
@@ -158,11 +163,11 @@ private:
             _fail(now);
             return;
         }
-        _trust = new BearSSL::X509List();
-        cloudflareRoots(*_trust);
-        _tls.setTrustAnchors(_trust);
-        _tls.setX509Time(_clock.now());
-        if (!_tls.prepare(CONNECT_MS) || !_tls.connect(_cfg.relay_host, 443)) {
+        _s = new Session();
+        cloudflareRoots(_s->trust);
+        _s->tls.setTrustAnchors(&_s->trust);
+        _s->tls.setX509Time(_clock.now());
+        if (!_s->tls.prepare(CONNECT_MS) || !_s->tls.connect(_cfg.relay_host, 443)) {
             _log.log(PSTR("relay: no connection"));
             _fail(now);
             return;
@@ -170,7 +175,7 @@ private:
         char extra[sizeof("Authorization: Bearer \r\nX-Relay-Version: 255\r\n") + sizeof(_cfg.relay_secret)];
         snprintf_P(extra, sizeof(extra), PSTR("Authorization: Bearer %s\r\nX-Relay-Version: %u\r\n"),
                    _cfg.relay_secret, (unsigned)PROTOCOL);
-        int code = _ws.handshake(_cfg.relay_host, "/.relay", extra);
+        int code = _s->ws.handshake(_cfg.relay_host, "/.relay", extra);
         if (code != 101) {
             _log.log(PSTR("relay: refused (HTTP %d)"), code);
             _outdated = code == 426;
@@ -187,7 +192,7 @@ private:
 
     void _pump(unsigned long now) {
         // A few frames per tick: the rest of the loop goes on
-        for (int i = 0; i < FRAMES_PER_TICK && _ws.frame(); i++) {
+        for (int i = 0; i < FRAMES_PER_TICK && _s->ws.frame(); i++) {
             _lastIn = now;
             _frame();
             if (!_open) {
@@ -195,7 +200,7 @@ private:
                 return;
             }
         }
-        if (_ws.error() || !_tls.connected()) {
+        if (_s->ws.error() || !_s->tls.connected()) {
             _log.log(PSTR("relay: connection lost"));
             _drop(now, RECONNECT_MS);
             return;
@@ -207,7 +212,7 @@ private:
         }
         if (now - _lastPing >= PING_MS) {
             _lastPing = now;
-            _ws.send(WsClient::TEXT, "ping", 4);
+            _s->ws.send(WsClient::TEXT, "ping", 4);
         }
         if (now - _lastState >= STATE_MS) {
             _lastState = now;
@@ -217,26 +222,26 @@ private:
     }
 
     void _frame() {
-        uint8_t op = _ws.op();
+        uint8_t op = _s->ws.op();
         if (op == WsClient::PING) {
             char b[126];
-            size_t n = _ws.read(b, sizeof(b));
-            _ws.send(WsClient::PONG, b, n);
+            size_t n = _s->ws.read(b, sizeof(b));
+            _s->ws.send(WsClient::PONG, b, n);
         } else if (op == WsClient::CLOSE) {
-            _ws.skip();
+            _s->ws.skip();
             _log.log(PSTR("relay: closed by the Worker"));
             _close();
         } else if (op != WsClient::BINARY) {
-            _ws.skip();
-        } else if (int type = _ws.next(); type == 'R') {
+            _s->ws.skip();
+        } else if (int type = _s->ws.next(); type == 'R') {
             _request();
         } else if (type != 'C' || !_ntfy) {
-            _ws.skip();
+            _s->ws.skip();
         } else {
             // An ntfy message; one longer than a stream line is no command
             char line[NtfyNotifier::LINE_LEN];
-            bool whole = _ws.left() < sizeof(line);
-            _ws.read(line, sizeof(line));
+            bool whole = _s->ws.left() < sizeof(line);
+            _s->ws.read(line, sizeof(line));
             if (whole) _ntfy->deliver(line, millis());
         }
     }
@@ -245,16 +250,16 @@ private:
     void _request() {
         uint8_t h[6];
         for (uint8_t& b : h) {
-            int c = _ws.next();
+            int c = _s->ws.next();
             if (c < 0) return;
             b = (uint8_t)c;
         }
         _id = (uint16_t)(h[0] << 8 | h[1]);
         _ip = (uint32_t)h[2] | (uint32_t)h[3] << 8 | (uint32_t)h[4] << 16 | (uint32_t)h[5] << 24;
         _http.serve(_link);
-        _ws.skip();   // what the request had beyond its Content-Length
+        _s->ws.skip();   // what the request had beyond its Content-Length
         uint8_t end[3] = {'E', h[0], h[1]};
-        _ws.send(WsClient::BINARY, end, sizeof(end));
+        _s->ws.send(WsClient::BINARY, end, sizeof(end));
     }
 
     // Version, firmware and a keyed hash of the API token: with the device
@@ -285,7 +290,7 @@ private:
                                 ? since : "");
         }
         b[n++] = '}';
-        _ws.send(WsClient::BINARY, b, (size_t)n);
+        _s->ws.send(WsClient::BINARY, b, (size_t)n);
         _helloSum = _settingsSum();
     }
 
@@ -313,7 +318,7 @@ private:
         if (!force && sum == _sum) return;
         _sum = sum;
         _stateSent = now;
-        _ws.send(WsClient::BINARY, json, n + 1);
+        _s->ws.send(WsClient::BINARY, json, n + 1);
     }
 
     void _drop(unsigned long now, unsigned long ms) {
@@ -329,9 +334,9 @@ private:
 
     void _close() {
         if (_open) _downAt = millis();
-        if (_trust) _tls.stop();   // there is only a session after the roots are allocated
-        delete _trust;
-        _trust = nullptr;
+        if (_s) _s->tls.stop();
+        delete _s;
+        _s = nullptr;
         _open = false;
     }
 };

@@ -119,8 +119,12 @@ private:
 
     // Command stream
     enum : uint8_t { ST_IDLE, ST_STATUS, ST_HEADERS, ST_BODY };
-    TlsClient          _tls;
-    BearSSL::X509List* _trust = nullptr;
+    // Only while the stream is open: the TLS client takes heap even when idle
+    struct Session {
+        BearSSL::X509List trust;
+        TlsClient         tls;
+    };
+    Session*           _st = nullptr;
     uint8_t       _state = ST_IDLE;
     bool          _held = false;
     bool          _relayed = false;
@@ -274,12 +278,12 @@ private:
             return;
         }
         // Reads what arrived without waiting: at most one full line per tick
-        for (size_t i = 0; i < LINE_LEN && _tls.available() > 0; i++) {
+        for (size_t i = 0; i < LINE_LEN && _st->tls.available() > 0; i++) {
             _lastData = now;
-            _feed((char)_tls.read(), now);
+            _feed((char)_st->tls.read(), now);
             if (_state == ST_IDLE) return;
         }
-        if (!_tls.connected()) {
+        if (!_st->tls.connected()) {
             _log.log(PSTR("ntfy: command stream closed"));
             _drop(now, RECONNECT_MS);
             return;
@@ -300,11 +304,11 @@ private:
             _fail(now);
             return;
         }
-        _trust = new BearSSL::X509List();
-        cloudflareRoots(*_trust);  // includes ISRG Root X1
-        _tls.setTrustAnchors(_trust);
-        _tls.setX509Time(_clock.now());
-        if (!_tls.prepare(CONNECT_MS) || !_tls.connect("ntfy.sh", 443)) {
+        _st = new Session();
+        cloudflareRoots(_st->trust);  // includes ISRG Root X1
+        _st->tls.setTrustAnchors(&_st->trust);
+        _st->tls.setX509Time(_clock.now());
+        if (!_st->tls.prepare(CONNECT_MS) || !_st->tls.connect("ntfy.sh", 443)) {
             _log.log(PSTR("ntfy: no connection for commands"));
             _fail(now);
             return;
@@ -314,12 +318,12 @@ private:
         snprintf(req, sizeof(req), "GET /%s/json%s%s HTTP/1.0\r\nHost: ntfy.sh\r\n"
                  "User-Agent: ESP8266\r\n", _cfg.ntfy_cmd,
                  _lastId[0] ? "?since=" : "", _lastId);
-        _tls.print(req);
+        _st->tls.print(req);
         if (_cfg.ntfy_token[0]) {
             snprintf(req, sizeof(req), "Authorization: Bearer %s\r\n", _cfg.ntfy_token);
-            _tls.print(req);
+            _st->tls.print(req);
         }
-        _tls.print("\r\n");
+        _st->tls.print("\r\n");
         _state = ST_STATUS;
         _len = 0;
         _overflow = false;
@@ -420,9 +424,9 @@ private:
     }
 
     void _closeStream() {
-        if (_trust) _tls.stop();   // there is only a session after the roots are allocated
-        delete _trust;
-        _trust = nullptr;
+        if (_st) _st->tls.stop();
+        delete _st;
+        _st = nullptr;
         _state = ST_IDLE;
         _waiting = false;
     }
