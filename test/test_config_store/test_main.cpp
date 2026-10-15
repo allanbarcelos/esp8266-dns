@@ -360,7 +360,7 @@ void test_full_round_trip() {
     TEST_ASSERT_EQUAL_UINT32(56670000u, config.totpStep);
 }
 
-// Every field at its maximum size must fit in the JSON document
+// Every field at its maximum size fits under the read limit
 void test_save_worst_case_fits() {
     config.webusr = std::string(32, 'u');
     config.webpss = std::string(64, 'p');
@@ -442,8 +442,62 @@ void test_totp_secret_rejected() {
 void test_save_overflow_does_not_write() {
     config.webusr = std::string(4000, 'x');
     TEST_ASSERT_FALSE(store.save());
-    TEST_ASSERT_TRUE(logHas(logger, "exceeds the JSON capacity"));
+    TEST_ASSERT_TRUE(logHas(logger, "exceeds the file limit"));
     TEST_ASSERT_EQUAL(0, (int)MockFS::files.size());
+}
+
+// A value of the wrong type, out of the field's range or not a whole
+// number keeps the default, field by field, like the missing ones
+void test_wrong_types_and_ranges_keep_defaults() {
+    config.ssid = "old";
+    MockFS::put("/config.json", R"({"v":2,"ssid":1,"webusr":null,"ota_auto":1,"tz":40000,)"
+        R"("bat_sda":-129,"sensor_pin":1.5,"leds":256,"max_on":-1,"angle_on":"9",)"
+        R"("totp_step":-1,"name":["x"],"totp":")" + std::string(50, 'a') + R"("})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_STRING("", config.ssid.c_str());
+    TEST_ASSERT_EQUAL_STRING("admin", config.webusr.c_str());
+    TEST_ASSERT_TRUE(config.ota_auto);
+    TEST_ASSERT_EQUAL(0, config.tz);
+    TEST_ASSERT_EQUAL(-1, config.bat_sda);
+    TEST_ASSERT_EQUAL(-1, config.iot.sensorPin);
+    TEST_ASSERT_EQUAL(8, config.iot.leds);
+    TEST_ASSERT_EQUAL(0, config.iot.maxOn);
+    TEST_ASSERT_EQUAL(90, config.iot.angleOn);
+    TEST_ASSERT_EQUAL_UINT32(0u, config.totpStep);
+    TEST_ASSERT_EQUAL_STRING("", config.dev_name);
+    TEST_ASSERT_TRUE(Totp::blank(config.totp));
+
+    // Each type at the edges of its range
+    MockFS::put("/config.json", R"({"v":2,"tz":-32768,"bat_sda":127,"leds":255,"max_on":65535,)"
+        R"("threshold":32767,"totp_step":4294967295})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL(-32768, config.tz);
+    TEST_ASSERT_EQUAL(127, config.bat_sda);
+    TEST_ASSERT_EQUAL(255, config.iot.leds);
+    TEST_ASSERT_EQUAL(65535, config.iot.maxOn);
+    TEST_ASSERT_EQUAL(32767, config.iot.threshold);
+    TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, config.totpStep);
+}
+
+// "v" that is not a whole number counts as v1 (migrated); an old list that is
+// not a list gives no record
+void test_odd_version_and_record_list() {
+    MockFS::put("/config.json", R"({"v":"2","cf_records":"abc","ssid":"x"})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_TRUE(logHas(logger, "migrated to v2"));
+    TEST_ASSERT_EQUAL_STRING("", config.cf_record);
+    TEST_ASSERT_EQUAL_STRING("x", config.ssid.c_str());
+}
+
+// Text with quotes, backslashes, control characters and accents comes back the same
+void test_text_with_special_characters_round_trip() {
+    config.ssid = "Casa \"1\" \\ \t\x01 \xc3\xa9";
+    strlcpy(config.dev_name, "Port\xc3\xa3o \"A\"", sizeof(config.dev_name));
+    TEST_ASSERT_TRUE(store.save());
+    config = Config{};
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_EQUAL_STRING("Casa \"1\" \\ \t\x01 \xc3\xa9", config.ssid.c_str());
+    TEST_ASSERT_EQUAL_STRING("Port\xc3\xa3o \"A\"", config.dev_name);
 }
 
 void test_save_open_fails() {
@@ -494,6 +548,9 @@ int main() {
     RUN_TEST(test_totp_step_missing_is_zero);
     RUN_TEST(test_save_worst_case_fits);
     RUN_TEST(test_save_overflow_does_not_write);
+    RUN_TEST(test_wrong_types_and_ranges_keep_defaults);
+    RUN_TEST(test_odd_version_and_record_list);
+    RUN_TEST(test_text_with_special_characters_round_trip);
     RUN_TEST(test_save_open_fails);
     RUN_TEST(test_save_rename_failure_keeps_original);
     RUN_TEST(test_save_atomic_without_temp_file);

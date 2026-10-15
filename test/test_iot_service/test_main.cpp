@@ -30,7 +30,7 @@ static void actuator(const char* slug, int pin) {
     cfg.iot.actuatorPin = (int8_t)pin;
 }
 
-static std::string json(const IoTService& iot) {
+static std::string stateOf(const IoTService& iot) {
     char buf[512];
     iot.stateJson(buf, sizeof(buf));
     return buf;
@@ -222,7 +222,7 @@ void test_off_leaves_pins_alone() {
     TEST_ASSERT_EQUAL_STRING("none", iot.actuatorText());
     TEST_ASSERT_EQUAL(255, mock::pinModeV[2]);
     TEST_ASSERT_EQUAL(IoTService::NO_ACTUATOR, iot.command("on", 0));
-    TEST_ASSERT_EQUAL_STRING("{\"api\":1,\"sensor\":null,\"actuator\":null}", json(iot).c_str());
+    TEST_ASSERT_EQUAL_STRING("{\"api\":1,\"sensor\":null,\"actuator\":null}", stateOf(iot).c_str());
     TEST_ASSERT_FALSE(iot.pending());
 
     // Type without a pin, or pin without a type: nothing
@@ -245,7 +245,7 @@ void test_json_in_short_buffer() {
     IoTService iot{cfg, logger};
     iot.begin();
     TEST_ASSERT_EQUAL_STRING("dht22", iot.sensorDef()->slug);
-    std::string full = json(iot);
+    std::string full = stateOf(iot);
     for (size_t n : {0u, 1u, 12u, 40u, 120u}) {
         char small[128];
         std::memset(small, 'x', sizeof(small));
@@ -294,7 +294,7 @@ void test_sensor_only_publishes_with_type_names() {
     TEST_ASSERT_TRUE(logHas(logger, "IoT: sensor contact GPIO2"));
     TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[2]);
     TEST_ASSERT_EQUAL_STRING("waiting", iot.sensorText());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"status\":\"waiting\""));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"status\":\"waiting\""));
 
     iot.tick(0);
     iot.tick(IoTService::DEBOUNCE_MS - 1);
@@ -305,7 +305,7 @@ void test_sensor_only_publishes_with_type_names() {
     TEST_ASSERT_TRUE(logHas(logger, "IoT: open"));
     TEST_ASSERT_EQUAL_STRING(
         "{\"api\":1,\"sensor\":{\"type\":\"contact\",\"status\":\"ok\",\"text\":\"open\","
-        "\"active\":true},\"actuator\":null}", json(iot).c_str());
+        "\"active\":true},\"actuator\":null}", stateOf(iot).c_str());
     iot.ack();
     TEST_ASSERT_FALSE(iot.pending());
 
@@ -322,7 +322,7 @@ void test_sensor_only_publishes_with_type_names() {
 
     level(iot, 2, LOW, 2000);
     TEST_ASSERT_EQUAL_STRING("closed", iot.sensorText());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"active\":false"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"active\":false"));
 }
 
 void test_custom_names_and_inverted_level_without_ntfy() {
@@ -353,7 +353,7 @@ void test_on_off_obeys_commands() {
     TEST_ASSERT_EQUAL_STRING(L_A_RELAY, iot.actuatorDef()->label);   // panel text: I18n.h marker
     TEST_ASSERT_EQUAL_STRING(
         "{\"api\":1,\"sensor\":null,\"actuator\":{\"type\":\"relay\",\"capability\":\"onoff\","
-        "\"on\":false,\"mode\":\"manual\",\"text\":\"off\"}}", json(iot).c_str());
+        "\"on\":false,\"mode\":\"manual\",\"text\":\"off\"}}", stateOf(iot).c_str());
 
     TEST_ASSERT_EQUAL(IoTService::OK, iot.command("on", 10));
     TEST_ASSERT_TRUE(iot.actuatorOn());
@@ -395,15 +395,15 @@ void test_pulse_turns_off_by_itself_and_is_not_saved() {
     TEST_ASSERT_TRUE(iot.actuatorOn());
     TEST_ASSERT_EQUAL(0, (int)MockFS::files.count(IoTState::PATH));
     setMillis(1500);
-    TEST_ASSERT_TRUE(contains(json(iot), "\"pulse\":3"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"pulse\":3"));
     setMillis(9000);                                   // past the end before the tick
-    TEST_ASSERT_TRUE(contains(json(iot), "\"pulse\":0"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"pulse\":0"));
 
     iot.tick(3999);
     TEST_ASSERT_TRUE(iot.actuatorOn());
     iot.tick(4000);
     TEST_ASSERT_FALSE(iot.actuatorOn());
-    TEST_ASSERT_FALSE(contains(json(iot), "pulse"));
+    TEST_ASSERT_FALSE(contains(stateOf(iot), "pulse"));
     IoTState st;
     TEST_ASSERT_TRUE(st.load());                       // saves the end of the pulse
     TEST_ASSERT_FALSE(st.on);
@@ -442,8 +442,8 @@ void test_pwm_level() {
     iot.begin();
     TEST_ASSERT_EQUAL(20 * 1023 / 100, mock::analogValue[0]);
     TEST_ASSERT_EQUAL_STRING("off", iot.actuatorText());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"capability\":\"level\",\"on\":false"));
-    TEST_ASSERT_TRUE(contains(json(iot), "\"level\":80"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"capability\":\"level\",\"on\":false"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"level\":80"));
 
     iot.command("on", 0);
     TEST_ASSERT_EQUAL(80 * 1023 / 100, mock::analogValue[0]);
@@ -486,7 +486,7 @@ void test_servo_position() {
     TEST_ASSERT_EQUAL(2, mock::servoPin);
     TEST_ASSERT_EQUAL(20, mock::servoAngle);
     TEST_ASSERT_EQUAL_STRING("closed 20 deg", iot.actuatorText());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"angle\":20,\"ok\":true"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"angle\":20,\"ok\":true"));
 
     iot.command("open", 0);
     TEST_ASSERT_EQUAL(150, mock::servoAngle);
@@ -512,7 +512,7 @@ void test_servo_position() {
     iot.begin();
     TEST_ASSERT_TRUE(logHas(logger, "IoT: servo unavailable"));
     TEST_ASSERT_EQUAL_STRING("error", iot.actuatorText());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"ok\":false"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"ok\":false"));
     iot.command("open", 0);
     TEST_ASSERT_EQUAL(0, mock::servoWrites);
     actuator("", -1);
@@ -529,7 +529,7 @@ void test_ws2812_strip_color() {
     TEST_ASSERT_EQUAL(2, mock::wsPin);
     TEST_ASSERT_EQUAL(12, mock::wsCount);
     TEST_ASSERT_EQUAL_HEX32(0, mock::wsColor);
-    TEST_ASSERT_TRUE(contains(json(iot), "\"color\":\"#ffffff\""));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"color\":\"#ffffff\""));
 
     iot.command("color #ff8800", 0);
     TEST_ASSERT_EQUAL_HEX32(0xFF8800, mock::wsColor);
@@ -622,7 +622,7 @@ void test_digital_rule_follows_and_manual_wins() {
     IoTService iot{cfg, logger};
     iot.begin();
     TEST_ASSERT_TRUE(iot.hasRule());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"mode\":\"auto\""));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"mode\":\"auto\""));
 
     level(iot, 2, HIGH, 0);
     TEST_ASSERT_TRUE(iot.actuatorOn());
@@ -633,7 +633,7 @@ void test_digital_rule_follows_and_manual_wins() {
     // Manual command: the rule does not touch it until "auto"
     iot.command("off", 500);
     TEST_ASSERT_TRUE(iot.manual());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"mode\":\"manual\""));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"mode\":\"manual\""));
     level(iot, 2, LOW, 1000);
     level(iot, 2, HIGH, 2000);
     TEST_ASSERT_FALSE(iot.actuatorOn());
@@ -680,7 +680,7 @@ void test_auto_before_first_reading_and_rule_off() {
     TEST_ASSERT_FALSE(iot.hasRule());
     level(iot, 2, HIGH, 0);
     TEST_ASSERT_FALSE(iot.actuatorOn());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"mode\":\"manual\""));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"mode\":\"manual\""));
 }
 
 void test_digital_rule_toggles_on_each_activation() {
@@ -719,7 +719,7 @@ void test_dht22_rule_with_margin() {
     TEST_ASSERT_EQUAL_STRING("26.5 C, 48.7%", iot.sensorText());
     TEST_ASSERT_TRUE(iot.actuatorOn());
     TEST_ASSERT_EQUAL_STRING("[sensor] 26.5 C, 48.7% | on", iot.message());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"temperature\":26.5,\"humidity\":48.7"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"temperature\":26.5,\"humidity\":48.7"));
     uint8_t logged = logger.count();
 
     iot.tick(IoTService::READ_GAP_MS - 1);             // still within the interval
@@ -751,7 +751,7 @@ void test_dht_failures_negative_temperature_and_dht11() {
     dhtRead(iot, 0);
     TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
     TEST_ASSERT_TRUE(logHas(logger, "IoT: reading failed"));
-    TEST_ASSERT_TRUE(contains(json(iot), "\"status\":\"error\",\"text\":\"error\"}"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"status\":\"error\",\"text\":\"error\"}"));
     uint8_t logged = logger.count();
 
     mock::busSegs.clear();
@@ -863,7 +863,7 @@ void test_ds18b20_conversion_and_errors() {
     iot.tick(IoTService::DS_CONVERT_MS);
     TEST_ASSERT_EQUAL_STRING("25.0 C", iot.sensorText());
     TEST_ASSERT_TRUE(iot.actuatorOn());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"temperature\":25.0}"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"temperature\":25.0}"));
 
     iot.tick(IoTService::READ_GAP_MS - 1);
     TEST_ASSERT_EQUAL_STRING("25.0 C", iot.sensorText());
@@ -931,7 +931,7 @@ void test_pulses_in_window_with_hysteresis() {
     iot.tick(IoTService::PULSE_WINDOW_MS);
     TEST_ASSERT_EQUAL_STRING("3 pulses/10 s", iot.sensorText());
     TEST_ASSERT_TRUE(iot.actuatorOn());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"pulses\":3}"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"pulses\":3}"));
 
     IoTService::onPulse();
     IoTService::onPulse();
@@ -1026,14 +1026,14 @@ void test_rule_only_inside_window() {
     iot.begin();
     level(iot, 2, HIGH, 0);
     TEST_ASSERT_TRUE(iot.actuatorOn());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"hours\":true"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"hours\":true"));
 
     at(18, 0);
     iot.tick(1000);
     TEST_ASSERT_FALSE(iot.actuatorOn());
     TEST_ASSERT_FALSE(iot.manual());
     TEST_ASSERT_EQUAL_STRING("[actuator] off (window closed)", iot.message());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"mode\":\"auto\",\"text\":\"off\",\"hours\":false"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"mode\":\"auto\",\"text\":\"off\",\"hours\":false"));
     level(iot, 2, LOW, 2000);
     level(iot, 2, HIGH, 3000);                         // the rule asks, the window does not allow it
     TEST_ASSERT_FALSE(iot.actuatorOn());
@@ -1062,7 +1062,7 @@ void test_rule_only_inside_window() {
     // Without the window, the JSON has no "hours"
     cfg.iot.window = false;
     iot.begin();
-    TEST_ASSERT_FALSE(contains(json(iot), "hours"));
+    TEST_ASSERT_FALSE(contains(stateOf(iot), "hours"));
 
     // Actuator only: the window has no rule to limit
     cfg.iot.window = true;
@@ -1072,7 +1072,7 @@ void test_rule_only_inside_window() {
     at(20, 0);
     iot.tick(100);
     TEST_ASSERT_TRUE(iot.actuatorOn());
-    TEST_ASSERT_FALSE(contains(json(iot), "hours"));
+    TEST_ASSERT_FALSE(contains(stateOf(iot), "hours"));
 }
 
 // Outside the window, "auto" and the end of a pulse turn it off even without a reading
@@ -1170,7 +1170,7 @@ void test_sht3x_reads_temperature_and_humidity() {
     TEST_ASSERT_EQUAL_STRING("waiting", iot.sensorText());
     iot.tick(IoTService::SHT_MEASURE_MS);
     TEST_ASSERT_EQUAL_STRING("25.0 C, 50.0%", iot.sensorText());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"temperature\":25.0,\"humidity\":50.0"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"temperature\":25.0,\"humidity\":50.0"));
     size_t asked = sim.writes.size();
     iot.tick(IoTService::READ_GAP_MS - 1);                // one measurement every READ_GAP_MS
     TEST_ASSERT_EQUAL(asked, sim.writes.size());
@@ -1237,7 +1237,7 @@ void test_ultrasonic_distance_and_failures() {
     iot.tick(0);
     TEST_ASSERT_EQUAL_STRING("10 cm", iot.sensorText());
     TEST_ASSERT_TRUE(iot.actuatorOn());
-    TEST_ASSERT_TRUE(contains(json(iot), "\"distance\":10}"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"distance\":10}"));
 
     echo(2, 0);
     iot.tick(IoTService::READ_GAP_MS - 1);
@@ -1412,6 +1412,18 @@ void test_urgent_stays_until_sent() {
     TEST_ASSERT_FALSE(iot.pending());
 }
 
+// A field of the wrong type or out of range keeps its default; an unknown one is ignored
+void test_state_file_with_wrong_types() {
+    MockFS::put(IoTState::PATH, R"({"m":1,"on":"yes","lv":-1,"an":256,"c":-5,"x":true})");
+    IoTState st;
+    TEST_ASSERT_TRUE(st.load());
+    TEST_ASSERT_FALSE(st.manual);
+    TEST_ASSERT_FALSE(st.on);
+    TEST_ASSERT_EQUAL(100, st.level);
+    TEST_ASSERT_EQUAL(90, st.angle);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFF, st.rgb);
+}
+
 // The largest saved state fits in the read text; a larger file is ignored
 void test_state_at_the_text_limit() {
     IoTState st;
@@ -1475,6 +1487,7 @@ int main() {
     RUN_TEST(test_proportional_without_tenths_and_numeric_manual);
     RUN_TEST(test_rule_opens_the_servo);
     RUN_TEST(test_urgent_stays_until_sent);
+    RUN_TEST(test_state_file_with_wrong_types);
     RUN_TEST(test_state_at_the_text_limit);
     return UNITY_END();
 }

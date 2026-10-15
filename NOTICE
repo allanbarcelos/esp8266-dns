@@ -20,7 +20,7 @@ ASKED AS A COURTESY
 Third-party components keep their own licenses and notices:
   ESP8266 Arduino core (LGPL-2.1)   esp8266/Arduino, linked into the firmware
                                     (includes BearSSL, MIT, and the Servo library)
-  ArduinoJson (MIT)                 bblanchon/ArduinoJson 6.21.6
+  ArduinoJson (MIT)                 bblanchon/ArduinoJson 6.21.6, tests only
   Unity (MIT)                       ThrowTheSwitch/Unity, tests only
   ESP-01 photo (CC BY 2.0)          SparkFun Electronics; cropped, resized and
-                                    re-encoded as WebP in Assets.h
+                                    re-encoded as AVIF in Assets.h

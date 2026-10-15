@@ -3,7 +3,7 @@
 
 #pragma once
 #include <ESP8266WiFi.h>
-#include <ArduinoJson.h>
+#include "Json.h"
 #include "Config.h"
 #include "Logger.h"
 #include "Clock.h"
@@ -333,24 +333,47 @@ private:
         }
     }
 
+    // The parts of a stream line that matter; a message longer than the
+    // buffer is no command (none is that long), never a cut one
+    struct Event {
+        bool     message = false;
+        char     id[sizeof(_lastId)] = "";
+        char     text[48] = "";
+        bool     whole = true;
+        uint32_t time = 0;
+    };
+
+    static void _eventMember(void* ctx, const char* key, size_t len, const json::Value& v) {
+        Event& e = *static_cast<Event*>(ctx);
+        bool text = v.kind == json::STRING;
+        if (json::is(key, len, PSTR("event")) && text) {
+            char b[8];
+            e.message = json::copy(v, b, sizeof(b)) < sizeof(b) && strcmp(b, "message") == 0;
+        } else if (json::is(key, len, PSTR("id")) && text) {
+            json::copy(v, e.id, sizeof(e.id));
+        } else if (json::is(key, len, PSTR("message")) && text) {
+            e.whole = json::copy(v, e.text, sizeof(e.text)) < sizeof(e.text);
+        } else if (json::is(key, len, PSTR("time"))) {
+            v.fits(0, 0x7FFFFFFFu, e.time);
+        }
+    }
+
     void _onEvent(unsigned long now) {
-        StaticJsonDocument<JSON_OBJECT_SIZE(12)> doc;
-        if (deserializeJson(doc, _line)) return;    // junk
-        const char* event = doc["event"] | "";
-        if (strcmp(event, "message") != 0) return;   // open, keepalive
-        strlcpy(_lastId, doc["id"] | "", sizeof(_lastId));
-        const char* msg = doc["message"] | "";
-        long age = (long)(_clock.now() - (time_t)(doc["time"] | 0L));
+        Event e;
+        if (!json::object(_line, _eventMember, &e)) return;   // junk
+        if (!e.message) return;                                // open, keepalive
+        strlcpy(_lastId, e.id, sizeof(_lastId));
+        long age = (long)(_clock.now() - (time_t)e.time);
         if (age > STALE_S) {
             _log.log(PSTR("ntfy: old command ignored"));
             return;
         }
-        uint8_t r = _iot->command(msg, now);
-        _log.log(PSTR("ntfy: command \"%.32s\""), msg);
+        uint8_t r = e.whole ? _iot->command(e.text, now) : (uint8_t)IoTService::INVALID;
+        _log.log(PSTR("ntfy: command \"%.32s\""), e.text);
         if (r == IoTService::OK) return;
         const char* why = r == IoTService::INVALID ? "invalid command"
                         : "command not valid for this actuator";
-        snprintf(_reply, sizeof(_reply), "[error] %s: %.32s", why, msg);
+        snprintf(_reply, sizeof(_reply), "[error] %s: %.32s", why, e.text);
         _log.log(PSTR("ntfy: %s"), _reply);
     }
 

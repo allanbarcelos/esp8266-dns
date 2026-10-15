@@ -6,7 +6,6 @@
 # job; any finding fails. Needs cppcheck 2.13 or newer.
 #
 # Left out, as false positives or a style the project does not follow:
-#   badBitmaskCheck     doc["x"] | 0 is ArduinoJson's default value, not a mask
 #   unusedStructMember  a header analyzed alone does not see who uses the field
 #   cstyleCast          the project uses C casts on simple types
 #   useStlAlgorithm     an explicit loop is clearer than std::find_if here
@@ -19,7 +18,7 @@ cppcheck --language=c++ --std=c++17 \
     --inline-suppr --error-exitcode=1 --quiet \
     -I test/stubs -I . -Dfirmware_version='"dev"' \
     --suppress=missingIncludeSystem --suppress=missingInclude \
-    --suppress=badBitmaskCheck --suppress=unusedStructMember \
+    --suppress=unusedStructMember \
     --suppress=cstyleCast --suppress=useStlAlgorithm \
     --suppress='*:test/stubs/*' \
     --template='{file}:{line}: {severity} [{id}] {message}' \

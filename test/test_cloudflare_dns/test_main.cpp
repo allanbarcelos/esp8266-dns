@@ -195,17 +195,22 @@ void test_response_without_success_field() {
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
 }
 
-// A document sized to the response: if the heap lacks the block, the
-// response counts as invalid and the next check tries again
-void test_response_without_memory_for_the_document() {
+// "success" that is not true is a failure; null counts as absent; errors
+// that are not a list, or fields of other types, leave the defaults
+void test_odd_answer_types() {
     Fixture f;
-    size_t values = 0;
-    for (const char* p = OK_JSON; *p; p++) values += *p == ',' || *p == '{' || *p == '[';
-    TEST_ASSERT_EQUAL(6, (int)values);
-    MockHTTP::push(200, OK_JSON);
-    mock::failMallocSize = JSON_ARRAY_SIZE(values);
+    MockHTTP::push(200, R"({"success":"yes","errors":{"code":5}})");
     f.dns.tick(T0);
+    TEST_ASSERT_TRUE(logHas(logger, "DNS error 0: Unknown error"));
+    MockHTTP::push(200, R"({"success":null})");
+    f.dns.tick(T0 + R);
     TEST_ASSERT_TRUE(logHas(logger, "DNS invalid response (HTTP 200)"));
+    logger = Logger();
+    MockHTTP::push(200, R"({"success":false,"errors":[{"code":"x","message":7}]})");
+    f.dns.tick(T0 + 2 * R);
+    TEST_ASSERT_TRUE(logHas(logger, "DNS error 0: Unknown error"));
+    MockHTTP::push(200, R"({"success":false,"errors":[]})");
+    f.dns.tick(T0 + 3 * R);
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
 }
 
@@ -288,7 +293,7 @@ int main() {
     RUN_TEST(test_full_api_response);
     RUN_TEST(test_error_message_with_commas);
     RUN_TEST(test_response_without_success_field);
-    RUN_TEST(test_response_without_memory_for_the_document);
+    RUN_TEST(test_odd_answer_types);
     RUN_TEST(test_tls_session_closes_before_parsing);
     RUN_TEST(test_tls_connection_error);
     RUN_TEST(test_connection_start_fails);

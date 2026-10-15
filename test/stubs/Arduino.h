@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 #pragma once
-// ARDUINO is not defined here, so ArduinoJson's PROGMEM polyfills stay off.
+// ARDUINO is not defined here, so ArduinoJson's PROGMEM polyfills stay off
+// (the tests use it to check the JSON the firmware writes).
 // String and Stream support is enabled through build_flags in platformio.ini:
 //   -DARDUINOJSON_ENABLE_ARDUINO_STRING=1
 //   -DARDUINOJSON_ENABLE_PROGMEM=0
@@ -68,6 +69,7 @@ inline size_t mock_strlcpy(char* dst, const char* src, size_t size) {
 #define PSTR(s)          (s)
 #define strlen_P         strlen
 #define memcpy_P         memcpy
+#define memcmp_P         memcmp
 #define vsnprintf_P      vsnprintf
 #define snprintf_P       snprintf
 

@@ -3,7 +3,7 @@
 
 #pragma once
 #include <ESP8266WiFi.h>
-#include <ArduinoJson.h>
+#include "Json.h"
 #include "Config.h"
 #include "Logger.h"
 #include "Clock.h"
@@ -99,33 +99,42 @@ private:
             return false;
         }
 
-        // Parsed in place (char*), like the ntfy messages: a single JSON
-        // reader in the firmware, and the strings stay in the response. The
-        // document only holds the structure, one slot per value, and TLS is
-        // already closed: the heap is free.
-        DynamicJsonDocument doc(JSON_ARRAY_SIZE(_values(resp)));
-        DeserializationError err = deserializeJson(doc, resp.begin());
-        if (err || doc["success"].isNull()) {
+        // TLS is already closed: the heap is free for the answer
+        Answer a;
+        if (!json::object(resp.c_str(), _answer, &a) || a.success < 0) {
             _log.log(PSTR("DNS invalid response (HTTP %d)"), code);
             return false;
         }
-
-        if (!(doc["success"] | false)) {
-            int         ec  = doc["errors"][0]["code"]    | 0;
-            const char* msg = doc["errors"][0]["message"] | "Unknown error";
-            _log.log(PSTR("DNS error %d: %s"), ec, msg);
+        if (!a.success) {
+            _log.log(PSTR("DNS error %d: %s"), (int)a.code, a.message);
             return false;
         }
         return true;
     }
 
-    // Upper bound on the values in the JSON: each value after the first in
-    // an object or list follows a comma, and the first follows { or [. A
-    // comma inside text only raises the count.
-    static size_t _values(const String& json) {
-        size_t n = 0;
-        for (const char* p = json.c_str(); *p; p++)
-            n += *p == ',' || *p == '{' || *p == '[';
-        return n;
+    // What matters in the API answer: "success" (-1 absent or null, 1 only
+    // for true) and, on an error, the code and message of errors[0]
+    struct Answer {
+        int8_t  success = -1;
+        int32_t code    = 0;
+        char    message[64] = "Unknown error";
+    };
+
+    static void _answer(void* ctx, const char* key, size_t len, const json::Value& v) {
+        Answer& a = *static_cast<Answer*>(ctx);
+        if (json::is(key, len, PSTR("success"))) {
+            a.success = v.kind == json::NUL ? -1 : v.kind == json::BOOL && v.mag;
+        } else if (json::is(key, len, PSTR("errors")) && v.kind == json::ARRAY) {
+            json::Value e = json::first(v);
+            if (e.kind == json::OBJECT) json::members(e, _error, &a);
+        }
+    }
+
+    static void _error(void* ctx, const char* key, size_t len, const json::Value& v) {
+        Answer& a = *static_cast<Answer*>(ctx);
+        uint32_t n;
+        if (json::is(key, len, PSTR("code")) && v.fits(-2147483647L, 0x7FFFFFFFu, n)) a.code = (int32_t)n;
+        if (json::is(key, len, PSTR("message")) && v.kind == json::STRING)
+            json::copy(v, a.message, sizeof(a.message));
     }
 };

@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 name: Setup Arduino CLI (ESP8266)
-description: Installs arduino-cli, ESP8266 core 3.1.2 and the firmware libraries
+description: Installs arduino-cli and ESP8266 core 3.1.2
 runs:
   using: composite
   steps:
@@ -20,11 +20,10 @@ runs:
         # Changes by itself when the core, a library or arduino-cli changes in this file
         key: arduino-${{ hashFiles('.github/actions/setup-arduino/action.yml') }}
 
-    - name: Install the core and libraries
+    - name: Install the core
       shell: bash
       run: |
         arduino-cli config init --overwrite
         arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
         arduino-cli core update-index
         arduino-cli core install esp8266:esp8266@3.1.2
-        arduino-cli lib install "ArduinoJson@6.21.6"

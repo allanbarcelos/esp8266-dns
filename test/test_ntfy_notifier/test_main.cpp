@@ -344,6 +344,26 @@ void test_commands_ignored_when_old_or_long() {
     TEST_ASSERT_TRUE(c.iot.actuatorOn());
 }
 
+// Fields of other types are as good as missing; a message longer than any
+// command is refused whole, never run cut
+void test_odd_event_fields() {
+    Cmd c;
+    c.open();
+    c.send(R"({"event":1,"id":"a","time":1,"message":"on"})");
+    c.send(R"({"event":"message","id":2,"time":"x","message":"on"})");
+    c.ntfy.tick(10);
+    TEST_ASSERT_TRUE(logHas(logger, "old command ignored"));      // no time: very old
+    TEST_ASSERT_FALSE(c.iot.actuatorOn());
+
+    c.send(message("b", "on                                                           x"));
+    c.ntfy.tick(11);
+    TEST_ASSERT_FALSE(c.iot.actuatorOn());
+    TEST_ASSERT_TRUE(logHas(logger, "[error] invalid command: on"));
+    c.send(R"({"event":"message","id":"c","time":)" + std::to_string((long)fakeNow) + R"(,"message":5})");
+    c.ntfy.tick(12);
+    TEST_ASSERT_FALSE(c.iot.actuatorOn());
+}
+
 void test_command_failures_wait_longer_each_time() {
     Cmd c;
     MockHTTP::rawHttp = "HTTP/1.1 401 Unauthorized\r\n\r\n";
@@ -756,6 +776,7 @@ int main() {
     RUN_TEST(test_commands_with_token_and_error_reply);
     RUN_TEST(test_invalid_commands_reply_on_data_topic);
     RUN_TEST(test_commands_ignored_when_old_or_long);
+    RUN_TEST(test_odd_event_fields);
     RUN_TEST(test_command_failures_wait_longer_each_time);
     RUN_TEST(test_commands_without_memory_tls_or_clock);
     RUN_TEST(test_commands_pause_and_turn_off);

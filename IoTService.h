@@ -950,7 +950,7 @@ private:
     }
 
     // ── JSON ─────────────────────────────────────────────────────────────────
-    // Plain snprintf: ArduinoJson would need a document just for this.
+    // Plain snprintf: the state is small and its shape is fixed.
 
     size_t _sensorJson(char* out, size_t n) const {
         if (_sensor < 0) return (size_t)snprintf(out, n, "null");

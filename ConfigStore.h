@@ -2,9 +2,10 @@
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 #pragma once
+#include <cstddef>
 #include <memory>
 #include <LittleFS.h>
-#include <ArduinoJson.h>
+#include "Json.h"
 #include "Config.h"
 #include "Logger.h"
 #include "IoTCatalog.h"
@@ -14,18 +15,20 @@
 // /config.json with a version ("v"). On load, an old version goes
 // through the migrations in order up to the current one, the original file
 // is kept in /config.v1.json and the new one is written. A missing field
-// gets its default; an unknown field is ignored. A file from a newer
-// version (an OTA that went back) is read as far as it is understood and
-// is not rewritten on its own: an unknown type identifier stays as is.
+// gets its default; an unknown field is ignored, and so is a value of the
+// wrong type or out of the field's range. A file from a newer version (an
+// OTA that went back) is read as far as it is understood and is not
+// rewritten on its own: an unknown type identifier stays as is.
+//
+// Every persisted field is a row of FIELDS (name, place in Config, type,
+// default): load and save are two loops over that table.
 class ConfigStore {
 public:
     ConfigStore(Config& cfg, Logger& log) : _cfg(cfg), _log(log) {}
 
-    static constexpr int    VERSION       = 2;
-    // Room for the worst case (every field at its maximum size)
-    static constexpr size_t JSON_CAPACITY = 3072;
+    static constexpr int    VERSION  = 2;
     // Nothing save() writes comes close: anything bigger is a foreign file
-    static constexpr size_t MAX_FILE      = 4096;
+    static constexpr size_t MAX_FILE = 4096;
 
     bool begin() {
         if (!LittleFS.begin()) {
@@ -48,9 +51,7 @@ public:
             return false;
         }
 
-        // Read whole and parsed in place (char*): the same JSON reader as the
-        // rest of the firmware, and the strings stay in the text, with no copy
-        // in the document. The text lives until load ends (the doc points to it).
+        // Read whole; the reader walks the text without copying it
         size_t n = f.size();
         std::unique_ptr<char, void (*)(void*)> text(
             n < MAX_FILE ? (char*)malloc(n + 1) : nullptr, free);
@@ -62,53 +63,24 @@ public:
         text.get()[f.readBytes(text.get(), n)] = '\0';
         f.close();
 
-        DynamicJsonDocument doc(JSON_CAPACITY);
-        DeserializationError err = deserializeJson(doc, text.get());
-
-        if (err) {
-            _log.log(PSTR("JSON error: %s"), err.c_str());
+        // A broken file changes nothing: checked whole before the defaults
+        if (!json::object(text.get(), nullptr, nullptr)) {
+            _log.log(PSTR("JSON error"));
             return false;
         }
+        for (size_t i = 0; i < FIELD_COUNT; i++) _default(_field(FIELDS, i));
+        Load ctx;
+        ctx.self = this;
+        json::object(text.get(), _member, &ctx);
 
-        _cfg.webusr = doc["webusr"] | "admin";
-        _cfg.webpss = doc["webpss"] | "";
-        Totp::fromHex(doc["totp"] | "", _cfg.totp);
-        _cfg.totpStep = doc["totp_step"] | 0UL;
-        _cfg.ssid   = doc["ssid"]   | "";
-        _cfg.pass   = doc["pass"]   | "";
-
-        strlcpy(_cfg.ntfy_topic, doc["ntfy_topic"] | "", sizeof(_cfg.ntfy_topic));
-        strlcpy(_cfg.ntfy_cmd,   doc["ntfy_cmd"]   | "", sizeof(_cfg.ntfy_cmd));
-        strlcpy(_cfg.mqtt_host,  doc["mqtt_host"]  | "", sizeof(_cfg.mqtt_host));
-        strlcpy(_cfg.mqtt_user,  doc["mqtt_user"]  | "", sizeof(_cfg.mqtt_user));
-        strlcpy(_cfg.mqtt_pass,  doc["mqtt_pass"]  | "", sizeof(_cfg.mqtt_pass));
-        strlcpy(_cfg.dev_name,   doc["name"]       | "", sizeof(_cfg.dev_name));
-        strlcpy(_cfg.hostname,   doc["hostname"]   | "", sizeof(_cfg.hostname));
-        _cfg.tz = doc["tz"] | 0;
-        _cfg.bat_sda = doc["bat_sda"] | -1;
-        strlcpy(_cfg.lang, doc["lang"] | "", sizeof(_cfg.lang));
-        strlcpy(_cfg.ntfy_token, doc["ntfy_token"] | "", sizeof(_cfg.ntfy_token));
-        _cfg.ota_auto = doc["ota_auto"] | true;
-        strlcpy(_cfg.api_token,  doc["api_token"]  | "", sizeof(_cfg.api_token));
-        strlcpy(_cfg.cf_token,   doc["cf_token"]   | "", sizeof(_cfg.cf_token));
-        strlcpy(_cfg.cf_zone,    doc["cf_zone"]    | "", sizeof(_cfg.cf_zone));
-        strlcpy(_cfg.cf_host,    doc["cf_host"]    | "", sizeof(_cfg.cf_host));
-
-        // There used to be up to 5 IDs in cf_records: the first one stays
-        const char* rec = doc["cf_record"];
-        if (!rec) rec = doc["cf_records"][0] | "";
-        strlcpy(_cfg.cf_record, rec, sizeof(_cfg.cf_record));
-
-        int version = doc["v"] | 1;
-        if (version == 1) {
-            _migrateV1(doc);
+        if (ctx.version == 1) {
+            _migrateV1(ctx);
             _log.log(PSTR("Configuration migrated to v%d"), VERSION);
             _backup();
             save();
             return true;
         }
-        _loadIoT(doc);
-        if (version > VERSION) _log.log(PSTR("Configuration v%d, newer than the firmware"), version);
+        if (ctx.version > VERSION) _log.log(PSTR("Configuration v%d, newer than the firmware"), (int)ctx.version);
         _log.log(PSTR("Configuration loaded"));
         return true;
     }
@@ -116,70 +88,9 @@ public:
     // Atomic write: writes a temporary file and renames it over the old one.
     // A power cut in the middle of the write keeps the previous config.
     bool save() {
-        DynamicJsonDocument doc(JSON_CAPACITY);
-
-        doc["v"]          = VERSION;
-        doc["webusr"]     = _cfg.webusr;
-        doc["webpss"]     = _cfg.webpss;
-        char totpHex[Totp::KEY_LEN * 2 + 1];
-        if (Totp::blank(_cfg.totp)) {
-            doc["totp"] = "";
-        } else {
-            Totp::toHex(_cfg.totp, totpHex);
-            doc["totp"] = totpHex;
-        }
-        doc["totp_step"]  = (unsigned long)_cfg.totpStep;
-        doc["ssid"]       = _cfg.ssid;
-        doc["pass"]       = _cfg.pass;
-        doc["ntfy_topic"] = _cfg.ntfy_topic;
-        doc["ntfy_cmd"]   = _cfg.ntfy_cmd;
-        doc["ntfy_token"] = _cfg.ntfy_token;
-        doc["mqtt_host"]  = _cfg.mqtt_host;
-        doc["mqtt_user"]  = _cfg.mqtt_user;
-        doc["mqtt_pass"]  = _cfg.mqtt_pass;
-        doc["name"]       = _cfg.dev_name;
-        doc["hostname"]   = _cfg.hostname;
-        doc["tz"]         = _cfg.tz;
-        doc["bat_sda"]    = _cfg.bat_sda;
-        doc["lang"]       = _cfg.lang;
-        doc["ota_auto"]   = _cfg.ota_auto;
-        doc["api_token"]  = _cfg.api_token;
-        doc["cf_token"]   = _cfg.cf_token;
-        doc["cf_zone"]    = _cfg.cf_zone;
-        doc["cf_host"]    = _cfg.cf_host;
-        doc["cf_record"]  = _cfg.cf_record;
-
-        const IoTConfig& t = _cfg.iot;
-        doc["sensor"]        = t.sensor;
-        doc["sensor_pin"]    = t.sensorPin;
-        doc["sensor_high"]   = t.sensorHigh;
-        doc["sensor_on"]     = t.onText;
-        doc["sensor_off"]    = t.offText;
-        doc["metric"]        = t.metric;
-        doc["notify"]        = t.notify;
-        doc["actuator"]      = t.actuator;
-        doc["actuator_pin"]  = t.actuatorPin;
-        doc["actuator_high"] = t.actuatorHigh;
-        doc["angle_on"]      = t.angleOn;
-        doc["angle_off"]     = t.angleOff;
-        doc["duty_on"]       = t.dutyOn;
-        doc["duty_off"]      = t.dutyOff;
-        doc["leds"]          = t.leds;
-        doc["max_on"]        = t.maxOn;
-        doc["restore"]       = t.restore;
-        doc["rule"]          = t.rule;
-        doc["above"]         = t.above;
-        doc["threshold"]     = t.threshold;
-        doc["margin"]        = t.margin;
-        doc["toggle"]        = t.toggle;
-        doc["linear"]        = t.linear;
-        doc["threshold_hi"]  = t.thresholdHi;
-        doc["window"]        = t.window;
-        doc["win_start"]     = t.winStart;
-        doc["win_end"]       = t.winEnd;
-
-        if (doc.overflowed()) {
-            _log.log(PSTR("Config exceeds the JSON capacity"));
+        json::Writer measure;
+        if (_write(measure) >= MAX_FILE) {   // load() would refuse it
+            _log.log(PSTR("Config exceeds the file limit"));
             return false;
         }
 
@@ -188,7 +99,8 @@ public:
             _log.log(PSTR("Could not save config"));
             return false;
         }
-        serializeJson(doc, f);
+        json::Writer w(&f);
+        _write(w);
         f.close();
 
         if (!LittleFS.rename(TMP_PATH, PATH)) {
@@ -205,78 +117,236 @@ public:
     static constexpr const char* TMP_PATH    = "/config.tmp";
     static constexpr const char* BACKUP_PATH = "/config.v1.json";
 
+    enum : uint8_t { T_STRING, T_CHARS, T_HEX20, T_BOOL, T_I8, T_U8, T_I16, T_U16, T_U32 };
+
+    struct Field {
+        PGM_P    key;
+        uint16_t off;    // bytes from the start of the target struct
+        uint8_t  type;
+        uint8_t  size;
+        int16_t  def;    // numbers and flags
+    };
+
 private:
     Config& _cfg;
     Logger& _log;
 
-    void _loadIoT(const JsonDocument& doc) {
-        IoTConfig& t = _cfg.iot;
-        strlcpy(t.sensor, doc["sensor"] | "", sizeof(t.sensor));
-        t.sensorPin    = doc["sensor_pin"]    | -1;
-        t.sensorHigh   = doc["sensor_high"]   | true;
-        strlcpy(t.onText,  doc["sensor_on"]  | "", sizeof(t.onText));
-        strlcpy(t.offText, doc["sensor_off"] | "", sizeof(t.offText));
-        t.metric       = doc["metric"]        | 0;
-        t.notify       = doc["notify"]        | false;
-        strlcpy(t.actuator, doc["actuator"] | "", sizeof(t.actuator));
-        t.actuatorPin  = doc["actuator_pin"]  | -1;
-        t.actuatorHigh = doc["actuator_high"] | false;
-        t.angleOn      = doc["angle_on"]      | 90;
-        t.angleOff     = doc["angle_off"]     | 0;
-        t.dutyOn       = doc["duty_on"]       | 100;
-        t.dutyOff      = doc["duty_off"]      | 0;
-        t.leds         = doc["leds"]          | 8;
-        t.maxOn        = doc["max_on"]        | 0;
-        t.restore      = doc["restore"]       | false;
-        t.rule         = doc["rule"]          | true;
-        t.above        = doc["above"]         | false;
-        t.threshold    = doc["threshold"]     | 0;
-        t.margin       = doc["margin"]        | 0;
-        t.toggle       = doc["toggle"]        | false;
-        t.linear       = doc["linear"]        | false;
-        t.thresholdHi  = doc["threshold_hi"]  | 0;
-        t.window       = doc["window"]        | false;
-        t.winStart     = doc["win_start"]     | 0;
-        t.winEnd       = doc["win_end"]       | 0;
+    // What a load gathers besides Config: the version, whether cf_record was
+    // text, and the v1 fields, applied only if the file turns out to be v1
+    struct Load {
+        ConfigStore* self = nullptr;
+        long      version = 1;
+        bool      record  = false;
+        IoTConfig v1;
+        int8_t    sensor = -1, module = -1;
+        uint8_t   sensorType = 0, moduleType = 0, manual = 0;
+    };
+
+#define CS_KEY(name, text) static constexpr char name[] PROGMEM = text;
+    CS_KEY(K_V, "v") CS_KEY(K_RECORDS, "cf_records")
+    CS_KEY(K_WEBUSR, "webusr") CS_KEY(K_WEBPSS, "webpss") CS_KEY(K_TOTP, "totp")
+    CS_KEY(K_TOTP_STEP, "totp_step") CS_KEY(K_SSID, "ssid") CS_KEY(K_PASS, "pass")
+    CS_KEY(K_NTFY_TOPIC, "ntfy_topic") CS_KEY(K_NTFY_CMD, "ntfy_cmd") CS_KEY(K_NTFY_TOKEN, "ntfy_token")
+    CS_KEY(K_MQTT_HOST, "mqtt_host") CS_KEY(K_MQTT_USER, "mqtt_user") CS_KEY(K_MQTT_PASS, "mqtt_pass")
+    CS_KEY(K_NAME, "name") CS_KEY(K_HOSTNAME, "hostname") CS_KEY(K_TZ, "tz") CS_KEY(K_BAT_SDA, "bat_sda")
+    CS_KEY(K_LANG, "lang") CS_KEY(K_OTA_AUTO, "ota_auto") CS_KEY(K_API_TOKEN, "api_token")
+    CS_KEY(K_CF_TOKEN, "cf_token") CS_KEY(K_CF_ZONE, "cf_zone") CS_KEY(K_CF_HOST, "cf_host")
+    CS_KEY(K_CF_RECORD, "cf_record") CS_KEY(K_SENSOR, "sensor") CS_KEY(K_SENSOR_PIN, "sensor_pin")
+    CS_KEY(K_SENSOR_HIGH, "sensor_high") CS_KEY(K_SENSOR_ON, "sensor_on") CS_KEY(K_SENSOR_OFF, "sensor_off")
+    CS_KEY(K_METRIC, "metric") CS_KEY(K_NOTIFY, "notify") CS_KEY(K_ACTUATOR, "actuator")
+    CS_KEY(K_ACTUATOR_PIN, "actuator_pin") CS_KEY(K_ACTUATOR_HIGH, "actuator_high")
+    CS_KEY(K_ANGLE_ON, "angle_on") CS_KEY(K_ANGLE_OFF, "angle_off") CS_KEY(K_DUTY_ON, "duty_on")
+    CS_KEY(K_DUTY_OFF, "duty_off") CS_KEY(K_LEDS, "leds") CS_KEY(K_MAX_ON, "max_on")
+    CS_KEY(K_RESTORE, "restore") CS_KEY(K_RULE, "rule") CS_KEY(K_ABOVE, "above")
+    CS_KEY(K_THRESHOLD, "threshold") CS_KEY(K_MARGIN, "margin") CS_KEY(K_TOGGLE, "toggle")
+    CS_KEY(K_LINEAR, "linear") CS_KEY(K_THRESHOLD_HI, "threshold_hi") CS_KEY(K_WINDOW, "window")
+    CS_KEY(K_WIN_START, "win_start") CS_KEY(K_WIN_END, "win_end")
+    // v1 (before the type identifiers): the IoT fields had other names
+    CS_KEY(K1_SENSOR, "iot_sensor") CS_KEY(K1_MODULE, "iot_module")
+    CS_KEY(K1_SENSOR_TYPE, "iot_sensor_type") CS_KEY(K1_MODULE_TYPE, "iot_module_type")
+    CS_KEY(K1_MANUAL, "iot_manual") CS_KEY(K1_SENSOR_HIGH, "iot_sensor_high")
+    CS_KEY(K1_MODULE_HIGH, "iot_module_high") CS_KEY(K1_NOTIFY, "iot_notify")
+    CS_KEY(K1_METRIC, "iot_metric") CS_KEY(K1_ABOVE, "iot_above") CS_KEY(K1_THRESHOLD, "iot_threshold")
+    CS_KEY(K1_MARGIN, "iot_margin") CS_KEY(K1_ANGLE_ON, "iot_angle_on") CS_KEY(K1_ANGLE_OFF, "iot_angle_off")
+    CS_KEY(K1_DUTY_ON, "iot_duty_on") CS_KEY(K1_DUTY_OFF, "iot_duty_off") CS_KEY(K1_TOGGLE, "iot_toggle")
+    CS_KEY(K1_LINEAR, "iot_linear") CS_KEY(K1_THRESHOLD_HI, "iot_threshold_hi")
+#undef CS_KEY
+
+// Config holds Strings, so it is not standard-layout: offsetof works on
+// GCC for these plain members, and it is the whole point of the table
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
+#define CS_CFG(key, m, type, def) {key, (uint16_t)offsetof(Config, m), type, (uint8_t)sizeof(Config::m), def}
+#define CS_IOT(key, m, type, def) \
+    {key, (uint16_t)(offsetof(Config, iot) + offsetof(IoTConfig, m)), type, (uint8_t)sizeof(IoTConfig::m), def}
+#define CS_V1(key, m, type) {key, (uint16_t)offsetof(Load, m), type, (uint8_t)sizeof(Load::m), 0}
+#define CS_V1IOT(key, m, type) \
+    {key, (uint16_t)(offsetof(Load, v1) + offsetof(IoTConfig, m)), type, (uint8_t)sizeof(IoTConfig::m), 0}
+
+    // In the order they are written
+    static constexpr Field FIELDS[] PROGMEM = {
+        CS_CFG(K_WEBUSR, webusr, T_STRING, 0), CS_CFG(K_WEBPSS, webpss, T_STRING, 0),
+        CS_CFG(K_TOTP, totp, T_HEX20, 0), CS_CFG(K_TOTP_STEP, totpStep, T_U32, 0),
+        CS_CFG(K_SSID, ssid, T_STRING, 0), CS_CFG(K_PASS, pass, T_STRING, 0),
+        CS_CFG(K_NTFY_TOPIC, ntfy_topic, T_CHARS, 0), CS_CFG(K_NTFY_CMD, ntfy_cmd, T_CHARS, 0),
+        CS_CFG(K_NTFY_TOKEN, ntfy_token, T_CHARS, 0), CS_CFG(K_MQTT_HOST, mqtt_host, T_CHARS, 0),
+        CS_CFG(K_MQTT_USER, mqtt_user, T_CHARS, 0), CS_CFG(K_MQTT_PASS, mqtt_pass, T_CHARS, 0),
+        CS_CFG(K_NAME, dev_name, T_CHARS, 0), CS_CFG(K_HOSTNAME, hostname, T_CHARS, 0),
+        CS_CFG(K_TZ, tz, T_I16, 0), CS_CFG(K_BAT_SDA, bat_sda, T_I8, -1),
+        CS_CFG(K_LANG, lang, T_CHARS, 0), CS_CFG(K_OTA_AUTO, ota_auto, T_BOOL, 1),
+        CS_CFG(K_API_TOKEN, api_token, T_CHARS, 0), CS_CFG(K_CF_TOKEN, cf_token, T_CHARS, 0),
+        CS_CFG(K_CF_ZONE, cf_zone, T_CHARS, 0), CS_CFG(K_CF_HOST, cf_host, T_CHARS, 0),
+        CS_CFG(K_CF_RECORD, cf_record, T_CHARS, 0),
+        CS_IOT(K_SENSOR, sensor, T_CHARS, 0), CS_IOT(K_SENSOR_PIN, sensorPin, T_I8, -1),
+        CS_IOT(K_SENSOR_HIGH, sensorHigh, T_BOOL, 1), CS_IOT(K_SENSOR_ON, onText, T_CHARS, 0),
+        CS_IOT(K_SENSOR_OFF, offText, T_CHARS, 0), CS_IOT(K_METRIC, metric, T_U8, 0),
+        CS_IOT(K_NOTIFY, notify, T_BOOL, 0), CS_IOT(K_ACTUATOR, actuator, T_CHARS, 0),
+        CS_IOT(K_ACTUATOR_PIN, actuatorPin, T_I8, -1), CS_IOT(K_ACTUATOR_HIGH, actuatorHigh, T_BOOL, 0),
+        CS_IOT(K_ANGLE_ON, angleOn, T_U8, 90), CS_IOT(K_ANGLE_OFF, angleOff, T_U8, 0),
+        CS_IOT(K_DUTY_ON, dutyOn, T_U8, 100), CS_IOT(K_DUTY_OFF, dutyOff, T_U8, 0),
+        CS_IOT(K_LEDS, leds, T_U8, 8), CS_IOT(K_MAX_ON, maxOn, T_U16, 0),
+        CS_IOT(K_RESTORE, restore, T_BOOL, 0), CS_IOT(K_RULE, rule, T_BOOL, 1),
+        CS_IOT(K_ABOVE, above, T_BOOL, 0), CS_IOT(K_THRESHOLD, threshold, T_I16, 0),
+        CS_IOT(K_MARGIN, margin, T_U8, 0), CS_IOT(K_TOGGLE, toggle, T_BOOL, 0),
+        CS_IOT(K_LINEAR, linear, T_BOOL, 0), CS_IOT(K_THRESHOLD_HI, thresholdHi, T_I16, 0),
+        CS_IOT(K_WINDOW, window, T_BOOL, 0), CS_IOT(K_WIN_START, winStart, T_U16, 0),
+        CS_IOT(K_WIN_END, winEnd, T_U16, 0),
+    };
+    static constexpr size_t FIELD_COUNT = sizeof(FIELDS) / sizeof(FIELDS[0]);
+
+    // v1 fields, into Load (defaults: those of Load and IoTConfig)
+    static constexpr Field V1_FIELDS[] PROGMEM = {
+        CS_V1(K1_SENSOR, sensor, T_I8), CS_V1(K1_MODULE, module, T_I8),
+        CS_V1(K1_SENSOR_TYPE, sensorType, T_U8), CS_V1(K1_MODULE_TYPE, moduleType, T_U8),
+        CS_V1(K1_MANUAL, manual, T_U8),
+        CS_V1IOT(K1_SENSOR_HIGH, sensorHigh, T_BOOL), CS_V1IOT(K1_MODULE_HIGH, actuatorHigh, T_BOOL),
+        CS_V1IOT(K1_NOTIFY, notify, T_BOOL), CS_V1IOT(K1_METRIC, metric, T_U8),
+        CS_V1IOT(K1_ABOVE, above, T_BOOL), CS_V1IOT(K1_THRESHOLD, threshold, T_I16),
+        CS_V1IOT(K1_MARGIN, margin, T_U8), CS_V1IOT(K1_ANGLE_ON, angleOn, T_U8),
+        CS_V1IOT(K1_ANGLE_OFF, angleOff, T_U8), CS_V1IOT(K1_DUTY_ON, dutyOn, T_U8),
+        CS_V1IOT(K1_DUTY_OFF, dutyOff, T_U8), CS_V1IOT(K1_TOGGLE, toggle, T_BOOL),
+        CS_V1IOT(K1_LINEAR, linear, T_BOOL), CS_V1IOT(K1_THRESHOLD_HI, thresholdHi, T_I16),
+    };
+    static constexpr size_t V1_COUNT = sizeof(V1_FIELDS) / sizeof(V1_FIELDS[0]);
+    static constexpr uint16_t RECORD_OFF = (uint16_t)offsetof(Config, cf_record);
+#undef CS_CFG
+#undef CS_IOT
+#undef CS_V1
+#undef CS_V1IOT
+#pragma GCC diagnostic pop
+
+    static Field _field(const Field* table, size_t i) {
+        Field f;
+        memcpy_P(&f, &table[i], sizeof(f));
+        return f;
+    }
+
+    uint8_t* _at(const Field& f) { return reinterpret_cast<uint8_t*>(&_cfg) + f.off; }
+
+    void _default(const Field& f) {
+        uint8_t* p = _at(f);
+        if (f.type == T_STRING) {
+            *reinterpret_cast<String*>(p) = f.key == K_WEBUSR ? "admin" : "";
+            return;
+        }
+        uint32_t n = (uint32_t)(int32_t)f.def;   // zero for text and the key
+        for (uint8_t i = 0; i < f.size; i++) p[i] = i < 4 ? (uint8_t)(n >> (8 * i)) : 0;
+    }
+
+    // A value of the field's type, and in its range, goes into p; anything else is ignored
+    static void _set(uint8_t* p, const Field& f, const json::Value& v) {
+        bool text = v.kind == json::STRING;
+        if (f.type == T_STRING) {
+            if (text) *reinterpret_cast<String*>(p) = json::str(v);
+        } else if (f.type == T_CHARS) {
+            if (text) json::copy(v, reinterpret_cast<char*>(p), f.size);
+        } else if (f.type == T_HEX20) {
+            char hex[Totp::KEY_LEN * 2 + 2];
+            bool fits = text && json::copy(v, hex, sizeof(hex)) < sizeof(hex);
+            Totp::fromHex(fits ? hex : "", p);
+        } else if (f.type == T_BOOL) {
+            if (v.kind == json::BOOL) *p = (uint8_t)v.mag;
+        } else {
+            static const long     LO[] = {-128, 0, -32768, 0, 0};
+            static const uint32_t HI[] = {127, 255, 32767, 65535, 0xFFFFFFFFu};
+            uint32_t n;
+            if (v.fits(LO[f.type - T_I8], HI[f.type - T_I8], n))
+                for (uint8_t i = 0; i < f.size; i++) p[i] = (uint8_t)(n >> (8 * i));
+        }
+    }
+
+    static bool _find(const Field* table, size_t count, const char* key, size_t len, Field& f) {
+        for (size_t i = 0; i < count; i++) {
+            f = _field(table, i);
+            if (json::is(key, len, f.key)) return true;
+        }
+        return false;
+    }
+
+    static void _member(void* c, const char* key, size_t len, const json::Value& v) {
+        Load& ctx = *static_cast<Load*>(c);
+        Field f;
+        if (json::is(key, len, K_V)) {
+            uint32_t n;
+            if (v.fits(-2147483647L, 0x7FFFFFFFu, n)) ctx.version = (long)(int32_t)n;
+        } else if (json::is(key, len, K_RECORDS)) {
+            // There used to be up to 5 IDs: the first one, unless cf_record is text
+            json::Value first = v.kind == json::ARRAY ? json::first(v) : json::Value();
+            if (!ctx.record && first.kind == json::STRING)
+                json::copy(first, ctx.self->_cfg.cf_record, sizeof(Config::cf_record));
+        } else if (_find(FIELDS, FIELD_COUNT, key, len, f)) {
+            _set(ctx.self->_at(f), f, v);
+            if (f.off == RECORD_OFF && v.kind == json::STRING) ctx.record = true;
+        } else if (_find(V1_FIELDS, V1_COUNT, key, len, f)) {
+            _set(reinterpret_cast<uint8_t*>(&ctx) + f.off, f, v);
+        }
+    }
+
+    size_t _write(json::Writer& w) {
+        w.num(K_V, VERSION);
+        for (size_t i = 0; i < FIELD_COUNT; i++) {
+            Field f = _field(FIELDS, i);
+            const uint8_t* p = _at(f);
+            switch (f.type) {
+                case T_STRING: w.str(f.key, reinterpret_cast<const String*>(p)->c_str()); break;
+                case T_CHARS:  w.str(f.key, reinterpret_cast<const char*>(p)); break;
+                case T_HEX20: {
+                    char hex[Totp::KEY_LEN * 2 + 1] = "";
+                    if (!Totp::blank(p)) Totp::toHex(p, hex);
+                    w.str(f.key, hex);
+                    break;
+                }
+                case T_BOOL:   w.boolean(f.key, *p != 0); break;
+                case T_I8:     w.num(f.key, *reinterpret_cast<const int8_t*>(p)); break;
+                case T_U8:     w.num(f.key, *p); break;
+                case T_I16:    w.num(f.key, *reinterpret_cast<const int16_t*>(p)); break;
+                case T_U16:    w.num(f.key, *reinterpret_cast<const uint16_t*>(p)); break;
+                default:       w.unum(f.key, *reinterpret_cast<const uint32_t*>(p)); break;
+            }
+        }
+        return w.end();
     }
 
     // v1 stored the type by its position in the old table and only drove the
     // module with a sensor. Without a sensor, the module stays off here too,
     // otherwise the pin would start being driven after the update.
-    void _migrateV1(const JsonDocument& doc) {
+    void _migrateV1(const Load& ctx) {
         IoTConfig& t = _cfg.iot;
-        t = IoTConfig{};
-        int8_t sensorPin = doc["iot_sensor"] | -1;
-        int8_t modulePin = doc["iot_module"] | -1;
-        t.sensorHigh   = doc["iot_sensor_high"]  | true;
-        t.actuatorHigh = doc["iot_module_high"]  | false;
-        t.notify       = doc["iot_notify"]       | false;
-        t.metric       = doc["iot_metric"]       | 0;
-        t.above        = doc["iot_above"]        | false;
-        t.threshold    = doc["iot_threshold"]    | 0;
-        t.margin       = doc["iot_margin"]       | 0;
-        t.angleOn      = doc["iot_angle_on"]     | 90;
-        t.angleOff     = doc["iot_angle_off"]    | 0;
-        t.dutyOn       = doc["iot_duty_on"]      | 100;
-        t.dutyOff      = doc["iot_duty_off"]     | 0;
-        t.toggle       = doc["iot_toggle"]       | false;
-        t.linear       = doc["iot_linear"]       | false;
-        t.thresholdHi  = doc["iot_threshold_hi"] | 0;
-        if (!iot::allowedPin(sensorPin)) return;
+        t = ctx.v1;
+        if (!iot::allowedPin(ctx.sensor)) return;
 
-        t.sensorPin = sensorPin;
-        strlcpy(t.sensor, iot::v1Sensor(doc["iot_sensor_type"] | 0), sizeof(t.sensor));
-        if (!iot::allowedPin(modulePin) || modulePin == sensorPin) return;
+        t.sensorPin = ctx.sensor;
+        strlcpy(t.sensor, iot::v1Sensor(ctx.sensorType), sizeof(t.sensor));
+        if (!iot::allowedPin(ctx.module) || ctx.module == ctx.sensor) return;
 
-        t.actuatorPin = modulePin;
-        strlcpy(t.actuator, iot::v1Actuator(doc["iot_module_type"] | 0), sizeof(t.actuator));
+        t.actuatorPin = ctx.module;
+        strlcpy(t.actuator, iot::v1Actuator(ctx.moduleType), sizeof(t.actuator));
         // A fixed "command" (1 on, 2 off) becomes the saved manual state
-        uint8_t manual = doc["iot_manual"] | 0;
-        if (manual == 1 || manual == 2) {
+        if (ctx.manual == 1 || ctx.manual == 2) {
             t.restore = true;
             IoTState st;
             st.manual = true;
-            st.on = manual == 1;
+            st.on = ctx.manual == 1;
             st.level = t.dutyOn;
             st.angle = t.angleOn;
             st.save();
@@ -284,7 +354,7 @@ private:
     }
 
     // Copy of the original file before the first write in the new format
-    void _backup() {
+    static void _backup() {
         File in = LittleFS.open(PATH, "r");  // just read
         File out = LittleFS.open(BACKUP_PATH, "w");
         if (!out) return;

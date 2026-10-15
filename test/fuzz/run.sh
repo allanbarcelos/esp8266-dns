@@ -8,22 +8,19 @@
 # libFuzzer + AddressSanitizer + UndefinedBehaviorSanitizer, over the same
 # stubs as the tests. A finding stops the script and leaves the case in .pio/fuzz/.
 #
-# Usage: test/fuzz/run.sh [seconds per target]   (needs clang and PlatformIO)
+# Usage: test/fuzz/run.sh [seconds per target]   (needs clang)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 SECS="${1:-30}"
 CXX="${CXX:-clang++}"
-AJ=.pio/libdeps/native/ArduinoJson/src
-[ -d "$AJ" ] || pio pkg install -e native > /dev/null
 OUT=.pio/fuzz
 mkdir -p "$OUT"
 
 for src in test/fuzz/fuzz_*.cpp; do
     name="$(basename "$src" .cpp)"
     "$CXX" -std=c++17 -g -O1 -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all \
-        -I test/stubs -I . -isystem "$AJ" -Dfirmware_version='"fuzz"' \
-        -DARDUINOJSON_ENABLE_ARDUINO_STRING=1 -DARDUINOJSON_ENABLE_PROGMEM=0 \
+        -I test/stubs -I . -Dfirmware_version='"fuzz"' \
         -Wl,--wrap=malloc "$src" -o "$OUT/$name"
     mkdir -p "$OUT/corpus/$name"
     echo "── $name (${SECS} s)"
