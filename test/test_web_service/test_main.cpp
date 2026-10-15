@@ -924,30 +924,69 @@ void test_iot_respects_gauge() {
     TEST_ASSERT_EQUAL(200, f.srv.code);
 }
 
+// Cloudflare IDs: 32 hexadecimal digits
+static const char* ZONE_ID   = "023e105f4ecef8ad9ca31a8372d0c353";
+static const char* RECORD_ID = "372e67954025e0ba6aaa6d586b9e0b59";
+
 void test_cloudflare_save_ok() {
     Fixture f;
     f.post("/cloudflare/save", {
-        {"token", "NOVO_TOKEN"}, {"zone", " ZONA "}, {"host", "h.com"}, {"record", " R1 "}});
+        {"token", "NOVO_TOKEN-x"}, {"zone", std::string(" ") + ZONE_ID + " "}, {"host", "h.com"},
+        {"record", std::string(" ") + RECORD_ID + " "}});
     TEST_ASSERT_EQUAL(200, f.srv.code);
-    TEST_ASSERT_EQUAL_STRING("NOVO_TOKEN", cfg.cf_token);
-    TEST_ASSERT_EQUAL_STRING("ZONA", cfg.cf_zone);
+    TEST_ASSERT_EQUAL_STRING("NOVO_TOKEN-x", cfg.cf_token);
+    TEST_ASSERT_EQUAL_STRING(ZONE_ID, cfg.cf_zone);
     TEST_ASSERT_EQUAL_STRING("h.com", cfg.cf_host);
-    TEST_ASSERT_EQUAL_STRING("R1", cfg.cf_record);
-    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"cf_record\":\"R1\""));
+    TEST_ASSERT_EQUAL_STRING(RECORD_ID, cfg.cf_record);
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], RECORD_ID));
     TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "NOVO_TOKEN"));
 }
 
 void test_cloudflare_save_empty_token_keeps_current() {
     Fixture f;
     strlcpy(cfg.cf_token, "OLD", sizeof(cfg.cf_token));
-    f.post("/cloudflare/save", {{"zone", "Z"}, {"record", "R"}});
+    f.post("/cloudflare/save", {{"zone", ZONE_ID}, {"record", RECORD_ID}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("OLD", cfg.cf_token);
+    f.post("/cloudflare/save", {{"zone", ""}, {"record", ""}});     // empty: not set up
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("", cfg.cf_zone);
+}
+
+// The IDs and the token go into the API request: only the characters they
+// can have, so nothing changes the path or adds a header
+void test_cloudflare_save_rejects_odd_ids_and_token() {
+    Fixture f;
+    strlcpy(cfg.cf_zone, ZONE_ID, sizeof(cfg.cf_zone));
+    strlcpy(cfg.cf_token, "OLD", sizeof(cfg.cf_token));
+    const std::string hex31(31, 'a');
+    const char* badIds[] = {"ZONA", "023e105f4ecef8ad9ca31a8372d0c35g", "023e105f/4ecef8ad9ca31a8372d0c35",
+                            "../dns_records/023e105f4ecef8ad9"};
+    for (const char* id : badIds) {
+        f.post("/cloudflare/save", {{"zone", id}, {"record", RECORD_ID}});
+        TEST_ASSERT_EQUAL(400, f.srv.code);
+        TEST_ASSERT_TRUE(contains(f.out(), "32 hexadecimal digits"));
+        f.post("/cloudflare/save", {{"zone", ZONE_ID}, {"record", id}});
+        TEST_ASSERT_EQUAL(400, f.srv.code);
+    }
+    f.post("/cloudflare/save", {{"zone", hex31}, {"record", RECORD_ID}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    const char* badTokens[] = {"a b", "tok%0d%0aX-Evil: 1", "tok/../x", "t\xc3\xa9"};
+    for (const char* t : badTokens) {
+        f.post("/cloudflare/save", {{"token", t}, {"zone", ZONE_ID}, {"record", RECORD_ID}});
+        TEST_ASSERT_EQUAL(400, f.srv.code);
+        TEST_ASSERT_TRUE(contains(f.out(), "Invalid token"));
+    }
+    f.post("/cloudflare/save", {{"token", std::string("a\r\nb")}, {"zone", ZONE_ID}, {"record", RECORD_ID}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING(ZONE_ID, cfg.cf_zone);
     TEST_ASSERT_EQUAL_STRING("OLD", cfg.cf_token);
 }
 
 void test_cloudflare_save_long_value_rejected_unchanged() {
     Fixture f;
     strlcpy(cfg.cf_zone, "ORIGINAL", sizeof(cfg.cf_zone));
-    f.post("/cloudflare/save", {{"zone", "Z"}, {"record", std::string(40, 'r')}});
+    f.post("/cloudflare/save", {{"zone", ZONE_ID}, {"record", std::string(40, 'r')}});
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "too long"));
     TEST_ASSERT_EQUAL_STRING("ORIGINAL", cfg.cf_zone);
@@ -962,7 +1001,7 @@ void test_cloudflare_save_long_value_rejected_unchanged() {
 void test_cloudflare_save_write_fails() {
     Fixture f;
     MockFS::failWriteOpen = true;
-    f.post("/cloudflare/save", {{"zone", "Z"}});
+    f.post("/cloudflare/save", {{"zone", ZONE_ID}});
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "Could not save"));
 }
@@ -2862,6 +2901,7 @@ int main() {
     RUN_TEST(test_iot_respects_gauge);
     RUN_TEST(test_cloudflare_save_ok);
     RUN_TEST(test_cloudflare_save_empty_token_keeps_current);
+    RUN_TEST(test_cloudflare_save_rejects_odd_ids_and_token);
     RUN_TEST(test_cloudflare_save_long_value_rejected_unchanged);
     RUN_TEST(test_cloudflare_save_write_fails);
     RUN_TEST(test_ntfy_page);

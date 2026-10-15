@@ -1077,10 +1077,10 @@ private:
 
         // Token: an empty field keeps the current one; a filled one replaces it
         _passwordInput(PSTR(L_API_TOKEN " <span class='m'>" L_KEEP_BLANK "</span>"),
-                       PSTR("token"), PSTR("placeholder='" L_NEW_TOKEN "' maxlength='47'"));
-        _input(PSTR(L_ZONE_ID), PSTR("zone"), _cfg.cf_zone, PSTR("maxlength='39'"));
+                       PSTR("token"), PSTR("placeholder='" L_NEW_TOKEN "' maxlength='47' pattern='[A-Za-z0-9_\\-]*'"));
+        _input(PSTR(L_ZONE_ID), PSTR("zone"), _cfg.cf_zone, PSTR("maxlength='32' pattern='[0-9a-fA-F]{32}'"));
         _input(PSTR(L_HOSTNAME_DISPLAY), PSTR("host"), _cfg.cf_host, PSTR("maxlength='63'"));
-        _input(PSTR(L_RECORD_ID), PSTR("record"), _cfg.cf_record, PSTR("maxlength='39'"));
+        _input(PSTR(L_RECORD_ID), PSTR("record"), _cfg.cf_record, PSTR("maxlength='32' pattern='[0-9a-fA-F]{32}'"));
 
         _button(PSTR(L_SAVE));
         _pageEnd();
@@ -1100,6 +1100,16 @@ private:
         if (!_argInto("zone",  zone,  sizeof(zone),  "/cloudflare")) return;
         if (!_argInto("host",  host,  sizeof(host),  "/cloudflare")) return;
         if (!_argInto("record", record, sizeof(record), "/cloudflare")) return;
+        // They go into the request to the API: an ID with / or a line break
+        // would change the path or add a header
+        if (!_cfId(zone) || !_cfId(record)) {
+            _errorPage(PSTR(L_INVALID_CF_ID), PSTR("/cloudflare"));
+            return;
+        }
+        if (!_tokenText(token)) {
+            _errorPage(PSTR(L_INVALID_CF_TOKEN), PSTR("/cloudflare"));
+            return;
+        }
 
         if (token[0]) strlcpy(_cfg.cf_token, token, sizeof(_cfg.cf_token));
         strlcpy(_cfg.cf_zone, zone, sizeof(_cfg.cf_zone));
@@ -1111,6 +1121,21 @@ private:
             return;
         }
         _savedPage(PSTR(L_CF_SET), PSTR("/cloudflare"));
+    }
+
+    // A Cloudflare zone or record ID: 32 hexadecimal digits, or empty (not set up)
+    static bool _cfId(const char* s) {
+        size_t n = strlen(s);
+        bool ok = n == 0 || n == 32;
+        for (size_t i = 0; ok && i < n; i++) ok = isxdigit((unsigned char)s[i]) != 0;
+        return ok;
+    }
+
+    // An API token: letters, digits, _ and -
+    static bool _tokenText(const char* s) {
+        for (; *s; s++)
+            if (!isalnum((unsigned char)*s) && *s != '_' && *s != '-') return false;
+        return true;
     }
 
     void _handleNtfy() {

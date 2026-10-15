@@ -97,6 +97,8 @@ ZONE_ID	Zone ID	ID da zona	ID de la zona	ID de zone
 HOSTNAME_DISPLAY	Hostname (display)	Hostname (exibição)	Hostname (visualización)	Nom d'hôte (affichage)
 RECORD_ID	Record ID	ID do registro	ID del registro	ID de l'enregistrement
 CF_SET	Cloudflare set!	Cloudflare configurado!	¡Cloudflare configurado!	Cloudflare configuré !
+INVALID_CF_ID	Invalid ID (32 hexadecimal digits, from the Cloudflare dashboard)	ID inválido (32 dígitos hexadecimais, do painel da Cloudflare)	ID no válido (32 dígitos hexadecimales, del panel de Cloudflare)	ID invalide (32 chiffres hexadécimaux, du tableau de bord Cloudflare)
+INVALID_CF_TOKEN	Invalid token (letters, digits, _ or -)	Token inválido (letras, dígitos, _ ou -)	Token no válido (letras, dígitos, _ o -)	Jeton invalide (lettres, chiffres, _ ou -)
 NTFY_TITLE	ntfy notifications	Notificações ntfy	Notificaciones ntfy	Notifications ntfy
 TOPIC	Topic:	Tópico:	Tema:	Sujet :
 TOPIC_NOT_SET	Topic not set - notifications off	Tópico não definido - notificações desligadas	Tema no definido - notificaciones desactivadas	Sujet non défini - notifications désactivées
