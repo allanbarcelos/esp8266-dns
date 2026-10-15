@@ -15,6 +15,10 @@
 // in "plain" (curl -d on). A connection with no request waits up to
 // WAIT_MS; if another one arrives with data, the idle one yields after
 // YIELD_MS (browser preconnect).
+//
+// Reading a request blocks the loop, so it has a total deadline
+// (REQUEST_MS) and a cap on header lines: a client that sends one byte
+// at a time cannot hold the loop, where the actuator's safety timer runs.
 class HttpServer {
 public:
     enum : uint8_t { GET, POST, OTHER };
@@ -25,7 +29,9 @@ public:
     static constexpr size_t        MAX_AUTH       = 200;
     static constexpr unsigned long WAIT_MS        = 5000;   // request after connecting
     static constexpr unsigned long READ_MS        = 2000;   // each chunk of the request
+    static constexpr unsigned long REQUEST_MS     = 3000;   // the whole request, once it starts
     static constexpr unsigned long YIELD_MS       = 30;
+    static constexpr uint8_t       MAX_HEADERS    = 32;
 
     explicit HttpServer(uint16_t port) : _server(port) {}
 
@@ -99,6 +105,8 @@ private:
     Handler       _handler = nullptr;
     void*         _ctx     = nullptr;
     unsigned long _since   = 0;
+    unsigned long _start   = 0;     // the request started arriving
+    bool          _late    = false; // REQUEST_MS ran out
 
     uint8_t _method = OTHER;
     char    _path[24] = {};
@@ -119,8 +127,11 @@ private:
         _form = false;
         _length = 0;
         _used = 0;
+        _start = millis();
+        _late = false;
 
         int code = _parse();
+        if (code && _late) code = 408;
         if (code) {
             send(code, "text/plain", "");
         } else {
@@ -147,9 +158,10 @@ private:
         strcpy(_path, sp + 1);
 
         long length = 0;
-        for (;;) {
+        for (uint8_t n = 0;; n++) {
             if (!_line(line, sizeof(line))) return 400;
             if (!line[0]) break;
+            if (n == MAX_HEADERS) return 431;
             char* v = strchr(line, ':');
             if (!v) continue;
             *v++ = '\0';
@@ -185,11 +197,15 @@ private:
 
     int _getc() {
         unsigned long t = millis();
-        while (!_client.available()) {
+        for (;;) {
+            if (millis() - _start >= REQUEST_MS) {
+                _late = true;
+                return -1;
+            }
+            if (_client.available()) return _client.read();
             if (!_client.connected() || millis() - t >= READ_MS) return -1;
             delay(1);
         }
-        return _client.read();
     }
 
     // Finds name=value in a=1&b=2 and decodes it (+ and %XX)

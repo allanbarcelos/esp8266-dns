@@ -173,6 +173,42 @@ void test_incomplete_body() {
     TEST_ASSERT_EQUAL(0, p.calls);
 }
 
+// A client that sends one byte at a time, each within READ_MS, is cut at
+// REQUEST_MS: the loop (and the actuator's safety timer) gets back in time
+void test_slow_client_hits_the_deadline() {
+    Probe p;
+    setMillis(1000);
+    auto c = p.connect("GET / HTTP/1.1\r\n");
+    c->drip = std::string(1000, 'x');
+    c->dripMs = HttpServer::READ_MS - 1;
+    c->dripAt = 1000;
+    p.srv.handleClient();
+    TEST_ASSERT_EQUAL(0, p.calls);
+    TEST_ASSERT_TRUE(c->closed);
+    TEST_ASSERT_TRUE(contains(c->tx, "HTTP/1.1 408 "));
+    TEST_ASSERT_TRUE(millis() >= 1000 + HttpServer::REQUEST_MS);
+    TEST_ASSERT_TRUE(millis() < 1000 + HttpServer::REQUEST_MS + HttpServer::READ_MS);
+
+    // A slow request that ends in time is served
+    auto d = p.connect("GET /slow HTTP/1.1\r\n");
+    d->drip = "\r\n";
+    d->dripMs = 1000;
+    d->dripAt = millis();
+    p.srv.handleClient();
+    TEST_ASSERT_EQUAL_STRING("/slow", p.path.c_str());
+}
+
+void test_too_many_header_lines() {
+    Probe p;
+    std::string r = "GET / HTTP/1.1\r\n";
+    for (int i = 0; i < HttpServer::MAX_HEADERS; i++) r += "X: 1\r\n";
+    p.b.send(r + "\r\n");
+    TEST_ASSERT_EQUAL(1, p.calls);
+    p.b.send(r + "X: 1\r\n\r\n");
+    TEST_ASSERT_EQUAL(431, p.b.code);
+    TEST_ASSERT_EQUAL(1, p.calls);
+}
+
 // ── connection without a request ─────────────────────────────────────────────
 
 void test_idle_connection_waits_and_gives_up() {
@@ -295,6 +331,8 @@ int main() {
     RUN_TEST(test_path_too_long);
     RUN_TEST(test_body_too_large_or_negative);
     RUN_TEST(test_incomplete_body);
+    RUN_TEST(test_slow_client_hits_the_deadline);
+    RUN_TEST(test_too_many_header_lines);
     RUN_TEST(test_idle_connection_waits_and_gives_up);
     RUN_TEST(test_connection_closed_without_request);
     RUN_TEST(test_idle_connection_yields_to_another);

@@ -189,6 +189,17 @@ struct MockConn {
     bool        open   = true;    // the browser has not closed yet
     bool        closed = false;   // the device called stop()
     int         writes = 0;
+    // A slow client: once rx runs out, one byte of drip arrives every dripMs
+    std::string   drip;
+    unsigned long dripMs = 0;
+    unsigned long dripAt = 0;
+
+    void pump() {
+        if (pos < rx.size() || drip.empty() || millis() - dripAt < dripMs) return;
+        rx += drip[0];
+        drip.erase(0, 1);
+        dripAt = millis();
+    }
 };
 
 class WiFiClient {
@@ -196,7 +207,11 @@ public:
     WiFiClient() = default;
     explicit WiFiClient(MockConn* c) : _conn(c) {}
     virtual ~WiFiClient() {}
-    virtual int    available()                 { return _conn ? (int)(_conn->rx.size() - _conn->pos) : 0; }
+    virtual int    available() {
+        if (!_conn) return 0;
+        _conn->pump();
+        return (int)(_conn->rx.size() - _conn->pos);
+    }
     virtual int    read() {
         if (!_conn || _conn->pos >= _conn->rx.size()) return -1;
         return (uint8_t)_conn->rx[_conn->pos++];
