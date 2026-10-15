@@ -112,6 +112,25 @@ void test_headers() {
     TEST_ASSERT_EQUAL_STRING("", p.srv.cookie().c_str());
 }
 
+// Host without the port, lowercase; none is ""; odd ones are "?"
+void test_host_header() {
+    Probe p;
+    std::string host;
+    p.reply = [&host](Probe& q) { host = q.srv.host(); q.srv.send(200, "text/plain", ""); };
+    p.b.send("GET / HTTP/1.1\r\nHost: Garage.LAN:8080\r\n\r\n");
+    TEST_ASSERT_EQUAL_STRING("garage.lan", host.c_str());
+    p.b.send("GET / HTTP/1.1\r\nhost: 192.168.1.50\r\n\r\n");
+    TEST_ASSERT_EQUAL_STRING("192.168.1.50", host.c_str());
+    p.b.send("GET / HTTP/1.1\r\n\r\n");
+    TEST_ASSERT_EQUAL_STRING("", host.c_str());
+    p.b.send("GET / HTTP/1.1\r\nHost: :80\r\n\r\n");
+    TEST_ASSERT_EQUAL_STRING("?", host.c_str());
+    p.b.send("GET / HTTP/1.1\r\nHost: " + std::string(64, 'h') + "\r\n\r\n");
+    TEST_ASSERT_EQUAL_STRING("?", host.c_str());
+    p.b.send("GET / HTTP/1.1\r\nHost: " + std::string(63, 'h') + "\r\n\r\n");
+    TEST_ASSERT_EQUAL(63, (int)host.size());
+}
+
 void test_unknown_method_reaches_handler() {
     Probe p;
     p.b.send("DELETE /x HTTP/1.1\r\n\r\n");
@@ -326,6 +345,7 @@ int main() {
     RUN_TEST(test_body_that_is_not_a_form);
     RUN_TEST(test_decoding_and_similar_names);
     RUN_TEST(test_headers);
+    RUN_TEST(test_host_header);
     RUN_TEST(test_unknown_method_reaches_handler);
     RUN_TEST(test_malformed_request);
     RUN_TEST(test_path_too_long);

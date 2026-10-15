@@ -72,6 +72,7 @@ struct Config {
     char    mqtt_pass[64]             = {};
     char    dev_name[32]              = {};   // name on the panel and in Home Assistant; "" = default
     char    hostname[33]              = {};   // name in the router's DHCP; "" = the core's (ESP-xxxxxx)
+    char    web_hosts[64]             = {};   // other names the panel answers to (tunnel), comma-separated
     int16_t tz                        = 0;    // time zone: minutes from UTC (local time)
     int8_t  bat_sda                   = -1;   // battery gauge (MAX17048): SDA; -1 = no gauge
     char    lang[3]                   = {};   // panel language (en, pt, es, fr); "" = the browser's

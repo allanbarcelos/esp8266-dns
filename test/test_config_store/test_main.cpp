@@ -320,6 +320,7 @@ void test_full_round_trip() {
     strlcpy(config.cf_record,  "rec_aaa",          sizeof(config.cf_record));
     strlcpy(config.dev_name,   "Garage gate", sizeof(config.dev_name));
     strlcpy(config.hostname,   "portao",           sizeof(config.hostname));
+    strlcpy(config.web_hosts,  "esp.example.com",  sizeof(config.web_hosts));
     config.tz = -180;
     config.bat_sda = 3;
     strlcpy(config.lang, "pt", sizeof(config.lang));
@@ -337,6 +338,7 @@ void test_full_round_trip() {
     TEST_ASSERT_TRUE(store.load());
     TEST_ASSERT_EQUAL_STRING("Garage gate", config.dev_name);
     TEST_ASSERT_EQUAL_STRING("portao",           config.hostname);
+    TEST_ASSERT_EQUAL_STRING("esp.example.com",  config.web_hosts);
     TEST_ASSERT_EQUAL(-180, config.tz);
     TEST_ASSERT_EQUAL(3, config.bat_sda);
     TEST_ASSERT_EQUAL_STRING("pt", config.lang);

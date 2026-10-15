@@ -157,7 +157,7 @@ private:
     CS_KEY(K_TOTP_STEP, "totp_step") CS_KEY(K_SSID, "ssid") CS_KEY(K_PASS, "pass")
     CS_KEY(K_NTFY_TOPIC, "ntfy_topic") CS_KEY(K_NTFY_CMD, "ntfy_cmd") CS_KEY(K_NTFY_TOKEN, "ntfy_token")
     CS_KEY(K_MQTT_HOST, "mqtt_host") CS_KEY(K_MQTT_USER, "mqtt_user") CS_KEY(K_MQTT_PASS, "mqtt_pass")
-    CS_KEY(K_NAME, "name") CS_KEY(K_HOSTNAME, "hostname") CS_KEY(K_TZ, "tz") CS_KEY(K_BAT_SDA, "bat_sda")
+    CS_KEY(K_NAME, "name") CS_KEY(K_HOSTNAME, "hostname") CS_KEY(K_HOSTS, "hosts") CS_KEY(K_TZ, "tz") CS_KEY(K_BAT_SDA, "bat_sda")
     CS_KEY(K_LANG, "lang") CS_KEY(K_OTA_AUTO, "ota_auto") CS_KEY(K_API_TOKEN, "api_token")
     CS_KEY(K_CF_TOKEN, "cf_token") CS_KEY(K_CF_ZONE, "cf_zone") CS_KEY(K_CF_HOST, "cf_host")
     CS_KEY(K_CF_RECORD, "cf_record") CS_KEY(K_SENSOR, "sensor") CS_KEY(K_SENSOR_PIN, "sensor_pin")
@@ -201,6 +201,7 @@ private:
         CS_CFG(K_NTFY_TOKEN, ntfy_token, T_CHARS, 0), CS_CFG(K_MQTT_HOST, mqtt_host, T_CHARS, 0),
         CS_CFG(K_MQTT_USER, mqtt_user, T_CHARS, 0), CS_CFG(K_MQTT_PASS, mqtt_pass, T_CHARS, 0),
         CS_CFG(K_NAME, dev_name, T_CHARS, 0), CS_CFG(K_HOSTNAME, hostname, T_CHARS, 0),
+        CS_CFG(K_HOSTS, web_hosts, T_CHARS, 0),
         CS_CFG(K_TZ, tz, T_I16, 0), CS_CFG(K_BAT_SDA, bat_sda, T_I8, -1),
         CS_CFG(K_LANG, lang, T_CHARS, 0), CS_CFG(K_OTA_AUTO, ota_auto, T_BOOL, 1),
         CS_CFG(K_API_TOKEN, api_token, T_CHARS, 0), CS_CFG(K_CF_TOKEN, cf_token, T_CHARS, 0),

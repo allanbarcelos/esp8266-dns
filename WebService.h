@@ -253,6 +253,10 @@ private:
 
     // Route by path and method; anything else is a 404
     void _route() {
+        if (!_hostOk()) {
+            _server.send(421, "text/plain", "Unknown address; add it under Settings, Other addresses");
+            return;
+        }
         const char* p = _server.path();
         if (_server.method() == HttpServer::GET) {
             if (!strcmp_P(p, PSTR("/")))           return _handleRoot();
@@ -305,6 +309,35 @@ private:
     }
 
     // ── Security ──────────────────────────────────────────────────────────────
+
+    // DNS rebinding: a page on another site that points its own name at the
+    // device's address would reach the panel as that site, from inside the
+    // home. So only the names the device answers to: an IP address, a name
+    // with no dot (the router's DNS), the hostname with any domain after it
+    // (garage.local), the Cloudflare host, and the names listed in Settings
+    // (a tunnel or a proxy). No Host header at all is not a browser.
+    bool _hostOk() const {
+        const char* h = _server.host();
+        if (*h == '?') return false;
+        if (!*h || !strchr(h, '.') || strspn(h, "0123456789.") == strlen(h)) return true;
+        char own[sizeof(_cfg.hostname)];
+        if (_cfg.hostname[0]) strlcpy(own, _cfg.hostname, sizeof(own));
+        else snprintf(own, sizeof(own), "esp-%06x", (unsigned)ESP.getChipId());   // the core's ESP-XXXXXX
+        size_t label = strcspn(h, ".");
+        if (strlen(own) == label && strncasecmp(h, own, label) == 0) return true;
+        return strcasecmp(h, _cfg.cf_host) == 0 || _listed(_cfg.web_hosts, h);
+    }
+
+    // h is one of the comma-separated names in list
+    static bool _listed(const char* list, const char* h) {
+        size_t n = strlen(h);
+        for (const char* p = list; *p;) {
+            size_t k = strcspn(p, ",");
+            if (k == n && strncasecmp(p, h, n) == 0) return true;
+            p += k + (p[k] == ',');
+        }
+        return false;
+    }
 
     // Token from the hardware RNG on every boot and every password change.
     // It guards the forms used before a session exists (sign-in, first
@@ -864,6 +897,8 @@ private:
         _input(PSTR("Hostname <span class='m'>" L_HOSTNAME_HINT "</span>"),
                PSTR("hostname"), _cfg.hostname,
                PSTR("maxlength='32' pattern='[A-Za-z0-9]([A-Za-z0-9\\-]*[A-Za-z0-9])?'"));
+        _input(PSTR(L_OTHER_NAMES " <span class='m'>" L_OTHER_NAMES_HINT "</span>"), PSTR("hosts"),
+               _cfg.web_hosts, PSTR("maxlength='63' pattern='[A-Za-z0-9.,\\-]*' placeholder='esp.example.com'"));
         _tzSelect();
         _pinSelect(PSTR(L_GAUGE " <span class='m'>" L_GAUGE_HINT "</span>"), PSTR("bat_sda"), _cfg.bat_sda,
                    PSTR(L_NONE));
@@ -911,6 +946,7 @@ private:
         if (!_checkCSRF()) return;
         String name = _server.arg("name");
         String host = _server.arg("hostname");
+        String hosts = _server.arg("hosts");
         int16_t tz = 0;
         String tzArg = _server.arg("tz");
         if (tzArg.length() && (!IoTService::parseI16(tzArg, -720, 840, tz) || !validTz(tz))) {
@@ -952,7 +988,18 @@ private:
             _errorPage(PSTR(L_INVALID_HOSTNAME), PSTR("/config"));
             return;
         }
+        hosts.trim();
+        ok = hosts.length() < sizeof(_cfg.web_hosts);
+        for (size_t i = 0; ok && i < hosts.length(); i++) {
+            char c = hosts.c_str()[i];
+            ok = isalnum((unsigned char)c) || c == '.' || c == ',' || c == '-';
+        }
+        if (!ok) {
+            _errorPage(PSTR(L_INVALID_NAMES), PSTR("/config"));
+            return;
+        }
         strlcpy(_cfg.dev_name, name.c_str(), sizeof(_cfg.dev_name));
+        strlcpy(_cfg.web_hosts, hosts.c_str(), sizeof(_cfg.web_hosts));
         strlcpy(_cfg.hostname, host.c_str(), sizeof(_cfg.hostname));
         _cfg.tz = tz;
         _cfg.bat_sda = bat;

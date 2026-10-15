@@ -646,6 +646,57 @@ void test_settings_save_name_and_hostname() {
     TEST_ASSERT_EQUAL_STRING("", WiFi.hostName.c_str());
 }
 
+// Only the names the device answers to: a page on another site that points
+// its own name at the device (DNS rebinding) gets 421 before any route
+static int hostGet(Fixture& f, const char* host) {
+    std::string r = "GET /login HTTP/1.1\r\n";
+    if (host) r += std::string("Host: ") + host + "\r\n";
+    f.srv.send(r + "\r\n");
+    return f.srv.code;
+}
+
+void test_unknown_host_is_refused() {
+    strlcpy(cfg.cf_host, "home.example.com", sizeof(cfg.cf_host));
+    Fixture f;
+    const char* allowed[] = {nullptr, "esp", "192.168.1.50:80", "ESP-00DEAD.local", "esp-00dead.lan",
+                             "Home.Example.com"};
+    for (const char* h : allowed) TEST_ASSERT_EQUAL_MESSAGE(200, hostGet(f, h), h ? h : "(none)");
+    const char* refused[] = {"evil.com", "esp-00dead1.lan", "esp-00beef.lan", "esp.example.com", "1.2.3.4.evil.com", ":80",
+                             "home.example.com.evil.com"};
+    for (const char* h : refused) {
+        TEST_ASSERT_EQUAL_MESSAGE(421, hostGet(f, h), h);
+        TEST_ASSERT_TRUE(contains(f.srv.out, "Unknown address"));
+    }
+
+    // A hostname of its own replaces the core's, and Settings can list more
+    strlcpy(cfg.hostname, "Garage", sizeof(cfg.hostname));
+    strlcpy(cfg.web_hosts, "esp.example.com,Other.Example.org", sizeof(cfg.web_hosts));
+    TEST_ASSERT_EQUAL(200, hostGet(f, "garage.local"));
+    TEST_ASSERT_EQUAL(421, hostGet(f, "esp-00dead.lan"));
+    TEST_ASSERT_EQUAL(200, hostGet(f, "esp.example.com"));
+    TEST_ASSERT_EQUAL(200, hostGet(f, "other.example.org"));
+    TEST_ASSERT_EQUAL(421, hostGet(f, "example.com"));
+    TEST_ASSERT_EQUAL(421, hostGet(f, "esp.example.co"));
+    TEST_ASSERT_EQUAL(421, hostGet(f, "esp.example.net"));          // as long as a listed one
+}
+
+void test_settings_save_other_addresses() {
+    Fixture f;
+    f.get("/config");
+    TEST_ASSERT_TRUE(contains(f.out(), "name='hosts'"));
+    f.post("/config/save", {{"name", ""}, {"hostname", ""}, {"hosts", " esp.example.com,b-2.example.org "}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("esp.example.com,b-2.example.org", cfg.web_hosts);
+    std::string tooLong(64, 'a');
+    const char* bad[] = {"a b.com", "x.com;y.com", "evil.com/", tooLong.c_str()};
+    for (const char* h : bad) {
+        f.post("/config/save", {{"name", ""}, {"hostname", ""}, {"hosts", h}});
+        TEST_ASSERT_EQUAL(400, f.srv.code);
+        TEST_ASSERT_TRUE(contains(f.out(), "Invalid addresses"));
+    }
+    TEST_ASSERT_EQUAL_STRING("esp.example.com,b-2.example.org", cfg.web_hosts);
+}
+
 void test_settings_refuse_invalid_name_or_hostname() {
     Fixture f;
     const char* names[] = {"com \"aspas\"", "barra \\", "tab\tx", "del\x7f",
@@ -2889,6 +2940,8 @@ int main() {
     RUN_TEST(test_cloudflare_with_masked_token_and_escaped_values);
     RUN_TEST(test_name_in_title_and_header);
     RUN_TEST(test_settings_save_name_and_hostname);
+    RUN_TEST(test_unknown_host_is_refused);
+    RUN_TEST(test_settings_save_other_addresses);
     RUN_TEST(test_settings_refuse_invalid_name_or_hostname);
     RUN_TEST(test_time_zone);
     RUN_TEST(test_panel_language);

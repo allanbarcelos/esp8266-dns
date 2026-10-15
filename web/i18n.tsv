@@ -59,6 +59,9 @@ INVALID_LANG	Invalid language	Idioma inválido	Idioma no válido	Langue invalide
 GAUGE_PINS_TAKEN	The gauge pins are taken by the sensor or the actuator	Os pinos do medidor estão ocupados pelo sensor ou pelo atuador	Los pines del medidor están ocupados por el sensor o el actuador	Les broches de la jauge sont prises par le capteur ou l'actionneur
 INVALID_NAME	Invalid name (up to 31 characters, no quotes)	Nome inválido (até 31 caracteres, sem aspas)	Nombre no válido (hasta 31 caracteres, sin comillas)	Nom invalide (31 caractères maximum, sans guillemets)
 INVALID_HOSTNAME	Invalid hostname (letters, digits and hyphen)	Hostname inválido (letras, dígitos e hífen)	Hostname no válido (letras, dígitos y guion)	Nom d'hôte invalide (lettres, chiffres et trait d'union)
+OTHER_NAMES	Other addresses	Outros endereços	Otras direcciones	Autres adresses
+OTHER_NAMES_HINT	(names of a tunnel or proxy, separated by commas)	(nomes de um túnel ou proxy, separados por vírgula)	(nombres de un túnel o proxy, separados por comas)	(noms d’un tunnel ou proxy, séparés par des virgules)
+INVALID_NAMES	Invalid addresses (letters, digits, dots, hyphens and commas)	Endereços inválidos (letras, dígitos, pontos, hífens e vírgulas)	Direcciones no válidas (letras, dígitos, puntos, guiones y comas)	Adresses invalides (lettres, chiffres, points, traits d’union et virgules)
 SETTINGS_SAVED	Settings saved!	Configurações salvas!	¡Configuración guardada!	Paramètres enregistrés !
 SYSTEM_LOG	System log	Log do sistema	Registro del sistema	Journal du système
 SYSTEM	System	Sistema	Sistema	Système

@@ -63,6 +63,9 @@ public:
     const char*   path() const          { return _path; }
     const String& authorization() const { return _auth; }
     const String& cookie() const         { return _cookie; }
+    // The Host header without the port, lowercase; "" if none was sent. A
+    // name longer than the buffer, or with no name before the port, is "?".
+    const char*   host() const           { return _host; }
     uint32_t      remoteIP()             { return (uint32_t)_client.remoteIP(); }
 
     // Argument value (query, then urlencoded body); "plain" is the body
@@ -111,6 +114,7 @@ private:
 
     uint8_t _method = OTHER;
     char    _path[24] = {};
+    char    _host[64] = {};
     String  _query, _body, _auth, _cookie, _headers;
     bool    _form   = false;
     size_t  _length = 0;
@@ -120,6 +124,7 @@ private:
 
     void _serve() {
         _path[0] = '\0';
+        _host[0] = '\0';
         _query = String();
         _body = String();
         _auth = String();
@@ -169,6 +174,7 @@ private:
             while (*v == ' ') v++;
             if (strcasecmp(line, "Authorization") == 0) _auth = v;
             else if (strcasecmp(line, "Cookie") == 0) _cookie = v;
+            else if (strcasecmp(line, "Host") == 0) _setHost(v);
             else if (strcasecmp(line, "Content-Length") == 0) length = atol(v);
             else if (strcasecmp(line, "Content-Type") == 0)
                 _form = strstr(v, "x-www-form-urlencoded") != nullptr;
@@ -181,6 +187,16 @@ private:
             _body += (char)c;
         }
         return 0;
+    }
+
+    void _setHost(const char* v) {
+        size_t n = strcspn(v, ":");
+        if (n == 0 || n >= sizeof(_host)) {
+            strcpy(_host, "?");
+            return;
+        }
+        for (size_t i = 0; i < n; i++) _host[i] = (char)tolower((unsigned char)v[i]);
+        _host[n] = '\0';
     }
 
     // One line without the \r\n; whatever exceeds the buffer is dropped

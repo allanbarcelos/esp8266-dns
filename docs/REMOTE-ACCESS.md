@@ -80,6 +80,8 @@ with the tunnel created by `cloudflared tunnel create home`, the DNS by `cloudfl
 
 Use a subdomain different from the records the device itself updates through DDNS.
 
+Then tell the device about that name: on the panel, at home, open **Settings** and enter `esp.yourdomain.com` under **Other addresses**. The panel only answers to its own names (an IP address, its hostname, the Cloudflare host and that list); a page on another site that points its own name at the device gets nothing (DNS rebinding). Without this step the tunnel shows "Unknown address". Instead of the list, you can also have `cloudflared` send the device's IP as the host (**HTTP Host Header** in the tunnel's settings, `httpHostHeader` in `config.yml`).
+
 ### 2. Login in front (required)
 
 Without this part, the panel is public with only the device's password and authenticator. In **Zero Trust → Access → Applications → Add an application → Self-hosted**:
