@@ -3,8 +3,8 @@
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 # Fuzzing of the parsers of outside input: MQTT packets from the broker,
-# command text, the Cloudflare response, the ntfy stream, config.json and
-# the DNS answer to the reverse query.
+# command text, HTTPS answers, the Cloudflare response, the ntfy stream,
+# config.json and the DNS answer to the reverse query.
 # libFuzzer + AddressSanitizer + UndefinedBehaviorSanitizer, over the same
 # stubs as the tests. A finding stops the script and leaves the case in .pio/fuzz/.
 #

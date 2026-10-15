@@ -104,7 +104,7 @@ void test_connection_error() {
     Fix f;
     MockHTTP::failNextBegin();
     f.ntfy.tick(0);
-    TEST_ASSERT_TRUE(logHas(logger, "ntfy: connection failed"));
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy error: -1"));
     TEST_ASSERT_EQUAL(0, (int)MockHTTP::requests.size());
 }
 
@@ -113,7 +113,7 @@ void test_negative_code() {
     Fix f;
     MockHTTP::push(-1);
     f.ntfy.tick(0);
-    TEST_ASSERT_TRUE(logHas(logger, "ntfy error: -1"));
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy error: -2"));
 }
 
 void test_not_enough_memory_does_not_post() {
@@ -665,20 +665,21 @@ void test_post_clock_at_the_edge() {
 }
 
 // Certificate rejected (man in the middle, changed CA): the handshake fails,
-// HTTPClient returns a negative code and the event waits for the next time
+// the connection does not open and the event waits for the next time
 void test_post_rejected_certificate_retries() {
     Fix f;
     IoTService iot{cfg, logger};
     NtfyNotifier ntfy{cfg, logger, f.clock, &iot};
     sensorEvent(iot);
-    MockHTTP::push(-1);
+    MockHTTP::failNextBegin();
     ntfy.tick(0);
     TEST_ASSERT_TRUE(logHas(logger, "ntfy error: -1"));
     TEST_ASSERT_TRUE(iot.pending());
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::requests.size());
 
     MockHTTP::push(200, "ok");
     ntfy.tick(NtfyNotifier::POST_GAP);
-    TEST_ASSERT_EQUAL(2, (int)MockHTTP::requests.size());
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
     TEST_ASSERT_FALSE(iot.pending());
     for (auto& r : MockHTTP::requests) TEST_ASSERT_TRUE(cloudflareTrust(r.trust));
 }

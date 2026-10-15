@@ -6,7 +6,6 @@
 #include <lwip/udp.h>
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
 #include <LittleFS.h>
 #include <Updater.h>
 #include <cstring>

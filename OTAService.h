@@ -12,7 +12,7 @@
 #include "Version.h"
 #include "FlashLayout.h"
 #include "WiFiService.h"
-#include "PublicIPResolver.h"
+#include "TlsClient.h"
 
 // OTA update from GitHub Releases.
 //

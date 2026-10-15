@@ -3,14 +3,14 @@
 
 #pragma once
 #include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
 #include <ArduinoJson.h>
 #include "Config.h"
 #include "Logger.h"
 #include "Clock.h"
 #include "CloudflareCA.h"
 #include "WiFiService.h"
-#include "PublicIPResolver.h"  // TlsClient
+#include "PublicIPResolver.h"  // memoryOk
+#include "TlsClient.h"
 
 // Keeps the Cloudflare A record pointing at the public IP.
 //
@@ -72,11 +72,6 @@ private:
     }
 
     bool _patchRecord(const BearSSL::X509List& trust, const char* record, const char* ip) {
-        String url = "https://api.cloudflare.com/client/v4/zones/";
-        url += _cfg.cf_zone;
-        url += "/dns_records/";
-        url += record;
-
         if (!PublicIPResolver::memoryOk()) {
             _log.log(PSTR("DNS: not enough memory"));
             return false;
@@ -89,23 +84,15 @@ private:
             return false;
         }
 
-        HTTPClient http;
-        http.setTimeout(5000);
-        if (!http.begin(client, url)) {
-            _log.log(PSTR("DNS: connection failed"));
-            return false;
-        }
-        http.addHeader("Authorization", String("Bearer ") + _cfg.cf_token);
-        http.addHeader("Content-Type", "application/json");
-
-        String payload = "{\"content\":\"";
-        payload += ip;
-        payload += "\"}";
-
-        int code = http.PATCH(payload);
-        String resp = (code > 0) ? http.getString() : String();
-        http.end();
-        client.stop();  // HTTPClient keep-alive would keep the TLS session open
+        char path[sizeof("/client/v4/zones//dns_records/") + sizeof(_cfg.cf_zone) + sizeof(_cfg.cf_record)];
+        char auth[sizeof("Authorization: Bearer \r\nContent-Type: application/json\r\n") + sizeof(_cfg.cf_token)];
+        char payload[sizeof("{\"content\":\"\"}") + sizeof(_cfg.publicIP)];
+        snprintf_P(path, sizeof(path), PSTR("/client/v4/zones/%s/dns_records/%s"), _cfg.cf_zone, record);
+        snprintf_P(auth, sizeof(auth), PSTR("Authorization: Bearer %s\r\nContent-Type: application/json\r\n"),
+                   _cfg.cf_token);
+        snprintf_P(payload, sizeof(payload), PSTR("{\"content\":\"%s\"}"), ip);
+        String resp;
+        int code = https::request(client, "api.cloudflare.com", "PATCH", path, auth, payload, 5000, &resp);
 
         if (code <= 0) {
             _log.log(PSTR("DNS connection error: %d"), code);

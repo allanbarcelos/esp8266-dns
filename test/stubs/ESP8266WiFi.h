@@ -20,7 +20,7 @@ namespace MockTLS {
     };
 }
 
-// ── Shared HTTP queue (API via HTTPClient, download via raw TLS) ─────────────
+// ── Shared HTTP queue (requests and the OTA download, over the TLS mock) ─────
 namespace MockHTTP {
     struct Response {
         int code = 200;
@@ -29,9 +29,16 @@ namespace MockHTTP {
         std::string location;
     };
 
+    // A one-shot request (Connection: close): https::request and the OTA.
+    // The ntfy command stream is not recorded.
     struct Request {
         std::string method, url, payload;
-        std::vector<std::pair<std::string, std::string>> headers;
+        std::vector<std::pair<std::string, std::string>> headers;   // without Host
+        std::string header(const char* name) const {
+            for (auto& h : headers)
+                if (h.first == name) return h.second;
+            return "";
+        }
         // TLS of the client that made the request (certificate validation)
         MockTLS::Trust trust;
         long        x509Time = 0;
@@ -63,6 +70,7 @@ namespace MockHTTP {
         queue.push_back({code, body, size, location});
     }
 
+    // The next TLS connection does not open
     inline void failNextBegin() { beginResults.push_back(false); }
 
     inline bool nextBegin() {
@@ -380,6 +388,7 @@ public:
         if (MockTLS::failConnect) return 0;
         if (MockTLS::failOnConnect > 0 &&
             MockTLS::connectCalls == MockTLS::failOnConnect) return 0;
+        if (!MockHTTP::nextBegin()) return 0;
         _host = host ? host : "";
         _connected = true;
         MockTLS::live = this;
@@ -389,12 +398,18 @@ public:
         return 1;
     }
 
+    // The response goes out once the request is whole: headers and the
+    // body of its Content-Length
     size_t write(const uint8_t* buf, size_t n) override {
         _tx.append(reinterpret_cast<const char*>(buf), n);
-        if (_tx.find("\r\n\r\n") != std::string::npos) {
-            _serveResponse();
-            _tx.clear();
-        }
+        auto end = _tx.find("\r\n\r\n");
+        if (end == std::string::npos) return n;
+        size_t body = 0;
+        auto cl = _tx.find("Content-Length: ");
+        if (cl != std::string::npos && cl < end) body = std::stoul(_tx.substr(cl + 16));
+        if (_tx.size() < end + 4 + body) return n;
+        _serveResponse(end);
+        _tx.clear();
         return n;
     }
 
@@ -433,22 +448,41 @@ public:
     }
 
 private:
-    void _serveResponse() {
+    void _record(size_t end, const std::string& host, const std::string& path) {
+        MockHTTP::Request r;
+        r.method = _tx.substr(0, _tx.find(' '));
+        r.url = "https://" + host + path;
+        r.payload = _tx.substr(end + 4);
+        size_t pos = _tx.find("\r\n") + 2;
+        while (pos < end) {
+            size_t eol = _tx.find("\r\n", pos);
+            std::string line = _tx.substr(pos, eol - pos);
+            size_t colon = line.find(": ");
+            if (line.compare(0, 6, "Host: ") != 0)
+                r.headers.push_back({line.substr(0, colon), line.substr(colon + 2)});
+            pos = eol + 2;
+        }
+        r.trust = trust;
+        r.x509Time = (long)x509Time;
+        r.insecure = insecure;
+        MockHTTP::requests.push_back(r);
+    }
+
+    void _serveResponse(size_t end) {
         std::string path = "/";
-        auto getPos = _tx.find("GET ");
-        if (getPos != std::string::npos) {
-            auto end = _tx.find(' ', getPos + 4);
-            if (end != std::string::npos)
-                path = _tx.substr(getPos + 4, end - (getPos + 4));
+        auto sp = _tx.find(' ');
+        if (sp != std::string::npos) {
+            auto stop = _tx.find(' ', sp + 1);
+            if (stop != std::string::npos) path = _tx.substr(sp + 1, stop - sp - 1);
         }
         std::string host = _host;
         auto hostPos = _tx.find("Host: ");
         if (hostPos != std::string::npos) {
-            auto end = _tx.find("\r\n", hostPos);
-            if (end != std::string::npos)
-                host = _tx.substr(hostPos + 6, end - (hostPos + 6));
+            auto stop = _tx.find("\r\n", hostPos);
+            if (stop != std::string::npos) host = _tx.substr(hostPos + 6, stop - (hostPos + 6));
         }
         MockHTTP::calledURLs.push_back("https://" + host + path);
+        if (_tx.find("Connection: close") != std::string::npos) _record(end, host, path);
         MockHTTP::lastRaw = _tx;
         MockHTTP::lastHTTP10 = _tx.find("HTTP/1.0") != std::string::npos;
         if (_tx.find("User-Agent: ESP8266-dns") != std::string::npos)
@@ -463,6 +497,11 @@ private:
         }
 
         auto r = MockHTTP::next();
+        if (r.code < 0) {                       // the connection drops with no answer
+            _rx.clear();
+            _rxPos = 0;
+            return;
+        }
         int size = r.size;
         if (size == -2) size = -1;
         else if (size < 0) size = (int)r.body.size();

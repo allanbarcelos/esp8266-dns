@@ -84,8 +84,8 @@ void test_updates_the_record() {
     TEST_ASSERT_EQUAL_STRING("PATCH", p.method.c_str());
     TEST_ASSERT_EQUAL_STRING("https://api.cloudflare.com/client/v4/zones/ZONE/dns_records/REC0", p.url.c_str());
     TEST_ASSERT_EQUAL_STRING("{\"content\":\"1.2.3.4\"}", p.payload.c_str());
-    TEST_ASSERT_EQUAL_STRING("Authorization", p.headers[0].first.c_str());
-    TEST_ASSERT_EQUAL_STRING("Bearer TOKEN",  p.headers[0].second.c_str());
+    TEST_ASSERT_EQUAL_STRING("Bearer TOKEN", p.header("Authorization").c_str());
+    TEST_ASSERT_EQUAL_STRING("application/json", p.header("Content-Type").c_str());
 
     // TLS validated with the embedded roots and the current clock
     TEST_ASSERT_TRUE(cloudflareTrust(MockTLS::lastTrust));
@@ -222,14 +222,14 @@ void test_tls_connection_error() {
     Fixture f;
     MockHTTP::push(-1);
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS connection error: -1"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS connection error: -2"));
 }
 
 void test_connection_start_fails() {
     Fixture f;
     MockHTTP::failNextBegin();
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS: connection failed"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS connection error: -1"));
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
 }
 

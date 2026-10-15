@@ -3,12 +3,12 @@
 
 #pragma once
 #include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
 #include <ArduinoJson.h>
 #include "Config.h"
 #include "Logger.h"
 #include "Clock.h"
 #include "PublicIPResolver.h"
+#include "TlsClient.h"
 #include "IoTService.h"
 
 // ntfy.sh both ways.
@@ -107,7 +107,7 @@ private:
     unsigned long _lastData = 0;
     uint16_t      _backoff = 5;
 
-    // ── Envio ────────────────────────────────────────────────────────────────
+    // ── Posts ────────────────────────────────────────────────────────────────
 
     // An event (command reply, state change) goes out in seconds; the IP and
     // periodic readings, every minute
@@ -153,7 +153,7 @@ private:
             return false;
         }
         BearSSL::X509List trust;
-        cloudflareRoots(trust);  // inclui ISRG Root X1
+        cloudflareRoots(trust);  // includes ISRG Root X1
         TlsClient client;
         client.setTrustAnchors(&trust);
         client.setX509Time(_clock.now());
@@ -161,26 +161,16 @@ private:
             _log.log(PSTR("ntfy: TLS unavailable"));
             return false;
         }
-        HTTPClient http;
-        http.setTimeout(5000);
-
-        String url = "https://ntfy.sh/";
-        url += _cfg.ntfy_topic;
-
-        if (!http.begin(client, url)) {
-            _log.log(PSTR("ntfy: connection failed"));
-            return false;
-        }
-
-        http.addHeader("Content-Type", "text/plain");
+        char path[sizeof(_cfg.ntfy_topic) + 1];
+        snprintf(path, sizeof(path), "/%s", _cfg.ntfy_topic);
+        String headers = "Content-Type: text/plain\r\n";
         if (_cfg.ntfy_token[0]) {
-            String auth = "Bearer ";
-            auth += _cfg.ntfy_token;
-            http.addHeader("Authorization", auth);
+            headers += "Authorization: Bearer ";
+            headers += _cfg.ntfy_token;
+            headers += "\r\n";
         }
-        if (actions) _actions(http);
-        int code = http.POST(body);
-        http.end();
+        if (actions) _actions(headers);
+        int code = https::request(client, "ntfy.sh", "POST", path, headers.c_str(), body, 5000);
 
         if (code >= 200 && code < 300) {
             _log.log(PSTR("ntfy sent (%d)"), code);
@@ -193,7 +183,7 @@ private:
     // Buttons on the phone notification: each one publishes a command to the
     // command topic (with the token, if any). At most three, by what the
     // actuator does; with the rule, the third goes back to automatic.
-    void _actions(HTTPClient& http) {
+    void _actions(String& headers) {
         if (!_cfg.ntfy_cmd[0] || !_iot->hasActuator()) return;
         const iot::ActuatorDef* a = _iot->actuatorDef();
         char pulse[12];
@@ -236,7 +226,9 @@ private:
                 out += _cfg.ntfy_token;
             }
         }
-        http.addHeader("Actions", out);
+        headers += "Actions: ";
+        headers += out;
+        headers += "\r\n";
     }
 
     // ── Commands ─────────────────────────────────────────────────────────────
@@ -283,7 +275,7 @@ private:
             return;
         }
         _trust = new BearSSL::X509List();
-        cloudflareRoots(*_trust);  // inclui ISRG Root X1
+        cloudflareRoots(*_trust);  // includes ISRG Root X1
         _tls.setTrustAnchors(_trust);
         _tls.setX509Time(_clock.now());
         if (!_tls.prepare(CONNECT_MS) || !_tls.connect("ntfy.sh", 443)) {
@@ -343,7 +335,7 @@ private:
 
     void _onEvent(unsigned long now) {
         StaticJsonDocument<JSON_OBJECT_SIZE(12)> doc;
-        if (deserializeJson(doc, _line)) return;    // lixo
+        if (deserializeJson(doc, _line)) return;    // junk
         const char* event = doc["event"] | "";
         if (strcmp(event, "message") != 0) return;   // open, keepalive
         strlcpy(_lastId, doc["id"] | "", sizeof(_lastId));

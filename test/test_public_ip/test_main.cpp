@@ -45,8 +45,8 @@ void test_first_service_ok() {
     TEST_ASSERT_EQUAL(T0, cfg.ipChecked);
     TEST_ASSERT_TRUE(logHas(logger, "Public IP: 1.2.3.4"));
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());
-    TEST_ASSERT_EQUAL_STRING("https://api4.ipify.org", MockHTTP::calledURLs[0].c_str());
-    TEST_ASSERT_EQUAL_STRING("ESP8266", MockHTTP::requests[0].headers[0].second.c_str());
+    TEST_ASSERT_EQUAL_STRING("https://api4.ipify.org/", MockHTTP::calledURLs[0].c_str());
+    TEST_ASSERT_EQUAL_STRING("ESP8266", MockHTTP::requests[0].header("User-Agent").c_str());
     TEST_ASSERT_TRUE(cloudflareTrust(MockTLS::lastTrust));
     TEST_ASSERT_EQUAL((long)fakeNow, (long)MockTLS::lastTime);
     TEST_ASSERT_EQUAL(0, MockTLS::insecureCalls);
@@ -168,8 +168,8 @@ void test_connection_failure_tries_next() {
     MockHTTP::push(200, "9.9.9.9");
     f.resolver.tick(T0);
     TEST_ASSERT_EQUAL_STRING("9.9.9.9", cfg.publicIP);
-    TEST_ASSERT_EQUAL(2, (int)MockHTTP::calledURLs.size());
-    TEST_ASSERT_EQUAL_STRING("https://icanhazip.com", MockHTTP::calledURLs[1].c_str());
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::calledURLs.size());     // the first did not connect
+    TEST_ASSERT_EQUAL_STRING("https://icanhazip.com/", MockHTTP::calledURLs[0].c_str());
 }
 
 void test_errors_try_the_next() {
