@@ -125,7 +125,7 @@ void test_api_error_retries_in_a_minute() {
     Fixture f;
     MockHTTP::push(403, ERR_JSON);
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS error 10000: Authentication error"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: Authentication error"));
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
     TEST_ASSERT_EQUAL(0, cfg.lastDnsUpdate);
 
@@ -142,14 +142,14 @@ void test_error_without_details() {
     Fixture f;
     MockHTTP::push(500, R"({"success":false})");
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS error 0: Unknown error"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: HTTP 500"));
 }
 
 void test_invalid_json_response() {
     Fixture f;
     MockHTTP::push(502, "<html>Bad gateway</html>");
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS invalid response (HTTP 502)"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: HTTP 502"));
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
 }
 
@@ -157,7 +157,7 @@ void test_truncated_json_response() {
     Fixture f;
     MockHTTP::push(200, "{\"success\":");
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS invalid response (HTTP 200)"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: HTTP 200"));
 }
 
 // A real PATCH response: the full record, nested objects and lists, commas
@@ -183,7 +183,7 @@ void test_error_message_with_commas() {
     Fixture f;
     MockHTTP::push(400, R"({"success":false,"errors":[{"code":9005,"message":"Content, for A record, is invalid"}],"messages":[],"result":null})");
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS error 9005: Content, for A record, is invalid"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: Content, for A record, is invalid"));
 }
 
 // Valid JSON, but without "success" (proxy, another API): invalid
@@ -191,7 +191,7 @@ void test_response_without_success_field() {
     Fixture f;
     MockHTTP::push(200, R"({"result":{"id":"x"},"errors":[]})");
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS invalid response (HTTP 200)"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: HTTP 200"));
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
 }
 
@@ -201,14 +201,15 @@ void test_odd_answer_types() {
     Fixture f;
     MockHTTP::push(200, R"({"success":"yes","errors":{"code":5}})");
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS error 0: Unknown error"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: HTTP 200"));
+    logger = Logger();
     MockHTTP::push(200, R"({"success":null})");
     f.dns.tick(T0 + R);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS invalid response (HTTP 200)"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: HTTP 200"));
     logger = Logger();
     MockHTTP::push(200, R"({"success":false,"errors":[{"code":"x","message":7}]})");
     f.dns.tick(T0 + 2 * R);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS error 0: Unknown error"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: 7"));
     MockHTTP::push(200, R"({"success":false,"errors":[]})");
     f.dns.tick(T0 + 3 * R);
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
@@ -227,14 +228,14 @@ void test_tls_connection_error() {
     Fixture f;
     MockHTTP::push(-1);
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS connection error: -2"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: no connection (-2)"));
 }
 
 void test_connection_start_fails() {
     Fixture f;
     MockHTTP::failNextBegin();
     f.dns.tick(T0);
-    TEST_ASSERT_TRUE(logHas(logger, "DNS connection error: -1"));
+    TEST_ASSERT_TRUE(logHas(logger, "DNS: no connection (-1)"));
     TEST_ASSERT_EQUAL_STRING("", f.dns.syncedIP());
 }
 

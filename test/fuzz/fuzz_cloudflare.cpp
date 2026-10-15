@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-// Any Cloudflare API response to the record PATCH. The first
+// Any Cloudflare API response: to the record PATCH, to the zone list and
+// to the record lookup (the streaming reader, CloudflareApi.h). The first
 // byte picks the HTTP code.
 #include "../test_support.h"
 #include "Clock.h"
 #include "Config.h"
 #include "WiFiService.h"
-#include "CloudflareDNS.h"
+#include "CloudflareSetup.h"
 
 static time_t fakeTime() { return Clock::MIN_VALID_EPOCH + 100; }
 
@@ -26,7 +27,19 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     CloudflareDNS dns{cfg, log, wifi, clock};
 
     static const int CODES[] = {200, 400, 403, 500};
-    MockHTTP::push(CODES[data[0] % 4], std::string(reinterpret_cast<const char*>(data) + 1, size - 1));
+    const std::string body(reinterpret_cast<const char*>(data) + 1, size - 1);
+    MockHTTP::push(CODES[data[0] % 4], body);
     dns.tick(0);
+
+    ConfigStore     store{cfg, log};
+    CloudflareSetup cf{cfg, log, store, clock, &dns};
+    for (int i = 0; i < 2; i++) MockHTTP::push(CODES[data[0] % 4], body);
+    cf.scan();
+    cf.tick(0);
+    MockFS::put(CloudflareSetup::ZONES_PATH,
+                "023e105f4ecef8ad9ca31a8372d0c353 01a7362d577a6c3019a474fd6f485823 example.com\n");
+    for (int i = 0; i < 2; i++) MockHTTP::push(CODES[data[0] % 4], body);
+    cf.record("023e105f4ecef8ad9ca31a8372d0c353", "home.example.com");
+    cf.tick(0);
     return 0;
 }

@@ -56,15 +56,28 @@ inline int _getc(WiFiClient& c, unsigned long& last, unsigned long ms) {
     }
 }
 
-// headers: extra lines, each ending in \r\n (may be null). body: may be
-// null. out, if not null, gets up to cap bytes of the body. Returns the
-// HTTP status, NO_CONNECTION or BAD_RESPONSE; the connection is closed.
-inline int request(WiFiClient& c, const char* host, const char* method, const char* path,
-                   const char* headers, const char* body, unsigned long ms,
-                   String* out = nullptr, size_t cap = 2048) {
+// A piece of the body: in RAM, or in flash (pgm)
+struct Part {
+    const char* p;
+    size_t      n;
+    bool        pgm;
+};
+
+// Gets the answer's body one byte at a time
+using Sink = void (*)(void* ctx, char c);
+
+// headers: extra lines, each ending in \r\n (may be null). The body goes
+// out in parts (count may be 0); the answer's body, if sink is set, goes
+// to it as it arrives. Returns the HTTP status, NO_CONNECTION or
+// BAD_RESPONSE; the connection is closed.
+inline int exchange(WiFiClient& c, const char* host, const char* method, const char* path,
+                    const char* headers, const Part* parts, size_t count, unsigned long ms,
+                    Sink sink = nullptr, void* ctx = nullptr) {
     if (!c.connect(host, 443)) return NO_CONNECTION;
+    size_t total = 0;
+    for (size_t i = 0; i < count; i++) total += parts[i].n;
     char len[40] = "";
-    if (body) snprintf_P(len, sizeof(len), PSTR("Content-Length: %u\r\n"), (unsigned)strlen(body));
+    if (count) snprintf_P(len, sizeof(len), PSTR("Content-Length: %u\r\n"), (unsigned)total);
     // Fixed text from flash: free heap is what TLS needs
     static const char HTTP10[] PROGMEM = " HTTP/1.0\r\nHost: ";
     static const char TAIL[] PROGMEM = "\r\nUser-Agent: ESP8266\r\nConnection: close\r\n";
@@ -77,7 +90,10 @@ inline int request(WiFiClient& c, const char* host, const char* method, const ch
     if (headers) c.print(headers);
     c.print(len);
     c.print("\r\n");
-    if (body) c.print(body);
+    for (size_t i = 0; i < count; i++) {
+        if (parts[i].pgm) c.write_P(parts[i].p, parts[i].n);
+        else c.write(reinterpret_cast<const uint8_t*>(parts[i].p), parts[i].n);
+    }
 
     unsigned long last = millis();
     char line[64];
@@ -99,11 +115,31 @@ inline int request(WiFiClient& c, const char* host, const char* method, const ch
         else if (strncasecmp(line, "Content-Length:", 15) == 0) length = strtol(line + 15, nullptr, 10);
     }
     int ch;
-    while (out && (length < 0 || (long)out->length() < length) && out->length() < cap &&
-           (ch = _getc(c, last, ms)) >= 0)
-        *out += (char)ch;
+    for (long got = 0; sink && (length < 0 || got < length) && (ch = _getc(c, last, ms)) >= 0; got++)
+        sink(ctx, (char)ch);
     c.stop();
     return code;
+}
+
+struct _Text {
+    String* out;
+    size_t  cap;
+};
+
+inline void _keep(void* ctx, char ch) {
+    const _Text& t = *static_cast<const _Text*>(ctx);
+    if (t.out->length() < t.cap) *t.out += ch;
+}
+
+// One request with a body in RAM (may be null). out, if not null, gets up
+// to cap bytes of the answer's body.
+inline int request(WiFiClient& c, const char* host, const char* method, const char* path,
+                   const char* headers, const char* body, unsigned long ms,
+                   String* out = nullptr, size_t cap = 2048) {
+    Part part{body, body ? strlen(body) : 0, false};
+    _Text text{out, cap};
+    return exchange(c, host, method, path, headers, &part, body ? 1 : 0, ms,
+                    out ? _keep : nullptr, &text);
 }
 
 }  // namespace https

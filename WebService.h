@@ -17,6 +17,7 @@
 #include "NtfyNotifier.h"
 #include "MqttService.h"
 #include "PowerService.h"
+#include "CloudflareSetup.h"
 #include "Assets.h"
 #include "WebAssets.h"
 #include "I18n.h"
@@ -124,9 +125,9 @@ public:
     WebService(Config& cfg, Logger& log, ConfigStore& store,
                WiFiService& wifi, OTAService& ota, IoTService& iot,
                NtfyNotifier* ntfy = nullptr, MqttService* mqtt = nullptr,
-               PowerService* power = nullptr)
+               PowerService* power = nullptr, CloudflareSetup* cf = nullptr)
         : _server(80), _cfg(cfg), _log(log), _store(store),
-          _wifi(wifi), _ota(ota), _iot(iot), _ntfy(ntfy), _mqtt(mqtt), _power(power) {
+          _wifi(wifi), _ota(ota), _iot(iot), _ntfy(ntfy), _mqtt(mqtt), _power(power), _cf(cf) {
         _csrfToken[0] = '\0';
     }
 
@@ -201,6 +202,7 @@ private:
     NtfyNotifier*    _ntfy;
     MqttService*     _mqtt;
     PowerService*    _power;
+    CloudflareSetup* _cf;
     // Wrong password, code or token: the first mistakes pass; after that each
     // one doubles the wait (2 s up to 5 min), and nothing is tried meanwhile
     // (429). Getting it right resets the count.
@@ -274,6 +276,7 @@ private:
     static constexpr char P_SAVE[] PROGMEM = "/save";
     static constexpr char P_CONFIG_SAVE[] PROGMEM = "/config/save";
     static constexpr char P_CLOUDFLARE_SAVE[] PROGMEM = "/cloudflare/save";
+    static constexpr char P_CLOUDFLARE_DDNS[] PROGMEM = "/cloudflare/ddns";
     static constexpr char P_NTFY_SAVE[] PROGMEM = "/ntfy/save";
     static constexpr char P_MQTT_SAVE[] PROGMEM = "/mqtt/save";
     static constexpr char P_PASSWORD_SAVE[] PROGMEM = "/password/save";
@@ -1195,73 +1198,138 @@ private:
         _pageEnd();
     }
 
+    // Only the token: the device finds the domains it reaches and the DDNS
+    // record by name (CloudflareSetup). The page refreshes while it works.
     void _handleCloudflare() {
         if (!_guard()) return;
-        _pageBegin();
-        _title(PSTR("Cloudflare DDNS"));
+        uint8_t st = _cf ? _cf->state() : CloudflareSetup::IDLE;
+        _pageBegin(st == CloudflareSetup::WORKING ? 3 : 0);
+        _title(PSTR("Cloudflare"));
 
         if (_cfg.cf_token[0])
             _alert(S_SUCCESS, L_TOKEN_SET " " + maskSecret(_cfg.cf_token));
         else
             _alertP(S_WARNING, PSTR(L_TOKEN_NOT_SET));
+        if (st == CloudflareSetup::WORKING) {
+            _alertP(S_WARNING, PSTR(L_CF_WORKING));
+        } else if (st == CloudflareSetup::FAILED) {
+            _alert(S_DANGER, String(L_CF_FAILED ": ") + _cf->message());
+        } else if (st == CloudflareSetup::DONE) {
+            char b[24 + sizeof(_cfg.cf_host)];
+            if (_cf->last() == CloudflareSetup::SCAN) snprintf_P(b, sizeof(b), PSTR(L_CF_ZONES " %u"), (unsigned)_cf->zones());
+            else snprintf_P(b, sizeof(b), PSTR(L_CF_RECORD_READY " %s"), _cfg.cf_host);
+            _alert(S_SUCCESS, b);
+        }
 
         _p(PSTR("<form action='/cloudflare/save' method='POST'>"));
         _csrfField();
-
-        // Token: an empty field keeps the current one; a filled one replaces it
+        // Token: an empty field keeps the current one and checks it again
         _passwordInput(PSTR(L_API_TOKEN " <span class='m'>" L_KEEP_BLANK "</span>"),
                        PSTR("token"), PSTR("placeholder='" L_NEW_TOKEN "' maxlength='47' pattern='[A-Za-z0-9_\\-]*'"));
-        _input(PSTR(L_ZONE_ID), PSTR("zone"), _cfg.cf_zone, PSTR("maxlength='32' pattern='[0-9a-fA-F]{32}'"));
-        _input(PSTR(L_HOSTNAME_DISPLAY), PSTR("host"), _cfg.cf_host, S_MAX63);
-        _input(PSTR(L_RECORD_ID), PSTR("record"), _cfg.cf_record, PSTR("maxlength='32' pattern='[0-9a-fA-F]{32}'"));
+        _p(PSTR("<p class='m'>" L_CF_TOKEN_HELP "</p>"));
+        _button(PSTR(L_CF_CHECK));
+        if (!_cf || !_cfg.cf_token[0]) {
+            _pageEnd();
+            return;
+        }
 
+        _box(PSTR("DDNS"));
+        _p(PSTR("<form action='/cloudflare/ddns' method='POST'>"));
+        _csrfField();
+        _selectOpen(PSTR(L_DOMAIN), PSTR("zone"));
+        _option("", PSTR(L_OFF_CAP), !_cfg.cf_zone[0]);
+        bool listed = false;
+        CloudflareSetup::Zone z;
+        File f = LittleFS.open(CloudflareSetup::ZONES_PATH, "r");
+        while (f && CloudflareSetup::next(f, z)) {
+            bool on = strcmp(z.id, _cfg.cf_zone) == 0;
+            listed = listed || on;
+            _zoneOption(z.id, z.name, on);
+        }
+        if (f) f.close();
+        if (_cfg.cf_zone[0] && !listed) _zoneOption(_cfg.cf_zone, _cfg.cf_zone, true);
+        _selectEnd();
+        _input(PSTR(L_RECORD_NAME), PSTR("name"), _cfg.cf_host,
+               PSTR("maxlength='63' placeholder='home.example.com' pattern='[A-Za-z0-9.\\-]*'"));
+        _p(PSTR("<p class='m'>" L_RECORD_HELP "</p>"));
         _button(S_SAVE);
+        _boxEnd();
         _pageEnd();
+    }
+
+    void _zoneOption(const char* id, const char* name, bool on) {
+        _p(PSTR("<option value='"));
+        _e(id);
+        _p(on ? PSTR("' selected>") : S_TAG_END);
+        _e(name);
+        _p(PSTR("</option>"));
     }
 
     void _handleCloudflareSave() {
         if (!_guard()) return;
         if (!_checkCSRF()) return;
-
-        // Checks everything in temporary buffers before changing the config
         char token[sizeof(_cfg.cf_token)];
-        char zone[sizeof(_cfg.cf_zone)];
-        char host[sizeof(_cfg.cf_host)];
-        char record[sizeof(_cfg.cf_record)];
-
-        if (!_argInto("token", token, sizeof(token), "/cloudflare")) return;
-        if (!_argInto("zone",  zone,  sizeof(zone),  "/cloudflare")) return;
-        if (!_argInto("host",  host,  sizeof(host),  "/cloudflare")) return;
-        if (!_argInto("record", record, sizeof(record), "/cloudflare")) return;
-        // They go into the request to the API: an ID with / or a line break
-        // would change the path or add a header
-        if (!_cfId(zone) || !_cfId(record)) {
-            _errorPage(PSTR(L_INVALID_CF_ID), P_CLOUDFLARE);
-            return;
-        }
+        if (!_argInto("token", token, sizeof(token), P_CLOUDFLARE)) return;
+        // It goes into a request header: a line break would add another
         if (!_tokenText(token)) {
             _errorPage(PSTR(L_INVALID_CF_TOKEN), P_CLOUDFLARE);
             return;
         }
-
-        if (token[0]) strlcpy(_cfg.cf_token, token, sizeof(_cfg.cf_token));
-        strlcpy(_cfg.cf_zone, zone, sizeof(_cfg.cf_zone));
-        strlcpy(_cfg.cf_host, host, sizeof(_cfg.cf_host));
-        strlcpy(_cfg.cf_record, record, sizeof(_cfg.cf_record));
-
-        if (!_store.save()) {
-            _errorPage(S_SAVE_FAILED, P_CLOUDFLARE);
-            return;
+        if (token[0]) {
+            strlcpy(_cfg.cf_token, token, sizeof(_cfg.cf_token));
+            if (!_store.save()) {
+                _errorPage(S_SAVE_FAILED, P_CLOUDFLARE);
+                return;
+            }
         }
-        _savedPage(PSTR(L_CF_SET), P_CLOUDFLARE);
+        if (_cf && _cfg.cf_token[0]) _cf->scan();
+        _go("/cloudflare");
     }
 
-    // A Cloudflare zone or record ID: 32 hexadecimal digits, or empty (not set up)
-    static bool _cfId(const char* s) {
-        size_t n = strlen(s);
-        bool ok = n == 0 || n == 32;
-        for (size_t i = 0; ok && i < n; i++) ok = isxdigit((unsigned char)s[i]) != 0;
-        return ok;
+    // The DDNS record: a domain from the list and a name in it ("home" or
+    // "home.example.com"); the name goes into the API request, so only the
+    // characters a host name has. No domain turns DDNS off.
+    void _handleCloudflareDdns() {
+        if (!_guard()) return;
+        if (!_checkCSRF()) return;
+        String zone = _server.arg("zone");
+        String in = _server.arg("name");
+        in.trim();
+        if (!zone.length()) {
+            _cfg.cf_zone[0] = '\0';
+            _cfg.cf_record[0] = '\0';
+            if (!_store.save()) {
+                _errorPage(S_SAVE_FAILED, P_CLOUDFLARE);
+                return;
+            }
+            _savedPage(PSTR(L_DDNS_OFF), P_CLOUDFLARE);
+            return;
+        }
+        CloudflareSetup::Zone z;
+        if (!_cf || zone.length() != 32 || !CloudflareSetup::find(zone.c_str(), z)) {
+            _errorPage(PSTR(L_UNKNOWN_ZONE), P_CLOUDFLARE);
+            return;
+        }
+        // A bare label gets the domain after it; the name ends up lowercase
+        char name[sizeof(_cfg.cf_host)];
+        const char* s = in.c_str();
+        size_t n = in.length(), zn = strlen(z.name);
+        bool label = !strchr(s, '.');
+        size_t total = label ? n + 1 + zn : n;
+        bool ok = n && total < sizeof(name) &&
+                  strspn(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-") == n;
+        if (ok) {
+            snprintf(name, sizeof(name), label ? "%s.%s" : "%s", s, z.name);
+            for (char* c = name; *c; c++) *c = (char)tolower((unsigned char)*c);
+            ok = strcmp(name, z.name) == 0 ||
+                 (total > zn + 1 && name[total - zn - 1] == '.' && strcmp(name + total - zn, z.name) == 0);
+        }
+        if (!ok) {
+            _errorPage(PSTR(L_INVALID_RECORD_NAME), P_CLOUDFLARE);
+            return;
+        }
+        _cf->record(z.id, name);
+        _go("/cloudflare");
     }
 
     // An API token: letters, digits, _ and -
@@ -2411,6 +2479,7 @@ inline const WebService::Route WebService::ROUTES[] PROGMEM = {
     {HttpServer::POST, P_SAVE, [](WebService& w) { w._handleSave(); }},
     {HttpServer::POST, P_CONFIG_SAVE, [](WebService& w) { w._handleConfigSave(); }},
     {HttpServer::POST, P_CLOUDFLARE_SAVE, [](WebService& w) { w._handleCloudflareSave(); }},
+    {HttpServer::POST, P_CLOUDFLARE_DDNS, [](WebService& w) { w._handleCloudflareDdns(); }},
     {HttpServer::POST, P_NTFY_SAVE, [](WebService& w) { w._handleNtfySave(); }},
     {HttpServer::POST, P_MQTT_SAVE, [](WebService& w) { w._handleMqttSave(); }},
     {HttpServer::POST, P_PASSWORD_SAVE, [](WebService& w) { w._handlePasswordSave(); }},

@@ -176,6 +176,23 @@ void test_tick_runs_the_relay() {
     TEST_ASSERT_EQUAL_STRING("connected", app.relay.status());
 }
 
+// A Cloudflare job takes the TLS session for its tick, like DNS
+void test_tick_runs_the_cloudflare_setup() {
+    MockFS::put("/config.json", R"({"v":2,"ssid":"Home","pass":"12345678","webpss":"strong-pass",
+        "ota_auto":false,"cf_token":"TOKEN"})");
+    App app;
+    app.begin();
+    setMillis(1000);
+    app.tick();                                    // public IP first
+    app.cfsetup.scan();
+    MockHTTP::push(200, R"({"result":[],"success":true})");
+    MockHTTP::push(200, R"({"result":[{"id":"01a7362d577a6c3019a474fd6f485823"}],"success":true})");
+    setMillis(2000);
+    app.tick();
+    TEST_ASSERT_EQUAL(CloudflareSetup::DONE, app.cfsetup.state());
+    TEST_ASSERT_EQUAL_STRING("01a7362d577a6c3019a474fd6f485823", app.config.cf_account);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_begin_starts_services);
@@ -188,5 +205,6 @@ int main() {
     RUN_TEST(test_tick_pauses_dns_during_ota);
     RUN_TEST(test_tick_releases_ntfy_before_ip_and_dns);
     RUN_TEST(test_tick_runs_the_relay);
+    RUN_TEST(test_tick_runs_the_cloudflare_setup);
     return UNITY_END();
 }

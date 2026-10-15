@@ -37,12 +37,13 @@ struct Fixture {
     WiFiClient       mqttNet;
     MqttService      mqtt{cfg, logger, iot, mqttNet};
     PowerService     power{cfg, logger};
+    CloudflareSetup  cf{cfg, logger, store, clock};
     WebService  web;
     MockBrowser srv{[this]() { web.tick(); }};
 
-    explicit Fixture(bool withNtfy = true, bool withMqtt = true, bool withPower = true)
+    explicit Fixture(bool withNtfy = true, bool withMqtt = true, bool withPower = true, bool withCf = true)
         : web(cfg, logger, store, wifi, ota, iot, withNtfy ? &ntfy : nullptr,
-              withMqtt ? &mqtt : nullptr, withPower ? &power : nullptr) {
+              withMqtt ? &mqtt : nullptr, withPower ? &power : nullptr, withCf ? &cf : nullptr) {
         web.begin();
         // The sign-in stores the spent code in /config.json; the tests start
         // from the file system they set up
@@ -226,7 +227,7 @@ void test_authentication_required() {
         TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
         TEST_ASSERT_EQUAL(0u, f.srv.headers.count("WWW-Authenticate"));
     }
-    const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/mqtt/save", "/password/save",
+    const char* posts[] = {"/save", "/cloudflare/save", "/cloudflare/ddns", "/ntfy/save", "/mqtt/save", "/password/save",
                            "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd",
                            "/iot/token", "/iot/clear", "/config/save", "/mfa", "/mfa/reset"};
     for (const char* p : posts) {
@@ -303,7 +304,7 @@ void test_session_authentication() {
 
 void test_invalid_csrf_rejected_on_every_post() {
     Fixture f;
-    const char* posts[] = {"/save", "/cloudflare/save", "/ntfy/save", "/mqtt/save", "/password/save",
+    const char* posts[] = {"/save", "/cloudflare/save", "/cloudflare/ddns", "/ntfy/save", "/mqtt/save", "/password/save",
                            "/update/auto", "/update/check", "/update/install", "/iot/save", "/iot/cmd",
                            "/iot/token", "/iot/clear", "/config/save", "/login", "/logout", "/mfa/reset"};
     for (const char* p : posts) {
@@ -590,24 +591,103 @@ void test_status_public_ip() {
 
 // ── /cloudflare ──────────────────────────────────────────────────────────────
 
+// Only the token: no zone or record IDs to type
 void test_cloudflare_without_token() {
     Fixture f;
     f.get("/cloudflare");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "Token not set"));
-    TEST_ASSERT_TRUE(contains(f.out(), "name='record'"));
-    TEST_ASSERT_FALSE(contains(f.out(), "name='record1'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='token'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Workers Scripts Edit"));
+    TEST_ASSERT_FALSE(contains(f.out(), "name='zone'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "name='record'"));
 }
 
-void test_cloudflare_with_masked_token_and_escaped_values() {
-    Fixture f;
+static const char* CF_Z1 = "023e105f4ecef8ad9ca31a8372d0c353";
+static const char* CF_Z2 = "1111105f4ecef8ad9ca31a8372d0c353";
+static const char* CF_A1 = "01a7362d577a6c3019a474fd6f485823";
+
+static void cfZones() {
+    MockFS::put(CloudflareSetup::ZONES_PATH, std::string(CF_Z1) + " " + CF_A1 + " example.com\n" +
+                                             CF_Z2 + " " + CF_A1 + " o<th>er.org\n");
+}
+
+void test_cloudflare_lists_the_zones() {
+    cfZones();
     strlcpy(cfg.cf_token, "secret-abcd", sizeof(cfg.cf_token));
-    strlcpy(cfg.cf_zone, "z'1", sizeof(cfg.cf_zone));
-    strlcpy(cfg.cf_record, "r<0>", sizeof(cfg.cf_record));
+    strlcpy(cfg.cf_zone, CF_Z2, sizeof(cfg.cf_zone));
+    strlcpy(cfg.cf_host, "home.o'ther.org", sizeof(cfg.cf_host));
+    Fixture f;
     f.get("/cloudflare");
     TEST_ASSERT_TRUE(contains(f.out(), "****abcd"));
     TEST_ASSERT_FALSE(contains(f.out(), "secret"));
-    TEST_ASSERT_TRUE(contains(f.out(), "value='z&#39;1'"));
-    TEST_ASSERT_TRUE(contains(f.out(), "value='r&lt;0&gt;'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value='' >Off</option>") || contains(f.out(), ">Off</option>"));
+    TEST_ASSERT_TRUE(contains(f.out(), (std::string("<option value='") + CF_Z1 + "'>example.com</option>").c_str()));
+    TEST_ASSERT_TRUE(contains(f.out(), (std::string("<option value='") + CF_Z2 + "' selected>o&lt;th&gt;er.org</option>").c_str()));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='name' value='home.o&#39;ther.org'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "http-equiv='refresh'"));
+
+    // The selected one first in the list
+    strlcpy(cfg.cf_zone, CF_Z1, sizeof(cfg.cf_zone));
+    f.get("/cloudflare");
+    TEST_ASSERT_TRUE(contains(f.out(), (std::string("<option value='") + CF_Z1 + "' selected>example.com</option>").c_str()));
+
+    // A zone set up before the list: shown by its ID, still selected
+    strlcpy(cfg.cf_zone, "9999105f4ecef8ad9ca31a8372d0c353", sizeof(cfg.cf_zone));
+    f.get("/cloudflare");
+    TEST_ASSERT_TRUE(contains(f.out(), "<option value='9999105f4ecef8ad9ca31a8372d0c353' selected>9999105f4ecef8ad9ca31a8372d0c353</option>"));
+
+    // No list yet and no zone: only Off
+    MockFS::reset();
+    cfg.cf_zone[0] = '\0';
+    f.get("/cloudflare");
+    TEST_ASSERT_TRUE(contains(f.out(), "name='zone'"));
+    TEST_ASSERT_FALSE(contains(f.out(), CF_Z1));
+}
+
+void test_cloudflare_shows_the_last_job() {
+    cfZones();
+    strlcpy(cfg.cf_token, "tok", sizeof(cfg.cf_token));
+    Fixture f;
+    f.cf.scan();
+    f.get("/cloudflare");
+    TEST_ASSERT_TRUE(contains(f.out(), "Working with Cloudflare"));
+    TEST_ASSERT_TRUE(contains(f.out(), "http-equiv='refresh' content='3"));
+
+    webNow = Clock::MIN_VALID_EPOCH + 100;
+    MockHTTP::push(403, R"({"success":false,"errors":[{"message":"bad <token>"}]})");
+    f.cf.tick(0);
+    f.get("/cloudflare");
+    TEST_ASSERT_TRUE(contains(f.out(), "Cloudflare refused: bad &lt;token&gt;"));
+
+    f.cf.scan();
+    MockHTTP::push(200, std::string(R"({"result":[{"id":")") + CF_Z1 + R"(","name":"example.com","account":{"id":")" +
+                        CF_A1 + R"("}}],"success":true})");
+    f.cf.tick(0);
+    f.get("/cloudflare");
+    TEST_ASSERT_TRUE(contains(f.out(), "Domains this token reaches: 1"));
+
+    f.cf.record(CF_Z1, "home.example.com");
+    MockHTTP::push(200, std::string(R"({"result":[{"id":"372e67954025e0ba6aaa6d586b9e0b59"}],"success":true})"));
+    f.cf.tick(0);
+    f.get("/cloudflare");
+    TEST_ASSERT_TRUE(contains(f.out(), "DDNS record ready: home.example.com"));
+    webNow = 0;
+}
+
+// Without the setup service, only the token form
+void test_cloudflare_without_setup_service() {
+    cfZones();
+    strlcpy(cfg.cf_token, "tok", sizeof(cfg.cf_token));
+    Fixture f(true, true, true, false);
+    f.get("/cloudflare");
+    TEST_ASSERT_TRUE(contains(f.out(), "name='token'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "name='zone'"));
+    f.post("/cloudflare/save", {{"token", "new-token"}});
+    TEST_ASSERT_EQUAL(303, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("new-token", cfg.cf_token);
+    f.post("/cloudflare/ddns", {{"zone", CF_Z1}, {"name", "home"}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
 }
 
 // ── Settings: name and hostname ──────────────────────────────────────────────
@@ -987,86 +1067,116 @@ void test_iot_respects_gauge() {
     TEST_ASSERT_EQUAL(200, f.srv.code);
 }
 
-// Cloudflare IDs: 32 hexadecimal digits
-static const char* ZONE_ID   = "023e105f4ecef8ad9ca31a8372d0c353";
-static const char* RECORD_ID = "372e67954025e0ba6aaa6d586b9e0b59";
-
-void test_cloudflare_save_ok() {
+// A new token is saved and checked right away; the page shows the result
+void test_cloudflare_save_token_and_check() {
     Fixture f;
-    f.post("/cloudflare/save", {
-        {"token", "NOVO_TOKEN-x"}, {"zone", std::string(" ") + ZONE_ID + " "}, {"host", "h.com"},
-        {"record", std::string(" ") + RECORD_ID + " "}});
-    TEST_ASSERT_EQUAL(200, f.srv.code);
-    TEST_ASSERT_EQUAL_STRING("NOVO_TOKEN-x", cfg.cf_token);
-    TEST_ASSERT_EQUAL_STRING(ZONE_ID, cfg.cf_zone);
-    TEST_ASSERT_EQUAL_STRING("h.com", cfg.cf_host);
-    TEST_ASSERT_EQUAL_STRING(RECORD_ID, cfg.cf_record);
-    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], RECORD_ID));
-    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "NOVO_TOKEN"));
+    f.post("/cloudflare/save", {{"token", " NEW_TOKEN-x "}});
+    TEST_ASSERT_EQUAL(303, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/cloudflare", f.srv.headers["Location"].c_str());
+    TEST_ASSERT_EQUAL_STRING("NEW_TOKEN-x", cfg.cf_token);
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "NEW_TOKEN"));
+    TEST_ASSERT_EQUAL(CloudflareSetup::WORKING, f.cf.state());
+    TEST_ASSERT_EQUAL(CloudflareSetup::SCAN, f.cf.last());
 }
 
-void test_cloudflare_save_empty_token_keeps_current() {
+// Blank keeps the token and checks it again; with none, nothing to check
+void test_cloudflare_save_blank_token() {
     Fixture f;
+    f.post("/cloudflare/save", {{"token", ""}});
+    TEST_ASSERT_EQUAL(303, f.srv.code);
+    TEST_ASSERT_EQUAL(CloudflareSetup::IDLE, f.cf.state());
     strlcpy(cfg.cf_token, "OLD", sizeof(cfg.cf_token));
-    f.post("/cloudflare/save", {{"zone", ZONE_ID}, {"record", RECORD_ID}});
-    TEST_ASSERT_EQUAL(200, f.srv.code);
+    f.post("/cloudflare/save", {{"token", ""}});
     TEST_ASSERT_EQUAL_STRING("OLD", cfg.cf_token);
-    f.post("/cloudflare/save", {{"zone", ""}, {"record", ""}});     // empty: not set up
-    TEST_ASSERT_EQUAL(200, f.srv.code);
-    TEST_ASSERT_EQUAL_STRING("", cfg.cf_zone);
+    TEST_ASSERT_EQUAL(CloudflareSetup::WORKING, f.cf.state());
 }
 
-// The IDs and the token go into the API request: only the characters they
-// can have, so nothing changes the path or adds a header
-void test_cloudflare_save_rejects_odd_ids_and_token() {
+// The token goes into a request header: only the characters it can have
+void test_cloudflare_save_rejects_odd_tokens() {
     Fixture f;
-    strlcpy(cfg.cf_zone, ZONE_ID, sizeof(cfg.cf_zone));
     strlcpy(cfg.cf_token, "OLD", sizeof(cfg.cf_token));
-    const std::string hex31(31, 'a');
-    const char* badIds[] = {"ZONA", "023e105f4ecef8ad9ca31a8372d0c35g", "023e105f/4ecef8ad9ca31a8372d0c35",
-                            "../dns_records/023e105f4ecef8ad9"};
-    for (const char* id : badIds) {
-        f.post("/cloudflare/save", {{"zone", id}, {"record", RECORD_ID}});
-        TEST_ASSERT_EQUAL(400, f.srv.code);
-        TEST_ASSERT_TRUE(contains(f.out(), "32 hexadecimal digits"));
-        f.post("/cloudflare/save", {{"zone", ZONE_ID}, {"record", id}});
-        TEST_ASSERT_EQUAL(400, f.srv.code);
-    }
-    f.post("/cloudflare/save", {{"zone", hex31}, {"record", RECORD_ID}});
-    TEST_ASSERT_EQUAL(400, f.srv.code);
-    const char* badTokens[] = {"a b", "tok%0d%0aX-Evil: 1", "tok/../x", "t\xc3\xa9"};
-    for (const char* t : badTokens) {
-        f.post("/cloudflare/save", {{"token", t}, {"zone", ZONE_ID}, {"record", RECORD_ID}});
+    const char* bad[] = {"a b", "tok%0d%0aX-Evil: 1", "tok/../x", "t\xc3\xa9", "a\r\nb"};
+    for (const char* t : bad) {
+        f.post("/cloudflare/save", {{"token", t}});
         TEST_ASSERT_EQUAL(400, f.srv.code);
         TEST_ASSERT_TRUE(contains(f.out(), "Invalid token"));
     }
-    f.post("/cloudflare/save", {{"token", std::string("a\r\nb")}, {"zone", ZONE_ID}, {"record", RECORD_ID}});
-    TEST_ASSERT_EQUAL(400, f.srv.code);
-    TEST_ASSERT_EQUAL_STRING(ZONE_ID, cfg.cf_zone);
-    TEST_ASSERT_EQUAL_STRING("OLD", cfg.cf_token);
-}
-
-void test_cloudflare_save_long_value_rejected_unchanged() {
-    Fixture f;
-    strlcpy(cfg.cf_zone, "ORIGINAL", sizeof(cfg.cf_zone));
-    f.post("/cloudflare/save", {{"zone", ZONE_ID}, {"record", std::string(40, 'r')}});
+    f.post("/cloudflare/save", {{"token", std::string(64, 'x')}});
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "too long"));
-    TEST_ASSERT_EQUAL_STRING("ORIGINAL", cfg.cf_zone);
-
-    const char* fields[] = {"token", "zone", "host", "record"};
-    for (const char* k : fields) {
-        f.post("/cloudflare/save", {{k, std::string(64, 'x')}});
-        TEST_ASSERT_EQUAL(400, f.srv.code);
-    }
+    TEST_ASSERT_EQUAL_STRING("OLD", cfg.cf_token);
+    TEST_ASSERT_EQUAL(CloudflareSetup::IDLE, f.cf.state());
 }
 
 void test_cloudflare_save_write_fails() {
     Fixture f;
     MockFS::failWriteOpen = true;
-    f.post("/cloudflare/save", {{"zone", ZONE_ID}});
+    f.post("/cloudflare/save", {{"token", "T"}});
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "Could not save"));
+}
+
+// The DDNS record: a domain from the list and a name in it
+void test_cloudflare_ddns_record_by_name() {
+    cfZones();
+    strlcpy(cfg.cf_token, "tok", sizeof(cfg.cf_token));
+    Fixture f;
+    f.post("/cloudflare/ddns", {{"zone", CF_Z1}, {"name", " Home "}});
+    TEST_ASSERT_EQUAL(303, f.srv.code);
+    TEST_ASSERT_EQUAL(CloudflareSetup::WORKING, f.cf.state());
+    TEST_ASSERT_EQUAL(CloudflareSetup::RECORD, f.cf.last());
+
+    // What the job asks Cloudflare for
+    webNow = Clock::MIN_VALID_EPOCH + 100;
+    MockHTTP::push(200, R"({"result":[{"id":"372e67954025e0ba6aaa6d586b9e0b59"}],"success":true})");
+    f.cf.tick(0);
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests.back().url, "name=home.example.com"));
+    TEST_ASSERT_EQUAL_STRING("home.example.com", cfg.cf_host);
+
+    // The domain itself, and a full name
+    const char* ok[] = {"Example.com", "a.b.example.com"};
+    for (const char* n : ok) {
+        f.post("/cloudflare/ddns", {{"zone", CF_Z1}, {"name", n}});
+        TEST_ASSERT_EQUAL_MESSAGE(303, f.srv.code, n);
+    }
+    webNow = 0;
+}
+
+void test_cloudflare_ddns_refuses_odd_names_and_zones() {
+    cfZones();
+    strlcpy(cfg.cf_token, "tok", sizeof(cfg.cf_token));
+    Fixture f;
+    std::string longName = std::string(60, 'a') + ".example.com";
+    const char* names[] = {"", "x.other.org", "a.com", "evilexample.com", "aaa.bxample.com", "a_b", "a b", "a/b.example.com",
+                           "home.example.com.evil", longName.c_str()};
+    for (const char* n : names) {
+        f.post("/cloudflare/ddns", {{"zone", CF_Z1}, {"name", n}});
+        TEST_ASSERT_EQUAL_MESSAGE(400, f.srv.code, n);
+        TEST_ASSERT_TRUE(contains(f.out(), "Invalid name"));
+    }
+    const char* zones[] = {"9999105f4ecef8ad9ca31a8372d0c353", "023e105f", "../x"};
+    for (const char* z : zones) {
+        f.post("/cloudflare/ddns", {{"zone", z}, {"name", "home"}});
+        TEST_ASSERT_EQUAL_MESSAGE(400, f.srv.code, z);
+        TEST_ASSERT_TRUE(contains(f.out(), "Pick a domain from the list"));
+    }
+    TEST_ASSERT_EQUAL(CloudflareSetup::IDLE, f.cf.state());
+}
+
+// No domain turns DDNS off
+void test_cloudflare_ddns_off() {
+    strlcpy(cfg.cf_zone, CF_Z1, sizeof(cfg.cf_zone));
+    strlcpy(cfg.cf_record, "372e67954025e0ba6aaa6d586b9e0b59", sizeof(cfg.cf_record));
+    Fixture f;
+    f.post("/cloudflare/ddns", {{"zone", ""}, {"name", "x"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "DDNS off"));
+    TEST_ASSERT_EQUAL_STRING("", cfg.cf_zone);
+    TEST_ASSERT_EQUAL_STRING("", cfg.cf_record);
+
+    MockFS::failWriteOpen = true;
+    f.post("/cloudflare/ddns", {{"zone", ""}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
 }
 
 // ── /ntfy ────────────────────────────────────────────────────────────────────
@@ -2988,8 +3098,6 @@ int main() {
     RUN_TEST(test_status_connected);
     RUN_TEST(test_status_disconnected_and_ota);
     RUN_TEST(test_status_public_ip);
-    RUN_TEST(test_cloudflare_without_token);
-    RUN_TEST(test_cloudflare_with_masked_token_and_escaped_values);
     RUN_TEST(test_name_in_title_and_header);
     RUN_TEST(test_settings_save_name_and_hostname);
     RUN_TEST(test_unknown_host_is_refused);
@@ -3004,11 +3112,17 @@ int main() {
     RUN_TEST(test_power_in_header);
     RUN_TEST(test_settings_save_gauge);
     RUN_TEST(test_iot_respects_gauge);
-    RUN_TEST(test_cloudflare_save_ok);
-    RUN_TEST(test_cloudflare_save_empty_token_keeps_current);
-    RUN_TEST(test_cloudflare_save_rejects_odd_ids_and_token);
-    RUN_TEST(test_cloudflare_save_long_value_rejected_unchanged);
+    RUN_TEST(test_cloudflare_without_token);
+    RUN_TEST(test_cloudflare_lists_the_zones);
+    RUN_TEST(test_cloudflare_shows_the_last_job);
+    RUN_TEST(test_cloudflare_without_setup_service);
+    RUN_TEST(test_cloudflare_save_token_and_check);
+    RUN_TEST(test_cloudflare_save_blank_token);
+    RUN_TEST(test_cloudflare_save_rejects_odd_tokens);
     RUN_TEST(test_cloudflare_save_write_fails);
+    RUN_TEST(test_cloudflare_ddns_record_by_name);
+    RUN_TEST(test_cloudflare_ddns_refuses_odd_names_and_zones);
+    RUN_TEST(test_cloudflare_ddns_off);
     RUN_TEST(test_ntfy_page);
     RUN_TEST(test_ntfy_save);
     RUN_TEST(test_ntfy_save_write_fails);

@@ -61,7 +61,8 @@ struct Config {
     char    cf_token[48]              = {};
     char    cf_zone[40]               = {};
     char    cf_record[40]             = {};  // ID of the A record to update
-    char    cf_host[64]               = {};  // shown on the panel only
+    char    cf_host[64]               = {};  // the record's name
+    char    cf_account[33]            = {};  // the account the token reaches (CloudflareSetup)
 
     // Remote access relay (RelayService.h): the Worker's address, the secret
     // shared with it and the protocol version it was deployed with

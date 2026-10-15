@@ -135,6 +135,29 @@ void test_long_header_line() {
     TEST_ASSERT_EQUAL_STRING("ok", body.c_str());
 }
 
+// A body in parts, some in flash, and the answer handed over byte by byte
+static void collect(void* ctx, char c) { static_cast<std::string*>(ctx)->push_back(c); }
+
+void test_exchange_parts_and_sink() {
+    static const char FLASH[] PROGMEM = "-flash-";
+    const https::Part parts[] = {{"ram", 3, false}, {FLASH, sizeof(FLASH) - 1, true}, {"end", 3, false}};
+    MockHTTP::push(200, "the whole answer");
+    TlsClient c;
+    std::string got;
+    int code = https::exchange(c, "h.example", "PUT", "/x", "X-A: 1\r\n", parts, 3, 1000, collect, &got);
+    TEST_ASSERT_EQUAL(200, code);
+    TEST_ASSERT_EQUAL_STRING("the whole answer", got.c_str());
+    TEST_ASSERT_EQUAL_STRING("ram-flash-end", MockHTTP::requests[0].payload.c_str());
+    TEST_ASSERT_EQUAL_STRING("13", MockHTTP::requests[0].header("Content-Length").c_str());
+    TEST_ASSERT_EQUAL_STRING("1", MockHTTP::requests[0].header("X-A").c_str());
+
+    // No parts: no Content-Length; no sink: the body is not read
+    MockHTTP::push(204, "ignored");
+    TlsClient d;
+    TEST_ASSERT_EQUAL(204, https::exchange(d, "h.example", "GET", "/", nullptr, nullptr, 0, 1000));
+    TEST_ASSERT_EQUAL_STRING("", MockHTTP::requests[1].header("Content-Length").c_str());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_prepare_sets_timeouts_buffers_and_suites);
@@ -146,5 +169,6 @@ int main() {
     RUN_TEST(test_body_until_close_and_cap);
     RUN_TEST(test_stalled_server_times_out);
     RUN_TEST(test_long_header_line);
+    RUN_TEST(test_exchange_parts_and_sink);
     return UNITY_END();
 }

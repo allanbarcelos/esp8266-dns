@@ -96,12 +96,19 @@ TOKEN_NOT_SET	Token not set	Token não definido	Token no definido	Jeton non déf
 API_TOKEN	API Token	Token da API	Token de la API	Jeton d'API
 KEEP_BLANK	(leave blank to keep)	(deixe em branco para manter)	(deje en blanco para mantener)	(laisser vide pour conserver)
 NEW_TOKEN	New token	Novo token	Nuevo token	Nouveau jeton
-ZONE_ID	Zone ID	ID da zona	ID de la zona	ID de zone
-HOSTNAME_DISPLAY	Hostname (display)	Hostname (exibição)	Hostname (visualización)	Nom d'hôte (affichage)
-RECORD_ID	Record ID	ID do registro	ID del registro	ID de l'enregistrement
-CF_SET	Cloudflare set!	Cloudflare configurado!	¡Cloudflare configurado!	Cloudflare configuré !
-INVALID_CF_ID	Invalid ID (32 hexadecimal digits, from the Cloudflare dashboard)	ID inválido (32 dígitos hexadecimais, do painel da Cloudflare)	ID no válido (32 dígitos hexadecimales, del panel de Cloudflare)	ID invalide (32 chiffres hexadécimaux, du tableau de bord Cloudflare)
 INVALID_CF_TOKEN	Invalid token (letters, digits, _ or -)	Token inválido (letras, dígitos, _ ou -)	Token no válido (letras, dígitos, _ o -)	Jeton invalide (lettres, chiffres, _ ou -)
+CF_TOKEN_HELP	Create it in Cloudflare, My Profile, API Tokens, with these permissions: Zone Read, DNS Edit, Workers Routes Edit, Account Settings Read and Workers Scripts Edit. The device finds your domains with it.	Crie na Cloudflare, em My Profile, API Tokens, com estas permissões: Zone Read, DNS Edit, Workers Routes Edit, Account Settings Read e Workers Scripts Edit. O aparelho encontra seus domínios com ele.	Créelo en Cloudflare, en My Profile, API Tokens, con estos permisos: Zone Read, DNS Edit, Workers Routes Edit, Account Settings Read y Workers Scripts Edit. El dispositivo encuentra sus dominios con él.	Créez-le dans Cloudflare, My Profile, API Tokens, avec ces autorisations : Zone Read, DNS Edit, Workers Routes Edit, Account Settings Read et Workers Scripts Edit. L'appareil trouve vos domaines avec lui.
+CF_CHECK	Save and check	Salvar e verificar	Guardar y comprobar	Enregistrer et vérifier
+CF_WORKING	Working with Cloudflare...	Falando com a Cloudflare...	Hablando con Cloudflare...	Échange avec Cloudflare...
+CF_FAILED	Cloudflare refused	A Cloudflare recusou	Cloudflare rechazó	Cloudflare a refusé
+CF_ZONES	Domains this token reaches:	Domínios que este token alcança:	Dominios a los que llega este token:	Domaines accessibles avec ce jeton :
+CF_RECORD_READY	DDNS record ready:	Registro DDNS pronto:	Registro DDNS listo:	Enregistrement DDNS prêt :
+DOMAIN	Domain	Domínio	Dominio	Domaine
+RECORD_NAME	Name kept at your IP	Nome mantido no seu IP	Nombre mantenido en su IP	Nom maintenu sur votre IP
+RECORD_HELP	A name in the chosen domain, like home.example.com, or just home. Created if it does not exist; the device keeps it pointing at your public IP.	Um nome no domínio escolhido, como casa.exemplo.com, ou só casa. É criado se não existir; o aparelho o mantém apontando para o seu IP público.	Un nombre en el dominio elegido, como casa.ejemplo.com, o solo casa. Se crea si no existe; el dispositivo lo mantiene apuntando a su IP pública.	Un nom dans le domaine choisi, comme maison.exemple.com, ou juste maison. Créé s'il n'existe pas ; l'appareil le garde pointé sur votre IP publique.
+INVALID_RECORD_NAME	Invalid name: letters, digits, dots and dashes, inside the chosen domain	Nome inválido: letras, dígitos, pontos e hifens, dentro do domínio escolhido	Nombre no válido: letras, dígitos, puntos y guiones, dentro del dominio elegido	Nom invalide : lettres, chiffres, points et tirets, dans le domaine choisi
+UNKNOWN_ZONE	Pick a domain from the list (if it is missing, save and check the token again)	Escolha um domínio da lista (se faltar, salve e verifique o token de novo)	Elija un dominio de la lista (si falta, guarde y compruebe el token de nuevo)	Choisissez un domaine dans la liste (s'il manque, enregistrez et vérifiez à nouveau le jeton)
+DDNS_OFF	DDNS off	DDNS desligado	DDNS apagado	DDNS désactivé
 NTFY_TITLE	ntfy notifications	Notificações ntfy	Notificaciones ntfy	Notifications ntfy
 TOPIC	Topic:	Tópico:	Tema:	Sujet :
 TOPIC_NOT_SET	Topic not set - notifications off	Tópico não definido - notificações desligadas	Tema no definido - notificaciones desactivadas	Sujet non défini - notifications désactivées
