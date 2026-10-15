@@ -198,6 +198,7 @@ struct MockConn {
     size_t      pos    = 0;
     bool        open   = true;    // the browser has not closed yet
     bool        closed = false;   // the device called stop()
+    uint32_t    ip     = 0x0A01A8C0;   // the browser's address (192.168.1.10)
     int         writes = 0;
     // A slow client: once rx runs out, one byte of drip arrives every dripMs
     std::string   drip;
@@ -245,6 +246,7 @@ public:
         _conn = nullptr;
     }
     size_t write_P(const char* p, size_t n) { return write(reinterpret_cast<const uint8_t*>(p), n); }
+    IPAddress remoteIP() { return IPAddress(_conn ? _conn->ip : 0); }
     explicit operator bool() { return connected(); }
 protected:
     WiFiClient* _owned = nullptr;

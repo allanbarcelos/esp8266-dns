@@ -213,8 +213,32 @@ private:
     NtfyNotifier*    _ntfy;
     MqttService*     _mqtt;
     PowerService*    _power;
-    uint8_t          _loginFails = 0;
-    unsigned long    _loginWaitUntil = 0;
+    // Wrong password, code or token: the first mistakes pass; after that each
+    // one doubles the wait (2 s up to 5 min), and nothing is tried meanwhile
+    // (429). Getting it right resets the count.
+    struct Throttle {
+        uint8_t       fails = 0;
+        unsigned long until = 0;
+
+        bool waiting() const { return fails >= FREE_LOGIN_FAILS && (long)(millis() - until) < 0; }
+
+        // true on the mistake that starts the waits
+        bool fail() {
+            if (fails < 255) fails++;
+            if (fails < FREE_LOGIN_FAILS) return false;
+            uint8_t doubling = fails - FREE_LOGIN_FAILS;
+            unsigned long wait = LOGIN_WAIT_MS << (doubling < 8 ? doubling : 8);
+            until = millis() + (wait < LOGIN_WAIT_MAX_MS ? wait : LOGIN_WAIT_MAX_MS);
+            return fails == FREE_LOGIN_FAILS;
+        }
+    };
+    // Three counts, so a device on the network that keeps guessing cannot
+    // hold the owner out: the API token has its own, and so has the address
+    // of the last sign-in (in RAM; a table per address does not fit, and from
+    // outside the home the panel sits behind a tunnel with its own login,
+    // docs/REMOTE-ACCESS.md)
+    Throttle         _apiTries, _panelTries, _ownerTries;
+    uint32_t         _owner = 0;
     uint8_t          _session = 0;   // 0 signed out, 1 authenticator setup, 2 signed in
     char             _sid[33] = {};
     unsigned long    _sidUntil = 0;
@@ -460,7 +484,7 @@ private:
         bool passOk = _credentialOk(_cfg.webusr, _server.arg("pass"));
         bool codeOk = _codeOk(_cfg.totp, now, step);
         if (!passOk || !codeOk) {
-            _loginFailed(true);
+            _loginFailed(_tries());
             _errorPage(PSTR(L_SIGN_IN_FAILED), PSTR("/password"));
             return false;
         }
@@ -474,26 +498,29 @@ private:
         _pendingSet = true;
     }
 
-    // Wrong password, code or token: the first mistakes pass; after that each
-    // one doubles the wait (2 s up to 5 min), and nothing is tried meanwhile
-    // (429). Getting it right resets the count. The count is per device, not
-    // per address: there is no memory for a table, and from outside the home
-    // the panel sits behind a tunnel with its own login (docs/REMOTE-ACCESS.md).
-    bool _loginBlocked() {
-        if (_loginFails < FREE_LOGIN_FAILS || (long)(millis() - _loginWaitUntil) >= 0) return false;
+    // The panel's count for this request: the owner's address has its own
+    Throttle& _tries() { return _owner && _server.remoteIP() == _owner ? _ownerTries : _panelTries; }
+
+    bool _blocked(const Throttle& t) {
+        // cppcheck-suppress knownConditionTrueFalse ; the counter changes between requests
+        if (!t.waiting()) return false;
         _server.send(429, "text/plain", "Too many attempts; please wait");
         return true;
     }
 
-    // attempt is false when the caller sent no credential (an API probe).
-    void _loginFailed(bool attempt) {
-        if (!attempt) return;
-        if (_loginFails < 255) _loginFails++;
-        if (_loginFails < FREE_LOGIN_FAILS) return;
-        uint8_t doubling = _loginFails - FREE_LOGIN_FAILS;
-        unsigned long wait = LOGIN_WAIT_MS << (doubling < 8 ? doubling : 8);
-        _loginWaitUntil = millis() + (wait < LOGIN_WAIT_MAX_MS ? wait : LOGIN_WAIT_MAX_MS);
-        if (_loginFails == FREE_LOGIN_FAILS) _log.log(PSTR("Login: repeated failures, growing wait"));
+    bool _loginBlocked() { return _blocked(_tries()); }
+
+    void _loginFailed(Throttle& t) {
+        if (t.fail()) _log.log(PSTR("Login: repeated failures, growing wait"));
+    }
+
+    // Password and code right: this address becomes the owner's
+    void _signedIn() {
+        _tries().fails = 0;
+        uint32_t ip = _server.remoteIP();
+        if (ip == _owner) return;
+        _owner = ip;
+        _ownerTries = Throttle();
     }
 
     // The session's token for a browser holding the cookie, otherwise the
@@ -1358,11 +1385,11 @@ private:
         uint32_t step = _cfg.totpStep;
         bool codeOk = !mfa || _codeOk(_cfg.totp, now, step);
         if (!passOk || !codeOk) {
-            _loginFailed(true);
+            _loginFailed(_tries());
             _loginPage(PSTR(L_SIGN_IN_FAILED), false);
             return;
         }
-        _loginFails = 0;
+        _signedIn();
         if (mfa) {
             // The code is spent, also after a reboot. A failed save keeps it
             // in RAM until the next one.
@@ -1404,7 +1431,7 @@ private:
         }
         uint32_t step = _cfg.totpStep;
         if (!_pendingSet || !_codeOk(_pending, now, step)) {
-            _loginFailed(true);
+            _loginFailed(_tries());
             _mfaPage(PSTR(L_SIGN_IN_FAILED), false);
             return;
         }
@@ -1421,7 +1448,7 @@ private:
         }
         _pendingSet = false;
         _startSession(2);
-        _loginFails = 0;
+        _signedIn();
         _log.log(PSTR("Panel: authenticator on"));
         _redirect("/");
     }
@@ -1437,7 +1464,7 @@ private:
         _pendingSet = false;
         _ensurePending();
         _startSession(1);
-        _loginFails = 0;
+        _signedIn();
         _log.log(PSTR("Panel: authenticator reset"));
         _redirect("/mfa");
     }
@@ -2110,14 +2137,14 @@ private:
             return false;
         }
         // cppcheck-suppress knownConditionTrueFalse ; the counter changes between requests
-        if (_loginBlocked()) return false;
+        if (_blocked(_apiTries)) return false;
         if (!_bearerOk()) {
-            _loginFailed(_server.authorization().length() != 0);
+            if (_server.authorization().length()) _loginFailed(_apiTries);   // a probe without one is no guess
             _server.sendHeader("WWW-Authenticate", "Bearer");
             _jsonError(401, "invalid token");
             return false;
         }
-        _loginFails = 0;
+        _apiTries.fails = 0;
         return true;
     }
 

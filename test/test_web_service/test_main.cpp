@@ -2086,6 +2086,74 @@ void test_wrong_api_token_counts_as_failure() {
     TEST_ASSERT_EQUAL(200, f.srv.code);
 }
 
+// Someone else on the network guessing does not hold the owner out: the
+// address of the last sign-in has its own count, and the API token another
+void test_guessing_elsewhere_does_not_lock_the_owner_out() {
+    const uint32_t OWNER = 0x0A01A8C0, OTHER = 0x6301A8C0, THIRD = 0x6401A8C0;
+    strlcpy(cfg.api_token, TOKEN, sizeof(cfg.api_token));
+    actuatorCfg("relay", 0);
+    Fixture f;                                        // signed in from OWNER
+    f.iot.begin();
+    webNow = PANEL_TIME;
+    char good[8];
+    Totp::codeAt(PANEL_TOTP, webNow, good);
+    const char* bad = std::strcmp(good, "000000") == 0 ? "000001" : "000000";
+    const std::string bearer = std::string("Bearer ") + TOKEN;
+
+    f.srv.ip = OTHER;
+    for (int i = 0; i < WebService::FREE_LOGIN_FAILS; i++) {
+        postLogin(f, "admin", "wrong-pass!", bad);
+        TEST_ASSERT_EQUAL(401, f.srv.code);
+    }
+    postLogin(f, "admin", "strong-pass", good);
+    TEST_ASSERT_EQUAL(429, f.srv.code);
+    f.get("/status");                                 // even with the owner's cookie
+    TEST_ASSERT_EQUAL(429, f.srv.code);
+    api(f, HTTP_GET, "/api/state", bearer.c_str());   // the API counts apart
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+
+    // The owner browses and signs in as usual
+    f.srv.ip = OWNER;
+    f.get("/status");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    postLogin(f, "admin", "strong-pass", good);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    f.keepCookie();                                   // a sign-in replaces the session
+    f.srv.ip = THIRD;                                 // a third address shares the others' count
+    f.get("/status");
+    TEST_ASSERT_EQUAL(429, f.srv.code);
+
+    // Wrong API tokens wait on their own and leave the panel alone
+    for (int i = 0; i < WebService::FREE_LOGIN_FAILS; i++) {
+        api(f, HTTP_GET, "/api/state", "Bearer ffffffffffffffffffffffffffffffff");
+        TEST_ASSERT_EQUAL(401, f.srv.code);
+    }
+    api(f, HTTP_GET, "/api/state", bearer.c_str());
+    TEST_ASSERT_EQUAL(429, f.srv.code);
+    f.srv.ip = OWNER;
+    f.get("/status");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+
+    // The owner's own mistakes wait too
+    webNow += 30;
+    Totp::codeAt(PANEL_TOTP, webNow, good);
+    for (int i = 0; i < WebService::FREE_LOGIN_FAILS; i++) postLogin(f, "admin", "wrong-pass!", bad);
+    postLogin(f, "admin", "strong-pass", good);
+    TEST_ASSERT_EQUAL(429, f.srv.code);
+
+    // After the waits, a sign-in from another address makes it the owner's
+    setMillis(WebService::LOGIN_WAIT_MAX_MS);
+    f.srv.ip = OTHER;
+    postLogin(f, "admin", "strong-pass", good);
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    f.keepCookie();
+    f.srv.ip = OWNER;                                 // now one of the others
+    for (int i = 0; i < WebService::FREE_LOGIN_FAILS; i++) postLogin(f, "admin", "wrong-pass!", bad);
+    f.srv.ip = OTHER;
+    f.get("/status");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+}
+
 void test_ntfy_short_command_topic_without_token() {
     Fixture f;
     std::string shortTopic(WebService::MIN_CMD_TOPIC - 1, 'c');
@@ -2840,6 +2908,7 @@ int main() {
     RUN_TEST(test_login_repeated_failures_wait_longer);
     RUN_TEST(test_login_wait_has_cap_and_request_without_credentials_does_not_count);
     RUN_TEST(test_wrong_api_token_counts_as_failure);
+    RUN_TEST(test_guessing_elsewhere_does_not_lock_the_owner_out);
     RUN_TEST(test_ntfy_short_command_topic_without_token);
     RUN_TEST(test_ntfy_warns_short_topic_already_saved);
     RUN_TEST(test_security_headers);

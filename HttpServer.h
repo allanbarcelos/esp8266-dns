@@ -63,6 +63,7 @@ public:
     const char*   path() const          { return _path; }
     const String& authorization() const { return _auth; }
     const String& cookie() const         { return _cookie; }
+    uint32_t      remoteIP()             { return (uint32_t)_client.remoteIP(); }
 
     // Argument value (query, then urlencoded body); "plain" is the body
     String arg(const char* name) const {

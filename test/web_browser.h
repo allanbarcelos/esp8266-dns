@@ -26,6 +26,7 @@ struct MockBrowser {
     std::function<void()> tick;
     bool        authOk = true;
     std::string cookie;   // "sid=<32 hex>", sent when authOk
+    uint32_t    ip = 0x0A01A8C0;   // address the requests come from
 
     int         code = 0;
     std::string out, contentType, raw;
@@ -62,6 +63,7 @@ struct MockBrowser {
     bool send(const std::string& request) {
         conn = std::make_shared<MockConn>();
         conn->rx = request;
+        conn->ip = ip;
         MockServer::pending.push_back(conn);
         tick();
         parse(conn->tx);
