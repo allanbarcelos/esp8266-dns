@@ -143,23 +143,6 @@ public:
     const char* csrfToken() const { return _csrfToken; }
     const char* sessionCsrfToken() const { return _session ? _csrfSid : _csrfToken; }
 
-    // Escapes text for safe use in HTML content and attributes
-    static String escape(const String& s) {
-        String out;
-        for (size_t i = 0; i < s.length(); i++) {
-            char c = s.c_str()[i];
-            switch (c) {
-                case '&':  out += "&amp;";  break;
-                case '<':  out += "&lt;";   break;
-                case '>':  out += "&gt;";   break;
-                case '"':  out += "&quot;"; break;
-                case '\'': out += "&#39;";  break;
-                default:   out += c;
-            }
-        }
-        return out;
-    }
-
     // Mask for sensitive tokens: shows only the last 4 characters
     static String maskSecret(const char* s) {
         size_t len = strlen(s);
@@ -167,16 +150,18 @@ public:
         return String("****") + String(s + (len > 4 ? len - 4 : 0));
     }
 
-    static String formatDuration(unsigned long ms) {
+    // Text into buf (DURATION_LEN): "1h 01m 01s"
+    static constexpr size_t DURATION_LEN = 48;   // also the "ago" marker; room for 64-bit hosts
+    static const char* formatDuration(unsigned long ms, char* buf) {
         unsigned long s = ms / 1000;
-        char buf[24];
-        snprintf(buf, sizeof(buf), "%luh %02lum %02lus", s / 3600, (s / 60) % 60, s % 60);
-        return String(buf);
+        snprintf_P(buf, DURATION_LEN, PSTR("%luh %02lum %02lus"), s / 3600, (s / 60) % 60, s % 60);
+        return buf;
     }
 
     // Binary scale: 1024 B = 1 KB. One decimal place, and a .0 is dropped.
     // 1500 → "1.5 KB"; 1024 → "1 KB"; 1048576 → "1 MB".
-    static String formatBytes(uint32_t n) {
+    static constexpr size_t BYTES_LEN = 16;   // "4294967295 B"
+    static const char* formatBytes(uint32_t n, char* buf) {
         const char* unit = "B";
         uint32_t scale = 1;
         if (n >= 1024UL * 1024UL * 1024UL) {
@@ -189,18 +174,17 @@ public:
             unit = "KB";
             scale = 1024UL;
         }
-        char buf[24];
         if (scale == 1) {
-            snprintf(buf, sizeof(buf), "%lu B", (unsigned long)n);
-            return String(buf);
+            snprintf(buf, BYTES_LEN, "%lu B", (unsigned long)n);
+            return buf;
         }
         unsigned long tenths =
             (unsigned long)(((unsigned long long)n * 10ULL + scale / 2) / scale);
         if (tenths % 10 == 0)
-            snprintf(buf, sizeof(buf), "%lu %s", tenths / 10, unit);
+            snprintf(buf, BYTES_LEN, "%lu %s", tenths / 10, unit);
         else
-            snprintf(buf, sizeof(buf), "%lu.%lu %s", tenths / 10, tenths % 10, unit);
-        return String(buf);
+            snprintf(buf, BYTES_LEN, "%lu.%lu %s", tenths / 10, tenths % 10, unit);
+        return buf;
     }
 
 private:
@@ -251,59 +235,101 @@ private:
 
     static void _dispatch(void* self) { static_cast<WebService*>(self)->_route(); }
 
-    // Route by path and method; anything else is a 404
+    // Route by method and path, from tables in flash; anything else is a 404.
+    // The local API (/api/...) takes a token instead of the panel session.
+    struct Route {
+        uint8_t method;
+        PGM_P   path;
+        void (*handler)(WebService&);
+    };
+
+    // Embedded files (Assets.h, WebAssets.h): public, with no device data.
+    // The type is in RAM: it goes into the header's %s.
+    struct Asset {
+        PGM_P          path;
+        const char*    type;
+        const uint8_t* data;
+        uint16_t       len;
+        bool           hashed;
+        bool           gz;
+    };
+
+    static constexpr char P_ROOT[] PROGMEM = "/";
+    static constexpr char P_LOG[] PROGMEM = "/log";
+    static constexpr char P_STATUS[] PROGMEM = "/status";
+    static constexpr char P_CLOUDFLARE[] PROGMEM = "/cloudflare";
+    static constexpr char P_NTFY[] PROGMEM = "/ntfy";
+    static constexpr char P_MQTT[] PROGMEM = "/mqtt";
+    static constexpr char P_PASSWORD[] PROGMEM = "/password";
+    static constexpr char P_LOGIN[] PROGMEM = "/login";
+    static constexpr char P_MFA[] PROGMEM = "/mfa";
+    static constexpr char P_IOT[] PROGMEM = "/iot";
+    static constexpr char P_CONFIG[] PROGMEM = "/config";
+    static constexpr char P_IOT_NOW[] PROGMEM = "/iot/now";
+    static constexpr char P_API_STATE[] PROGMEM = "/api/state";
+    static constexpr char P_UPDATE[] PROGMEM = "/update";
+    static constexpr char P_SAVE[] PROGMEM = "/save";
+    static constexpr char P_CONFIG_SAVE[] PROGMEM = "/config/save";
+    static constexpr char P_CLOUDFLARE_SAVE[] PROGMEM = "/cloudflare/save";
+    static constexpr char P_NTFY_SAVE[] PROGMEM = "/ntfy/save";
+    static constexpr char P_MQTT_SAVE[] PROGMEM = "/mqtt/save";
+    static constexpr char P_PASSWORD_SAVE[] PROGMEM = "/password/save";
+    static constexpr char P_LOGOUT[] PROGMEM = "/logout";
+    static constexpr char P_MFA_RESET[] PROGMEM = "/mfa/reset";
+    static constexpr char P_IOT_SAVE[] PROGMEM = "/iot/save";
+    static constexpr char P_IOT_CMD[] PROGMEM = "/iot/cmd";
+    static constexpr char P_IOT_TOKEN[] PROGMEM = "/iot/token";
+    static constexpr char P_IOT_CLEAR[] PROGMEM = "/iot/clear";
+    static constexpr char P_API_CMD[] PROGMEM = "/api/cmd";
+    static constexpr char P_UPDATE_AUTO[] PROGMEM = "/update/auto";
+    static constexpr char P_UPDATE_CHECK[] PROGMEM = "/update/check";
+    static constexpr char P_UPDATE_INSTALL[] PROGMEM = "/update/install";
+    static constexpr char P_S_CSS[] PROGMEM = "/s.css";
+    static constexpr char P_IOT_JS[] PROGMEM = "/iot.js";
+    static constexpr char P_I18N_JS[] PROGMEM = "/i18n.js";
+    static constexpr char P_PINOUT_SVG[] PROGMEM = "/pinout.svg";
+    static constexpr char P_ESP01_AVIF[] PROGMEM = "/esp01.avif";
+
+    // Text used in several places: one copy in flash (PSTR makes one per use)
+    static constexpr char S_WARNING[] PROGMEM = "warning";
+    static constexpr char S_SUCCESS[] PROGMEM = "success";
+    static constexpr char S_DANGER[] PROGMEM = "danger";
+    static constexpr char S_DIV_END[] PROGMEM = "</div>";
+    static constexpr char S_TAG_END[] PROGMEM = "'>";
+    static constexpr char S_SAVE_FAILED[] PROGMEM = L_SAVE_FAILED;
+    static constexpr char S_SAVE[] PROGMEM = L_SAVE;
+    static constexpr char S_USER[] PROGMEM = L_USER;
+    static constexpr char S_STATE[] PROGMEM = L_STATE;
+    static constexpr char S_CLOCK[] PROGMEM = L_CLOCK_NOT_SYNC;
+    static constexpr char S_SIGN_IN_FAILED[] PROGMEM = L_SIGN_IN_FAILED;
+    static constexpr char S_F_USER[] PROGMEM = "user";
+    static constexpr char S_F_PASS[] PROGMEM = "pass";
+    static constexpr char S_REQ32[] PROGMEM = "required maxlength='32'";
+    static constexpr char S_REQ64[] PROGMEM = "required maxlength='64'";
+    static constexpr char S_MAX63[] PROGMEM = "maxlength='63'";
+    static constexpr char S_CURRENT_PASS_AC[] PROGMEM = "autocomplete='current-password' ";
+
+    static const Route ROUTES[];
+    static const Asset ASSETS[];
+    static const size_t ROUTE_COUNT, ASSET_COUNT;
+
     void _route() {
         if (!_hostOk()) {
             _server.send(421, "text/plain", "Unknown address; add it under Settings, Other addresses");
             return;
         }
         const char* p = _server.path();
-        if (_server.method() == HttpServer::GET) {
-            if (!strcmp_P(p, PSTR("/")))           return _handleRoot();
-            if (!strcmp_P(p, PSTR("/log")))        return _handleLog();
-            if (!strcmp_P(p, PSTR("/status")))     return _handleStatus();
-            if (!strcmp_P(p, PSTR("/cloudflare"))) return _handleCloudflare();
-            if (!strcmp_P(p, PSTR("/ntfy")))       return _handleNtfy();
-            if (!strcmp_P(p, PSTR("/mqtt")))       return _handleMqtt();
-            if (!strcmp_P(p, PSTR("/password")))   return _handlePassword();
-            if (!strcmp_P(p, PSTR("/login")))      return _handleLogin();
-            if (!strcmp_P(p, PSTR("/mfa")))        return _handleMfa();
-            if (!strcmp_P(p, PSTR("/iot")))        return _handleIot();
-            if (!strcmp_P(p, PSTR("/config")))     return _handleConfig();
-            if (!strcmp_P(p, PSTR("/iot/now")))    return _handleIotNow();
-            // Local API: the same reading and commands, with a token instead of the login
-            if (!strcmp_P(p, PSTR("/api/state")))  return _handleApiState();
-            if (!strcmp_P(p, PSTR("/update")))     return _handleUpdate();
-            // Embedded files (Assets.h, WebAssets.h): public, with no device data
-            if (!strcmp_P(p, PSTR("/s.css")))
-                return _asset("text/css", WEB_CSS_GZ, sizeof(WEB_CSS_GZ), true);
-            if (!strcmp_P(p, PSTR("/iot.js")))
-                return _asset("text/javascript", WEB_IOT_GZ, sizeof(WEB_IOT_GZ), true);
-            if (!strcmp_P(p, PSTR("/i18n.js")))
-                return _asset("text/javascript", WEB_I18N_GZ, sizeof(WEB_I18N_GZ), true);
-            if (!strcmp_P(p, PSTR("/pinout.svg")))
-                return _asset("image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ), true);
-            if (!strcmp_P(p, PSTR("/esp01.avif")))
-                return _asset("image/avif", ASSET_PHOTO, sizeof(ASSET_PHOTO), false, false);
-        } else if (_server.method() == HttpServer::POST) {
-            if (!strcmp_P(p, PSTR("/save")))            return _handleSave();
-            if (!strcmp_P(p, PSTR("/config/save")))     return _handleConfigSave();
-            if (!strcmp_P(p, PSTR("/cloudflare/save"))) return _handleCloudflareSave();
-            if (!strcmp_P(p, PSTR("/ntfy/save")))       return _handleNtfySave();
-            if (!strcmp_P(p, PSTR("/mqtt/save")))       return _handleMqttSave();
-            if (!strcmp_P(p, PSTR("/password/save")))   return _handlePasswordSave();
-            if (!strcmp_P(p, PSTR("/login")))           return _handleLoginPost();
-            if (!strcmp_P(p, PSTR("/logout")))          return _handleLogout();
-            if (!strcmp_P(p, PSTR("/mfa")))             return _handleMfaPost();
-            if (!strcmp_P(p, PSTR("/mfa/reset")))       return _handleMfaReset();
-            if (!strcmp_P(p, PSTR("/iot/save")))        return _handleIotSave();
-            if (!strcmp_P(p, PSTR("/iot/cmd")))         return _handleIotCmd();
-            if (!strcmp_P(p, PSTR("/iot/token")))       return _handleIotToken();
-            if (!strcmp_P(p, PSTR("/iot/clear")))       return _handleIotClear();
-            if (!strcmp_P(p, PSTR("/api/cmd")))         return _handleApiCmd();
-            if (!strcmp_P(p, PSTR("/update/auto")))     return _handleUpdateAuto();
-            if (!strcmp_P(p, PSTR("/update/check")))    return _handleUpdateCheck();
-            if (!strcmp_P(p, PSTR("/update/install")))  return _handleUpdateInstall();
+        uint8_t m = _server.method();
+        for (size_t i = 0; i < ROUTE_COUNT; i++) {
+            Route r;
+            memcpy_P(&r, &ROUTES[i], sizeof(r));
+            if (r.method == m && !strcmp_P(p, r.path)) return r.handler(*this);
+        }
+        for (size_t i = 0; i < ASSET_COUNT; i++) {
+            Asset f;
+            memcpy_P(&f, &ASSETS[i], sizeof(f));
+            if (m == HttpServer::GET && !strcmp_P(p, f.path))
+                return _asset(f.type, f.data, f.len, f.hashed, f.gz);
         }
         _server.send(404, "text/plain", "");
     }
@@ -534,7 +560,7 @@ private:
     bool _confirmed() {
         CodeTime t = _codeTime();
         if (!t.now) {
-            _errorPage(PSTR(L_CLOCK_NOT_SYNC), PSTR("/password"));
+            _errorPage(S_CLOCK, P_PASSWORD);
             return false;
         }
         uint32_t step = _floor(t);
@@ -542,7 +568,7 @@ private:
         bool codeOk = _codeOk(_cfg.totp, t.now, step);
         if (!passOk || !codeOk) {
             _loginFailed(_tries());
-            _errorPage(PSTR(L_SIGN_IN_FAILED), PSTR("/password"));
+            _errorPage(S_SIGN_IN_FAILED, P_PASSWORD);
             return false;
         }
         _spend(t, step);
@@ -665,7 +691,7 @@ private:
 
     // Device name in the title and at the top; without one, the project's
     void _name() {
-        if (_cfg.dev_name[0]) _s(escape(_cfg.dev_name));
+        if (_cfg.dev_name[0]) _e(_cfg.dev_name);
         else _p(PSTR("ESP8266 DNS"));
     }
 
@@ -674,7 +700,7 @@ private:
         _p(_HTML_FOOT_A);
         _s(firmware_version);
         _p(_HTML_FOOT_B);
-        _s(escape(_cfg.lang));
+        _e(_cfg.lang);
         _p(PSTR("'></script>"));
     }
 
@@ -685,6 +711,23 @@ private:
 
     // A page with no known length ends when the connection closes
     void _p(PGM_P s) { _server.sendContent_P(s); }
+
+    // Variable text, escaped for HTML content and attributes, as it goes out
+    void _e(const char* s) {
+        const char* run = s;
+        for (; *s; s++) {
+            PGM_P entity = *s == '&'  ? PSTR("&amp;")
+                         : *s == '<'  ? PSTR("&lt;")
+                         : *s == '>'  ? PSTR("&gt;")
+                         : *s == '"'  ? PSTR("&quot;")
+                         : *s == '\'' ? PSTR("&#39;") : nullptr;
+            if (!entity) continue;
+            _server.sendContent(run, (size_t)(s - run));
+            _p(entity);
+            run = s + 1;
+        }
+        _server.sendContent(run, (size_t)(s - run));
+    }
     void _s(const char* s) { _server.sendContent(s); }
     void _s(const String& s) { _server.sendContent(s); }
 
@@ -704,51 +747,63 @@ private:
 
     // Label + value on one line with a separator (the value is always escaped).
     // id, if any, lets the script update the value without reloading the page
-    void _row(PGM_P label, const String& value, PGM_P id = nullptr) {
+    void _row(PGM_P label, const String& value, PGM_P id = nullptr) { _row(label, value.c_str(), id); }
+
+    void _row(PGM_P label, const char* value, PGM_P id = nullptr) {
         _p(PSTR("<div class='r'><span>"));
         _p(label);
         if (id) {
             _p(PSTR("</span><b id='"));
             _p(id);
-            _p(PSTR("'>"));
+            _p(S_TAG_END);
         } else {
             _p(PSTR("</span><b>"));
         }
-        _s(escape(value));
+        _e(value);
         _p(PSTR("</b></div>"));
+    }
+
+    // A row whose value is formatted (fmt in flash)
+    void _rowf(PGM_P label, PGM_P fmt, ...) {
+        char b[40];
+        va_list args;
+        va_start(args, fmt);
+        vsnprintf_P(b, sizeof(b), fmt, args);
+        va_end(args);
+        _row(label, b);
     }
 
     void _csrfField(bool signIn = false) {
         _p(PSTR("<input type='hidden' name='_csrf' value='"));
         _s(_formToken(signIn));
-        _p(PSTR("'>"));
+        _p(S_TAG_END);
     }
 
     // Authenticator code, plus the browser's clock (t, filled in by i18n.js
     // when the form is sent; see _codeTime)
     void _codeInput() {
-        _input(PSTR(L_AUTH_CODE), PSTR("code"), String(), _CODE_FIELD);
+        _input(PSTR(L_AUTH_CODE), PSTR("code"), "", _CODE_FIELD);
         _p(PSTR("<input type='hidden' name='t'>"));
     }
 
     void _alertOpen(PGM_P cls) {
         _p(PSTR("<div class='a "));
         _p(cls);
-        _p(PSTR("'>"));
+        _p(S_TAG_END);
     }
 
     // Variable text: always escaped
     void _alert(PGM_P cls, const String& msg) {
         _alertOpen(cls);
-        _s(escape(msg));
-        _p(PSTR("</div>"));
+        _e(msg.c_str());
+        _p(S_DIV_END);
     }
 
     // Fixed firmware text (PSTR, with no special HTML characters)
     void _alertP(PGM_P cls, PGM_P msg) {
         _alertOpen(cls);
         _p(msg);
-        _p(PSTR("</div>"));
+        _p(S_DIV_END);
     }
 
     // The <label> wraps the field: implicit association for screen readers
@@ -757,12 +812,12 @@ private:
         _p(label);
     }
 
-    void _input(PGM_P label, PGM_P name, const String& value, PGM_P extra) {
+    void _input(PGM_P label, PGM_P name, const char* value, PGM_P extra) {
         _labelOpen(label);
         _p(PSTR("<input name='"));
         _p(name);
         _p(PSTR("' value='"));
-        _s(escape(value));
+        _e(value);
         _p(PSTR("' "));
         _p(extra);
         _p(PSTR("></label>"));
@@ -805,17 +860,17 @@ private:
     // Confirmation page with an automatic redirect
     void _savedPage(PGM_P msg, PGM_P backHref) {
         _pageBegin();
-        _alertP(PSTR("success"), msg);
+        _alertP(S_SUCCESS, msg);
         _p(PSTR("<meta http-equiv='refresh' content='2;url="));
         _p(backHref);
-        _p(PSTR("'>"));
+        _p(S_TAG_END);
         _backButton(backHref);
         _pageEnd();
     }
 
     void _errorPage(PGM_P msg, PGM_P backHref) {
         _pageBegin(0, 400);
-        _alertP(PSTR("danger"), msg);
+        _alertP(S_DANGER, msg);
         _backButton(backHref);
         _pageEnd();
     }
@@ -856,15 +911,13 @@ private:
 
     void _otaProgressBar() {
         if (!_ota.inProgress()) return;
-        String pct(_ota.progressPercent());
-        _p(PSTR("<div class='a' role='status'>" L_OTA_PROGRESS " <b>"));
-        _s(pct);
-        _p(PSTR("%</b><progress max='100' value='"));
-        _s(pct);
-        _p(PSTR("'></progress><span class='m'>"));
-        _s(formatBytes((uint32_t)_ota.bytesWritten()));
-        _p(PSTR(" / "));
-        _s(formatBytes((uint32_t)_ota.contentLength()));
+        char b[96], done[BYTES_LEN], total[BYTES_LEN];
+        int pct = _ota.progressPercent();
+        snprintf_P(b, sizeof(b), PSTR("<b>%d%%</b><progress max='100' value='%d'></progress><span class='m'>%s / %s"),
+                   pct, pct, formatBytes((uint32_t)_ota.bytesWritten(), done),
+                   formatBytes((uint32_t)_ota.contentLength(), total));
+        _p(PSTR("<div class='a' role='status'>" L_OTA_PROGRESS " "));
+        _s(b);
         _p(PSTR("</span></div>"));
     }
 
@@ -876,15 +929,15 @@ private:
         _deviceMark();
 
         if (_wifi.inConfigMode()) {
-            _alertP(PSTR("warning"), PSTR(L_SETUP_MODE));
+            _alertP(S_WARNING, PSTR(L_SETUP_MODE));
             _p(PSTR("<form action='/save' method='POST'>"));
             _csrfField();
-            _input(PSTR("SSID"), PSTR("ssid"), _cfg.ssid, PSTR("required maxlength='32'"));
-            _passwordInput(PSTR(L_WIFI_PASSWORD), PSTR("pass"), PSTR("maxlength='63'"));
+            _input(PSTR("SSID"), PSTR("ssid"), _cfg.ssid.c_str(), S_REQ32);
+            _passwordInput(PSTR(L_WIFI_PASSWORD), S_F_PASS, S_MAX63);
             if (_cfg.webpss.length() == 0) {
                 _p(PSTR("<h2>" L_PANEL_ACCESS "</h2>"));
-                _input(PSTR(L_USER), PSTR("user"), _cfg.webusr.length() ? _cfg.webusr : String("admin"),
-                       PSTR("required maxlength='32'"));
+                _input(S_USER, S_F_USER, _cfg.webusr.length() ? _cfg.webusr.c_str() : "admin",
+                       S_REQ32);
                 _passwordInput(PSTR(L_PANEL_PASS_MIN), PSTR("pass1"), PSTR("required minlength='8'"));
                 _passwordInput(PSTR(L_CONFIRM_PASS), PSTR("pass2"), PSTR("required minlength='8'"));
             }
@@ -895,13 +948,14 @@ private:
             _box(PSTR(L_NETWORK));
             _row(PSTR("SSID"),       WiFi.SSID());
             _row(PSTR(L_LOCAL_IP),   WiFi.localIP().toString());
-            _row(PSTR(L_PUBLIC_IP), _cfg.publicIP[0] ? String(_cfg.publicIP) : String("-"));
-            _row(PSTR("RSSI"),       String(WiFi.RSSI()) + " dBm");
+            _row(PSTR(L_PUBLIC_IP), _cfg.publicIP[0] ? _cfg.publicIP : "-");
+            _rowf(PSTR("RSSI"),      PSTR("%d dBm"), (int)WiFi.RSSI());
             _boxEnd();
 
+            char b[DURATION_LEN];
             _box(PSTR("DNS Cloudflare"));
-            _row(PSTR("Host"), _cfg.cf_host[0] ? String(_cfg.cf_host) : String("-"));
-            _row(PSTR(L_LAST_UPDATE), _ago(_cfg.lastDnsUpdate != 0, _cfg.lastDnsUpdate));
+            _row(PSTR("Host"), _cfg.cf_host[0] ? _cfg.cf_host : "-");
+            _row(PSTR(L_LAST_UPDATE), _ago(_cfg.lastDnsUpdate != 0, _cfg.lastDnsUpdate, b));
             _boxEnd();
         }
 
@@ -930,7 +984,7 @@ private:
         for (size_t i = 0; i < sizeof(_LANG_CODES) / sizeof(_LANG_CODES[0]); i++)
             _option(_LANG_CODES[i], _LANG_NAMES[i], strcmp(_cfg.lang, _LANG_CODES[i]) == 0);
         _selectEnd();
-        _button(PSTR(L_SAVE));
+        _button(S_SAVE);
         _pageEnd();
     }
 
@@ -941,11 +995,11 @@ private:
         String ssid = _server.arg("ssid");
         String pass = _server.arg("pass");
         if (ssid.length() == 0 || ssid.length() > 32) {
-            _errorPage(PSTR(L_INVALID_SSID), PSTR("/"));
+            _errorPage(PSTR(L_INVALID_SSID), P_ROOT);
             return;
         }
         if (pass.length() > 63 || (pass.length() > 0 && pass.length() < 8)) {
-            _errorPage(PSTR(L_WIFI_PASS_LENGTH), PSTR("/"));
+            _errorPage(PSTR(L_WIFI_PASS_LENGTH), P_ROOT);
             return;
         }
         if (_cfg.webpss.length() == 0 && !_readPanelCredentials("/")) return;
@@ -953,10 +1007,10 @@ private:
         _cfg.ssid = ssid;
         _cfg.pass = pass;
         if (!_store.save()) {
-            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/"));
+            _errorPage(S_SAVE_FAILED, P_ROOT);
             return;
         }
-        _savedPage(PSTR(L_WIFI_SET), PSTR("/"));
+        _savedPage(PSTR(L_WIFI_SET), P_ROOT);
         _wifi.scheduleRestart(2000);
     }
 
@@ -973,7 +1027,7 @@ private:
         int16_t tz = 0;
         String tzArg = _server.arg("tz");
         if (tzArg.length() && (!IoTService::parseI16(tzArg, -720, 840, tz) || !validTz(tz))) {
-            _errorPage(PSTR(L_INVALID_TZ), PSTR("/config"));
+            _errorPage(PSTR(L_INVALID_TZ), P_CONFIG);
             return;
         }
         String lang = _server.arg("lang");
@@ -981,13 +1035,13 @@ private:
         for (size_t i = 0; !known && i < sizeof(_LANG_CODES) / sizeof(_LANG_CODES[0]); i++)
             known = lang == _LANG_CODES[i];
         if (!known) {
-            _errorPage(PSTR(L_INVALID_LANG), PSTR("/config"));
+            _errorPage(PSTR(L_INVALID_LANG), P_CONFIG);
             return;
         }
         int8_t bat = -1;
         String batArg = _server.arg("bat_sda");
         if (batArg.length() && (!IoTService::parsePin(batArg, bat) || !PowerService::pinsFree(bat, _cfg.iot))) {
-            _errorPage(PSTR(L_GAUGE_PINS_TAKEN), PSTR("/config"));
+            _errorPage(PSTR(L_GAUGE_PINS_TAKEN), P_CONFIG);
             return;
         }
         name.trim();
@@ -998,7 +1052,7 @@ private:
             ok = c >= 0x20 && c != '"' && c != '\\' && c != 0x7F;
         }
         if (!ok) {
-            _errorPage(PSTR(L_INVALID_NAME), PSTR("/config"));
+            _errorPage(PSTR(L_INVALID_NAME), P_CONFIG);
             return;
         }
         size_t n = host.length();
@@ -1008,7 +1062,7 @@ private:
             ok = isalnum((unsigned char)c) || c == '-';
         }
         if (!ok) {
-            _errorPage(PSTR(L_INVALID_HOSTNAME), PSTR("/config"));
+            _errorPage(PSTR(L_INVALID_HOSTNAME), P_CONFIG);
             return;
         }
         hosts.trim();
@@ -1018,7 +1072,7 @@ private:
             ok = isalnum((unsigned char)c) || c == '.' || c == ',' || c == '-';
         }
         if (!ok) {
-            _errorPage(PSTR(L_INVALID_NAMES), PSTR("/config"));
+            _errorPage(PSTR(L_INVALID_NAMES), P_CONFIG);
             return;
         }
         strlcpy(_cfg.dev_name, name.c_str(), sizeof(_cfg.dev_name));
@@ -1028,13 +1082,13 @@ private:
         _cfg.bat_sda = bat;
         strlcpy(_cfg.lang, lang.c_str(), sizeof(_cfg.lang));
         if (!_store.save()) {
-            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/config"));
+            _errorPage(S_SAVE_FAILED, P_CONFIG);
             return;
         }
         if (_cfg.hostname[0]) WiFi.hostname(_cfg.hostname);
         if (_mqtt) _mqtt->reconnect();   // discovery carries the new name
         if (_power) _power->begin();
-        _savedPage(PSTR(L_SETTINGS_SAVED), PSTR("/config"));
+        _savedPage(PSTR(L_SETTINGS_SAVED), P_CONFIG);
     }
 
     void _handleLog() {
@@ -1045,7 +1099,7 @@ private:
         uint8_t cnt   = _log.count();
         uint8_t start = _log.startIndex();
         for (uint8_t i = 0; i < cnt; i++) {
-            _s(escape(_log.entry(start + i)));
+            _e(_log.entry(start + i));
             _p(PSTR("\n"));
         }
         _p(PSTR("</pre>"));
@@ -1058,40 +1112,41 @@ private:
         _title(PSTR(L_STATUS));
 
         _otaProgressBar();
+        char b[DURATION_LEN];
 
         _box(PSTR(L_SYSTEM));
-        _row(PSTR(L_UPTIME),  formatDuration(millis()));
-        _row(PSTR(L_LOCAL_TIME), _localTime());
+        _row(PSTR(L_UPTIME),  formatDuration(millis(), b));
+        _row(PSTR(L_LOCAL_TIME), _localTime(b));
         _row(PSTR(L_RESET),   ESP.getResetReason());
         _row(PSTR(L_CAUSE),   ESP.getResetInfo());
-        _row(PSTR(L_CHIP_ID), String(ESP.getChipId(), HEX));
+        _rowf(PSTR(L_CHIP_ID), PSTR("%x"), (unsigned)ESP.getChipId());
         _row(PSTR(L_AP_PASSWORD " " AP_SSID), _wifi.apPassword());
-        _row(PSTR("CPU"),     String(ESP.getCpuFreqMHz()) + " MHz");
-        _row(PSTR("SDK"),     String(ESP.getSdkVersion()));
+        _rowf(PSTR("CPU"),    PSTR("%u MHz"), (unsigned)ESP.getCpuFreqMHz());
+        _row(PSTR("SDK"),     ESP.getSdkVersion());
         _boxEnd();
 
         _box(PSTR(L_MEMORY));
-        _row(PSTR(L_FREE_HEAP),   formatBytes(ESP.getFreeHeap()));
-        _row(PSTR(L_LARGEST_BLOCK),  formatBytes(ESP.getMaxFreeBlockSize()));
-        _row(PSTR(L_FRAGMENTATION), String(ESP.getHeapFragmentation()) + "%");
+        _row(PSTR(L_FREE_HEAP),   formatBytes(ESP.getFreeHeap(), b));
+        _row(PSTR(L_LARGEST_BLOCK),  formatBytes(ESP.getMaxFreeBlockSize(), b));
+        _rowf(PSTR(L_FRAGMENTATION), PSTR("%u%%"), (unsigned)ESP.getHeapFragmentation());
         _boxEnd();
 
         _box(PSTR("Flash"));
-        _row(PSTR("Total"),      formatBytes(ESP.getFlashChipSize()));
-        _row(PSTR("Sketch"),     formatBytes(ESP.getSketchSize()));
-        _row(PSTR(L_OTA_RESERVE), formatBytes(FlashLayout::OTA_RESERVE));
-        _row(PSTR(L_FREE),      formatBytes(ESP.getFreeSketchSpace()));
+        _row(PSTR("Total"),      formatBytes(ESP.getFlashChipSize(), b));
+        _row(PSTR("Sketch"),     formatBytes(ESP.getSketchSize(), b));
+        _row(PSTR(L_OTA_RESERVE), formatBytes(FlashLayout::OTA_RESERVE, b));
+        _row(PSTR(L_FREE),      formatBytes(ESP.getFreeSketchSpace(), b));
         _boxEnd();
 
         _box(PSTR("LittleFS"));
         FSInfo fs;
         LittleFS.info(fs);
-        _row(PSTR("Total"), formatBytes((uint32_t)fs.totalBytes));
-        _row(PSTR(L_USED), formatBytes((uint32_t)fs.usedBytes));
+        _row(PSTR("Total"), formatBytes((uint32_t)fs.totalBytes, b));
+        _row(PSTR(L_USED), formatBytes((uint32_t)fs.usedBytes, b));
         Dir dir = LittleFS.openDir("/");
         int fc = 0;
         while (dir.next()) fc++;
-        _row(PSTR(L_FILES), String(fc));
+        _rowf(PSTR(L_FILES), PSTR("%d"), fc);
         _boxEnd();
 
         _box(PSTR("Wi-Fi"));
@@ -1102,31 +1157,34 @@ private:
         _row(PSTR(L_NETMASK), con ? WiFi.subnetMask().toString(): String("-"));
         _row(PSTR("DNS"),     con ? WiFi.dnsIP().toString()     : String("-"));
         _row(PSTR("MAC"),     WiFi.macAddress());
-        _row(PSTR("RSSI"),    String(WiFi.RSSI()) + " dBm");
+        _rowf(PSTR("RSSI"),   PSTR("%d dBm"), (int)WiFi.RSSI());
         _boxEnd();
 
         if (_power && _power->configured()) {
             _box(PSTR(L_BATTERY));
             bool ok = _power->source() != PowerService::UNKNOWN;
-            _row(PSTR(L_STATE), PowerService::name(_power->source()));
-            _row(PSTR(L_CHARGE),  ok ? String(_power->percent()) + "%" : String("-"));
-            char b[16];
-            snprintf(b, sizeof(b), "%u.%02u V", _power->millivolts() / 1000u,
-                     (_power->millivolts() % 1000u) / 10u);
-            _row(PSTR(L_VOLTAGE), ok ? String(b) : String("-"));
+            _row(S_STATE, PowerService::name(_power->source()));
+            unsigned mv = _power->millivolts();
             int r = _power->rateTenths();
-            snprintf(b, sizeof(b), "%s%d.%d %%/h", r < 0 ? "-" : "", abs(r) / 10, abs(r) % 10);
-            _row(PSTR(L_RATE), ok ? String(b) : String("-"));
+            if (ok) {
+                _rowf(PSTR(L_CHARGE),  PSTR("%u%%"), (unsigned)_power->percent());
+                _rowf(PSTR(L_VOLTAGE), PSTR("%u.%02u V"), mv / 1000u, (mv % 1000u) / 10u);
+                _rowf(PSTR(L_RATE),    PSTR("%s%d.%d %%/h"), r < 0 ? "-" : "", abs(r) / 10, abs(r) % 10);
+            } else {
+                _row(PSTR(L_CHARGE), "-");
+                _row(PSTR(L_VOLTAGE), "-");
+                _row(PSTR(L_RATE), "-");
+            }
             _boxEnd();
         }
 
         // Checked every 5 min (PublicIPResolver); reverse name from the network's DNS
         _box(PSTR(L_PUBLIC_IP));
         bool ip = _cfg.publicIP[0];
-        _row(PSTR("IP"),      ip ? String(_cfg.publicIP) : String("-"));
-        _row(PSTR(L_REVERSE), _cfg.publicHost[0] ? String(_cfg.publicHost) : String("-"));
-        _row(PSTR(L_CHANGED),   _ago(ip, _cfg.ipChanged));
-        _row(PSTR(L_LAST_CHECK), _ago(ip, _cfg.ipChecked));
+        _row(PSTR("IP"),      ip ? _cfg.publicIP : "-");
+        _row(PSTR(L_REVERSE), _cfg.publicHost[0] ? _cfg.publicHost : "-");
+        _row(PSTR(L_CHANGED),   _ago(ip, _cfg.ipChanged, b));
+        _row(PSTR(L_LAST_CHECK), _ago(ip, _cfg.ipChecked, b));
         _boxEnd();
 
         _pageEnd();
@@ -1138,9 +1196,9 @@ private:
         _title(PSTR("Cloudflare DDNS"));
 
         if (_cfg.cf_token[0])
-            _alert(PSTR("success"), L_TOKEN_SET " " + maskSecret(_cfg.cf_token));
+            _alert(S_SUCCESS, L_TOKEN_SET " " + maskSecret(_cfg.cf_token));
         else
-            _alertP(PSTR("warning"), PSTR(L_TOKEN_NOT_SET));
+            _alertP(S_WARNING, PSTR(L_TOKEN_NOT_SET));
 
         _p(PSTR("<form action='/cloudflare/save' method='POST'>"));
         _csrfField();
@@ -1149,10 +1207,10 @@ private:
         _passwordInput(PSTR(L_API_TOKEN " <span class='m'>" L_KEEP_BLANK "</span>"),
                        PSTR("token"), PSTR("placeholder='" L_NEW_TOKEN "' maxlength='47' pattern='[A-Za-z0-9_\\-]*'"));
         _input(PSTR(L_ZONE_ID), PSTR("zone"), _cfg.cf_zone, PSTR("maxlength='32' pattern='[0-9a-fA-F]{32}'"));
-        _input(PSTR(L_HOSTNAME_DISPLAY), PSTR("host"), _cfg.cf_host, PSTR("maxlength='63'"));
+        _input(PSTR(L_HOSTNAME_DISPLAY), PSTR("host"), _cfg.cf_host, S_MAX63);
         _input(PSTR(L_RECORD_ID), PSTR("record"), _cfg.cf_record, PSTR("maxlength='32' pattern='[0-9a-fA-F]{32}'"));
 
-        _button(PSTR(L_SAVE));
+        _button(S_SAVE);
         _pageEnd();
     }
 
@@ -1173,11 +1231,11 @@ private:
         // They go into the request to the API: an ID with / or a line break
         // would change the path or add a header
         if (!_cfId(zone) || !_cfId(record)) {
-            _errorPage(PSTR(L_INVALID_CF_ID), PSTR("/cloudflare"));
+            _errorPage(PSTR(L_INVALID_CF_ID), P_CLOUDFLARE);
             return;
         }
         if (!_tokenText(token)) {
-            _errorPage(PSTR(L_INVALID_CF_TOKEN), PSTR("/cloudflare"));
+            _errorPage(PSTR(L_INVALID_CF_TOKEN), P_CLOUDFLARE);
             return;
         }
 
@@ -1187,10 +1245,10 @@ private:
         strlcpy(_cfg.cf_record, record, sizeof(_cfg.cf_record));
 
         if (!_store.save()) {
-            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/cloudflare"));
+            _errorPage(S_SAVE_FAILED, P_CLOUDFLARE);
             return;
         }
-        _savedPage(PSTR(L_CF_SET), PSTR("/cloudflare"));
+        _savedPage(PSTR(L_CF_SET), P_CLOUDFLARE);
     }
 
     // A Cloudflare zone or record ID: 32 hexadecimal digits, or empty (not set up)
@@ -1214,14 +1272,14 @@ private:
         _title(PSTR(L_NTFY_TITLE));
 
         if (_cfg.ntfy_topic[0])
-            _alert(PSTR("success"), String(L_TOPIC " ") + _cfg.ntfy_topic);
+            _alert(S_SUCCESS, String(L_TOPIC " ") + _cfg.ntfy_topic);
         else
-            _alertP(PSTR("warning"), PSTR(L_TOPIC_NOT_SET));
+            _alertP(S_WARNING, PSTR(L_TOPIC_NOT_SET));
         if (_cfg.ntfy_cmd[0] && strlen(_cfg.ntfy_cmd) < MIN_CMD_TOPIC && !_cfg.ntfy_token[0])
-            _alertP(PSTR("warning"), PSTR(L_SHORT_TOPIC_WARN));
+            _alertP(S_WARNING, PSTR(L_SHORT_TOPIC_WARN));
         if (_ntfy) {
             _box(PSTR(L_NTFY_COMMANDS));
-            _row(PSTR(L_STATE), _ntfy->commandStatus());
+            _row(S_STATE, _ntfy->commandStatus());
             _boxEnd();
         }
 
@@ -1239,7 +1297,7 @@ private:
         _passwordInput(PSTR(L_NTFY_TOKEN " <span class='m'>" L_OPTIONAL_KEEPS "</span>"), PSTR("token"),
                        PSTR("maxlength='47' placeholder='tk_...'"));
         _switch(PSTR("token_clear"), PSTR(L_DELETE_TOKEN), false);
-        _button(PSTR(L_SAVE));
+        _button(S_SAVE);
         _pageEnd();
     }
 
@@ -1254,12 +1312,12 @@ private:
         cmd.trim();
         token.trim();
         if (topic.length() > 0 && !NtfyNotifier::isValidTopic(topic)) {
-            _errorPage(PSTR(L_INVALID_TOPIC), PSTR("/ntfy"));
+            _errorPage(PSTR(L_INVALID_TOPIC), P_NTFY);
             return;
         }
         if (cmd.length() > 0 && !NtfyNotifier::isValidTopic(cmd)) {
             _errorPage(PSTR(L_INVALID_CMD_TOPIC),
-                       PSTR("/ntfy"));
+                       P_NTFY);
             return;
         }
         // ntfy.sh topics are public by name: without a token, the command topic
@@ -1267,12 +1325,12 @@ private:
         bool hasToken = token.length() > 0 || (_cfg.ntfy_token[0] && !_flag("token_clear"));
         if (cmd.length() > 0 && cmd.length() < MIN_CMD_TOPIC && !hasToken) {
             _errorPage(PSTR(L_SHORT_TOPIC),
-                       PSTR("/ntfy"));
+                       P_NTFY);
             return;
         }
         // The reply goes to the data topic: the same topic would read its own reply
         if (cmd.length() > 0 && cmd == topic) {
-            _errorPage(PSTR(L_SAME_TOPIC), PSTR("/ntfy"));
+            _errorPage(PSTR(L_SAME_TOPIC), P_NTFY);
             return;
         }
         bool tokenOk = token.length() < sizeof(_cfg.ntfy_token);
@@ -1281,7 +1339,7 @@ private:
             tokenOk = isalnum((unsigned char)c) || c == '_';
         }
         if (!tokenOk) {
-            _errorPage(PSTR(L_INVALID_NTFY_TOKEN), PSTR("/ntfy"));
+            _errorPage(PSTR(L_INVALID_NTFY_TOKEN), P_NTFY);
             return;
         }
         strlcpy(_cfg.ntfy_topic, topic.c_str(), sizeof(_cfg.ntfy_topic));
@@ -1289,10 +1347,10 @@ private:
         if (_flag("token_clear")) _cfg.ntfy_token[0] = '\0';
         else if (token.length()) strlcpy(_cfg.ntfy_token, token.c_str(), sizeof(_cfg.ntfy_token));
         if (!_store.save()) {
-            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/ntfy"));
+            _errorPage(S_SAVE_FAILED, P_NTFY);
             return;
         }
-        _savedPage(PSTR(L_NTFY_SAVED), PSTR("/ntfy"));
+        _savedPage(PSTR(L_NTFY_SAVED), P_NTFY);
     }
 
     // ── MQTT ─────────────────────────────────────────────────────────────────
@@ -1303,7 +1361,7 @@ private:
         _title(PSTR("MQTT"));
         if (_mqtt) {
             _box(PSTR(L_CONNECTION));
-            _row(PSTR(L_STATE), _mqtt->status());
+            _row(S_STATE, _mqtt->status());
             _row(PSTR(L_TOPICS), String(_mqtt->base()) + "/state, /cmd, /avail");
             _boxEnd();
         }
@@ -1311,13 +1369,13 @@ private:
         _csrfField();
         _input(PSTR("Broker <span class='m'>" L_BROKER_HINT "</span>"), PSTR("host"),
                _cfg.mqtt_host, PSTR("maxlength='63' placeholder='192.168.1.10:1883'"));
-        _input(PSTR(L_USER), PSTR("user"), _cfg.mqtt_user,
+        _input(S_USER, S_F_USER, _cfg.mqtt_user,
                PSTR("maxlength='31' autocomplete='off'"));
-        _passwordInput(PSTR(L_PASSWORD " <span class='m'>" L_BLANK_KEEPS "</span>"), PSTR("pass"),
-                       PSTR("maxlength='63'"));
+        _passwordInput(PSTR(L_PASSWORD " <span class='m'>" L_BLANK_KEEPS "</span>"), S_F_PASS,
+                       S_MAX63);
         _switch(PSTR("pass_clear"), PSTR(L_DELETE_PASSWORD), false);
         _p(PSTR("<p class='m'>" L_MQTT_HELP "</p>"));
-        _button(PSTR(L_SAVE));
+        _button(S_SAVE);
         _pageEnd();
     }
 
@@ -1333,11 +1391,11 @@ private:
         char h[sizeof(_cfg.mqtt_host)];
         uint16_t port;
         if (host.length() && !MqttService::parseBroker(host.c_str(), h, sizeof(h), port)) {
-            _errorPage(PSTR(L_INVALID_BROKER), PSTR("/mqtt"));
+            _errorPage(PSTR(L_INVALID_BROKER), P_MQTT);
             return;
         }
         if (user.length() >= sizeof(_cfg.mqtt_user) || pass.length() >= sizeof(_cfg.mqtt_pass)) {
-            _errorPage(PSTR(L_USER_PASS_LONG), PSTR("/mqtt"));
+            _errorPage(PSTR(L_USER_PASS_LONG), P_MQTT);
             return;
         }
         strlcpy(_cfg.mqtt_host, host.c_str(), sizeof(_cfg.mqtt_host));
@@ -1345,11 +1403,11 @@ private:
         if (_flag("pass_clear")) _cfg.mqtt_pass[0] = '\0';
         else if (pass.length()) strlcpy(_cfg.mqtt_pass, pass.c_str(), sizeof(_cfg.mqtt_pass));
         if (!_store.save()) {
-            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/mqtt"));
+            _errorPage(S_SAVE_FAILED, P_MQTT);
             return;
         }
         if (_mqtt) _mqtt->reconnect();
-        _savedPage(PSTR(L_MQTT_SAVED), PSTR("/mqtt"));
+        _savedPage(PSTR(L_MQTT_SAVED), P_MQTT);
     }
 
     void _handlePassword() {
@@ -1357,25 +1415,25 @@ private:
         _pageBegin();
         _title(PSTR(L_PANEL_PASSWORD));
         if (_cfg.webpss.length() == 0)
-            _alertP(PSTR("warning"), PSTR(L_SET_PASSWORD));
+            _alertP(S_WARNING, PSTR(L_SET_PASSWORD));
         _p(PSTR("<form action='/password/save' method='POST'>"));
         _csrfField();
-        _input(PSTR(L_USER), PSTR("user"), _cfg.webusr.length() ? _cfg.webusr : String("admin"),
-               PSTR("required maxlength='32'"));
+        _input(S_USER, S_F_USER, _cfg.webusr.length() ? _cfg.webusr.c_str() : "admin",
+               S_REQ32);
         _passwordInput(PSTR(L_NEW_PASS_MIN), PSTR("pass1"), PSTR("required minlength='8' maxlength='64'"));
         _passwordInput(PSTR(L_CONFIRM_PASS), PSTR("pass2"), PSTR("required minlength='8' maxlength='64'"));
         if (_cfg.webpss.length()) {
-            _passwordInput(PSTR(L_CURRENT_PASS), PSTR("pass"), PSTR("required maxlength='64'"),
-                           PSTR("autocomplete='current-password' "));
+            _passwordInput(PSTR(L_CURRENT_PASS), S_F_PASS, S_REQ64,
+                           S_CURRENT_PASS_AC);
             _codeInput();
         }
-        _button(PSTR(L_SAVE));
+        _button(S_SAVE);
         if (_cfg.webpss.length()) {
             _p(PSTR("<h2>" L_MFA_REPLACE "</h2><p class='m'>" L_MFA_REPLACE_HELP "</p>"));
             _p(PSTR("<form action='/mfa/reset' method='POST'>"));
             _csrfField();
-            _passwordInput(PSTR(L_CURRENT_PASS), PSTR("pass"), PSTR("required maxlength='64'"),
-                           PSTR("autocomplete='current-password' "));
+            _passwordInput(PSTR(L_CURRENT_PASS), S_F_PASS, S_REQ64,
+                           S_CURRENT_PASS_AC);
             _codeInput();
             _button(PSTR(L_MFA_REPLACE));
         }
@@ -1389,12 +1447,12 @@ private:
         if (_cfg.webpss.length() && !_confirmed()) return;
         if (!_readPanelCredentials("/password")) return;
         if (!_store.save()) {
-            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/password"));
+            _errorPage(S_SAVE_FAILED, P_PASSWORD);
             return;
         }
         _generateCSRF(); // rotates CSRF after a credentials change
         _clearSession(); // the old cookie must not survive a new password
-        _savedPage(PSTR(L_PASSWORD_UPDATED), PSTR("/login"));
+        _savedPage(PSTR(L_PASSWORD_UPDATED), P_LOGIN);
     }
 
     // ── Sign-in and authenticator ────────────────────────────────────────────
@@ -1402,14 +1460,14 @@ private:
     void _loginPage(PGM_P err, bool warn) {
         _pageBegin(0, err && !warn ? 401 : 200);
         _title(PSTR(L_SIGN_IN));
-        if (err) _alertP(warn ? PSTR("warning") : PSTR("danger"), err);
-        else if (!_mfaOn()) _alertP(PSTR("warning"), PSTR(L_MFA_NEXT));
+        if (err) _alertP(warn ? S_WARNING : S_DANGER, err);
+        else if (!_mfaOn()) _alertP(S_WARNING, PSTR(L_MFA_NEXT));
         _p(PSTR("<form action='/login' method='POST'>"));
         _csrfField(true);
-        _input(PSTR(L_USER), PSTR("user"), _cfg.webusr,
+        _input(S_USER, S_F_USER, _cfg.webusr.c_str(),
                PSTR("required maxlength='32' autocomplete='username'"));
-        _passwordInput(PSTR(L_PASSWORD), PSTR("pass"), PSTR("required maxlength='64'"),
-                       PSTR("autocomplete='current-password' "));
+        _passwordInput(PSTR(L_PASSWORD), S_F_PASS, S_REQ64,
+                       S_CURRENT_PASS_AC);
         if (_mfaOn()) _codeInput();
         _button(PSTR(L_SIGN_IN));
         _pageEnd();
@@ -1433,13 +1491,13 @@ private:
         _ensurePending();
         _pageBegin(0, err && !warn ? 401 : 200);
         _title(PSTR(L_MFA_SETUP));
-        if (err) _alertP(warn ? PSTR("warning") : PSTR("danger"), err);
+        if (err) _alertP(warn ? S_WARNING : S_DANGER, err);
         _p(PSTR("<p class='m'>" L_MFA_HELP "</p>"));
         _showKey();
         _p(PSTR("<form action='/mfa' method='POST'>"));
         _csrfField();
         _codeInput();
-        _button(PSTR(L_SAVE));
+        _button(S_SAVE);
         _pageEnd();
     }
 
@@ -1471,7 +1529,7 @@ private:
         // the same, and it does not count. Otherwise a wrong password could
         // be told apart from a code that cannot be checked.
         if (mfa && !t.now) {
-            _loginPage(PSTR(L_CLOCK_NOT_SYNC), true);
+            _loginPage(S_CLOCK, true);
             return;
         }
         String user = _server.arg("user");
@@ -1482,7 +1540,7 @@ private:
         bool codeOk = !mfa || _codeOk(_cfg.totp, t.now, step);
         if (!passOk || !codeOk) {
             _loginFailed(_tries());
-            _loginPage(PSTR(L_SIGN_IN_FAILED), false);
+            _loginPage(S_SIGN_IN_FAILED, false);
             return;
         }
         _signedIn();
@@ -1522,13 +1580,13 @@ private:
         if (!_checkCSRF()) return;
         CodeTime t = _codeTime();
         if (!t.now) {
-            _mfaPage(PSTR(L_CLOCK_NOT_SYNC), true);
+            _mfaPage(S_CLOCK, true);
             return;
         }
         uint32_t step = _floor(t);
         if (!_pendingSet || !_codeOk(_pending, t.now, step)) {
             _loginFailed(_tries());
-            _mfaPage(PSTR(L_SIGN_IN_FAILED), false);
+            _mfaPage(S_SIGN_IN_FAILED, false);
             return;
         }
         uint8_t prev[Totp::KEY_LEN];
@@ -1540,7 +1598,7 @@ private:
             memcpy(_cfg.totp, prev, Totp::KEY_LEN);
             _cfg.totpStep = prevStep;
             _cfg.totpBrowserStep = prevBrowser;
-            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/mfa"));
+            _errorPage(S_SAVE_FAILED, P_MFA);
             return;
         }
         _pendingSet = false;
@@ -1589,7 +1647,7 @@ private:
             snprintf(b, sizeof(b), "%d", tz);
             _p(PSTR("<option value='"));
             _s(b);
-            _p(tz == _cfg.tz ? PSTR("' selected>") : PSTR("'>"));
+            _p(tz == _cfg.tz ? PSTR("' selected>") : S_TAG_END);
             snprintf(b, sizeof(b), "UTC%c%02d:%02d ", tz < 0 ? '-' : '+', a / 60, a % 60);
             _s(b);
             _p(place);
@@ -1599,16 +1657,15 @@ private:
         _selectEnd();
     }
 
-    // "HH:MM" from a minute of the day
-    static String _hhmm(uint16_t m) {
-        char b[8];
-        snprintf(b, sizeof(b), "%02u:%02u", m / 60u, m % 60u);
-        return String(b);
+    // "HH:MM" from a minute of the day, into b (8 bytes or more)
+    static const char* _hhmm(uint16_t m, char* b) {
+        snprintf_P(b, 8, PSTR("%02u:%02u"), m / 60u, m % 60u);
+        return b;
     }
 
-    String _localTime() const {
+    const char* _localTime(char* b) const {
         uint16_t m;
-        return _iot.localMinute(m) ? _hhmm(m) : String(L_CLOCK_NOT_SYNC);
+        return _iot.localMinute(m) ? _hhmm(m, b) : L_CLOCK_NOT_SYNC;
     }
 
     // "HH:MM" (time field) to a minute of the day
@@ -1635,8 +1692,11 @@ public:
 private:
     // "how long ago" from a millis(); "never" if it did not happen. The
     // duration goes after the marker: the language puts it in its place
-    static String _ago(bool happened, unsigned long at) {
-        return happened ? L_AGO + formatDuration(millis() - at) : String(L_NEVER);
+    static const char* _ago(bool happened, unsigned long at, char* b) {
+        if (!happened) return L_NEVER;
+        unsigned long s = (millis() - at) / 1000;
+        snprintf_P(b, DURATION_LEN, PSTR(L_AGO "%luh %02lum %02lus"), s / 3600, (s / 60) % 60, s % 60);
+        return b;
     }
 
     void _go(const char* href) {
@@ -1656,7 +1716,7 @@ private:
         if (_ota.availableVersion()[0] != '\0')
             _row(PSTR(L_AVAILABLE), _ota.availableVersion());
         if (_ota.detail()[0] != '\0')
-            _row(PSTR(L_STATE), _ota.detail());
+            _row(S_STATE, _ota.detail());
         _boxEnd();
 
         _p(PSTR("<form action='/update/auto' method='POST'>"));
@@ -1682,13 +1742,13 @@ private:
         _cfg.ota_auto = _server.arg("ota_auto") == "1";
         _ota.setAutomatic(_cfg.ota_auto);
         if (!_store.save()) {
-            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/update"));
+            _errorPage(S_SAVE_FAILED, P_UPDATE);
             return;
         }
         _savedPage(_cfg.ota_auto
                        ? PSTR(L_AUTO_UPDATE_ON)
                        : PSTR(L_AUTO_UPDATE_OFF),
-                   PSTR("/update"));
+                   P_UPDATE);
     }
 
     void _handleUpdateCheck() {
@@ -1702,7 +1762,7 @@ private:
         if (!_guard()) return;
         if (!_checkCSRF()) return;
         if (_ota.availableVersion()[0] == '\0') {
-            _errorPage(PSTR(L_NO_NEW_VERSION), PSTR("/update"));
+            _errorPage(PSTR(L_NO_NEW_VERSION), P_UPDATE);
             return;
         }
         _ota.requestInstall();
@@ -1720,7 +1780,7 @@ private:
     void _option(const char* value, PGM_P label, bool on) {
         _p(PSTR("<option value='"));
         _s(value);
-        _p(on ? PSTR("' selected>") : PSTR("'>"));
+        _p(on ? PSTR("' selected>") : S_TAG_END);
         _p(label);
         _p(PSTR("</option>"));
     }
@@ -1729,7 +1789,7 @@ private:
         _labelOpen(label);
         _p(PSTR("<select name='"));
         _p(name);
-        _p(PSTR("'>"));
+        _p(S_TAG_END);
     }
 
     void _selectEnd() { _p(PSTR("</select></label>")); }
@@ -1758,7 +1818,7 @@ private:
     void _groupOpen(PGM_P label) {
         _p(PSTR("<optgroup label='"));
         _p(label);
-        _p(PSTR("'>"));
+        _p(S_TAG_END);
     }
 
     void _sensorSelect(const char* current) {
@@ -1798,7 +1858,8 @@ private:
         _p(PSTR("<input type='time' name='"));
         _p(name);
         _p(PSTR("' value='"));
-        _s(_hhmm(minute));
+        char b[8];
+        _s(_hhmm(minute, b));
         _p(PSTR("'></label>"));
     }
 
@@ -1813,13 +1874,13 @@ private:
     void _divOpen(PGM_P id) {
         _p(PSTR("<div id='"));
         _p(id);
-        _p(PSTR("'>"));
+        _p(S_TAG_END);
     }
 
     void _radio(PGM_P value, PGM_P label, bool on) {
         _p(PSTR("<label class='sw'><input type='radio' name='role' value='"));
         _p(value);
-        _p(on ? PSTR("' checked>") : PSTR("'>"));
+        _p(on ? PSTR("' checked>") : S_TAG_END);
         _p(label);
         _p(PSTR("</label>"));
     }
@@ -1870,7 +1931,7 @@ private:
             if (!_iot.manual()) _p(PSTR(" hidden"));
             _p(PSTR(">" L_BACK_AUTO "</button>"));
         }
-        _p(PSTR("</div>"));
+        _p(S_DIV_END);
         if (cap == iot::C_LEVEL || cap == iot::C_COLOR)
             _range(cap == iot::C_LEVEL ? PSTR(L_LEVEL) : PSTR(L_BRIGHTNESS),
                    PSTR("lv"), _iot.level(), 100, PSTR("level "), PSTR("%"));
@@ -1890,9 +1951,9 @@ private:
         _title(PSTR("IoT"));
         const IoTConfig& t = _cfg.iot;
         if (_iot.unknownType())
-            _alertP(PSTR("warning"), PSTR(L_TYPE_UNKNOWN));
+            _alertP(S_WARNING, PSTR(L_TYPE_UNKNOWN));
         if (t.notify && _cfg.ntfy_topic[0] == '\0')
-            _alertP(PSTR("warning"), PSTR(L_SET_NTFY_TOPIC));
+            _alertP(S_WARNING, PSTR(L_SET_NTFY_TOPIC));
 
         bool live = _iot.hasSensor() || _iot.hasActuator();
         if (live) {
@@ -1935,7 +1996,7 @@ private:
         _input(PSTR(L_ACTIVE_NAME), PSTR("sensor_on"), t.onText, PSTR("maxlength='15' placeholder='" L_TYPE_DEFAULT "'"));
         _input(PSTR(L_INACTIVE_NAME), PSTR("sensor_off"), t.offText,
                PSTR("maxlength='15' placeholder='" L_TYPE_DEFAULT "'"));
-        _p(PSTR("</div>"));
+        _p(S_DIV_END);
         _divOpen(PSTR("sm"));
         _pair(PSTR(L_RULE_VALUE), PSTR("metric"),
               PSTR(L_HUMIDITY), PSTR(L_TEMPERATURE), t.metric == 1);
@@ -1947,18 +2008,18 @@ private:
         _divOpen(PSTR("al"));
         _pair(PSTR(L_ON_WITH_PIN), PSTR("actuator_high"),
               PSTR(L_LOW_RELAY), PSTR(L_HIGH), t.actuatorHigh);
-        _p(PSTR("</div>"));
+        _p(S_DIV_END);
         _divOpen(PSTR("ap"));
         _number(PSTR(L_LEVEL_ON), "duty_on", t.dutyOn, 0, 100);
         _number(PSTR(L_LEVEL_OFF), "duty_off", t.dutyOff, 0, 100);
-        _p(PSTR("</div>"));
+        _p(S_DIV_END);
         _divOpen(PSTR("aa"));
         _number(PSTR(L_OPEN_ANGLE), "angle_on", t.angleOn, 0, 180);
         _number(PSTR(L_CLOSED_ANGLE), "angle_off", t.angleOff, 0, 180);
-        _p(PSTR("</div>"));
+        _p(S_DIV_END);
         _divOpen(PSTR("ac"));
         _number(PSTR(L_LED_COUNT), "leds", t.leds, 1, IoTService::MAX_LEDS);
-        _p(PSTR("</div>"));
+        _p(S_DIV_END);
         _number(PSTR(L_MAX_ON), "max_on", t.maxOn, 0, 1440);
         _pair(PSTR(L_POWER_UP), PSTR("restore"),
               PSTR(L_OFF_CAP), PSTR(L_LAST_COMMAND), t.restore);
@@ -1969,7 +2030,7 @@ private:
         _divOpen(PSTR("rd"));
         _pair(PSTR(L_WHEN_ACTIVE), PSTR("toggle"),
               PSTR(L_ON_WHILE_ACTIVE), PSTR(L_FLIP), t.toggle);
-        _p(PSTR("</div>"));
+        _p(S_DIV_END);
         _divOpen(PSTR("rn"));
         _pair(PSTR(L_ON_WHEN_VALUE), PSTR("above"),
               PSTR(L_BELOW_LIMIT), PSTR(L_ABOVE_LIMIT), t.above);
@@ -1980,7 +2041,7 @@ private:
               PSTR(L_ONOFF_AT_LIMIT), PSTR(L_PROPORTIONAL), t.linear);
         _divOpen(PSTR("rh"));
         _number(PSTR(L_HIGH_LIMIT), "threshold_hi", t.thresholdHi, -999, 9999);
-        _p(PSTR("</div>"));
+        _p(S_DIV_END);
         _p(PSTR("</div></div>"));
         _divOpen(PSTR("rt"));
         _switch(PSTR("window"), PSTR(L_WINDOW_SWITCH), t.window);
@@ -1991,7 +2052,7 @@ private:
         _p(PSTR("</div></div><p class='m' id='rs'></p></fieldset>"));
 
         _switch(PSTR("notify"), PSTR(L_NOTIFY), t.notify);
-        _button(PSTR(L_SAVE));
+        _button(S_SAVE);
         if (live) _apiBox();
         if (hs || ha) {
             _p(PSTR("<form action='/iot/clear' method='POST'>"));
@@ -2022,7 +2083,7 @@ private:
     // Reads an integer from the form within the range; otherwise answers 400
     bool _int(const char* name, int min, int max, int16_t& out) {
         if (IoTService::parseI16(_server.arg(name), min, max, out)) return true;
-        _errorPage(PSTR(L_INVALID_VALUE), PSTR("/iot"));
+        _errorPage(PSTR(L_INVALID_VALUE), P_IOT);
         return false;
     }
 
@@ -2045,7 +2106,7 @@ private:
             ok = isalnum((unsigned char)c) || strchr(" -_.,", c) != nullptr;
         }
         if (!ok) {
-            _errorPage(PSTR(L_INVALID_STATE_NAME), PSTR("/iot"));
+            _errorPage(PSTR(L_INVALID_STATE_NAME), P_IOT);
             return false;
         }
         strlcpy(dst, v.c_str(), 16);
@@ -2055,7 +2116,7 @@ private:
     bool _pinArg(const char* name, int8_t& out) {
         String v = _server.arg(name);   // a temporary inside && counts one more branch
         if (IoTService::parsePin(v, out) && iot::allowedPin(out)) return true;
-        _errorPage(PSTR(L_CHOOSE_PIN), PSTR("/iot"));
+        _errorPage(PSTR(L_CHOOSE_PIN), P_IOT);
         return false;
     }
 
@@ -2067,7 +2128,7 @@ private:
         bool hs = role == "s" || role == "sa";
         bool ha = role == "a" || role == "sa";
         if (!hs && !ha && role != "n") {
-            _errorPage(PSTR(L_CHOOSE_ROLE), PSTR("/iot"));
+            _errorPage(PSTR(L_CHOOSE_ROLE), P_IOT);
             return;
         }
 
@@ -2084,7 +2145,7 @@ private:
             String slug = _server.arg("sensor");
             int8_t i = iot::sensorIndex(slug.c_str());
             if (i < 0) {
-                _errorPage(PSTR(L_INVALID_SENSOR), PSTR("/iot"));
+                _errorPage(PSTR(L_INVALID_SENSOR), P_IOT);
                 return;
             }
             strlcpy(t.sensor, slug.c_str(), sizeof(t.sensor));
@@ -2102,7 +2163,7 @@ private:
             String slug = _server.arg("actuator");
             int8_t i = iot::actuatorIndex(slug.c_str());
             if (i < 0) {
-                _errorPage(PSTR(L_INVALID_ACTUATOR), PSTR("/iot"));
+                _errorPage(PSTR(L_INVALID_ACTUATOR), P_IOT);
                 return;
             }
             strlcpy(t.actuator, slug.c_str(), sizeof(t.actuator));
@@ -2110,7 +2171,7 @@ private:
             if (!_pinArg("actuator_pin", t.actuatorPin)) return;
             if (hs && (t.actuatorPin == t.sensorPin ||
                        (kind == iot::K_SHT3X && t.actuatorPin == I2cBus::sclFor(t.sensorPin)))) {
-                _errorPage(PSTR(L_SAME_PINS), PSTR("/iot"));
+                _errorPage(PSTR(L_SAME_PINS), P_IOT);
                 return;
             }
             if (cap == iot::C_ONOFF) t.actuatorHigh = _flag("actuator_high");
@@ -2138,7 +2199,7 @@ private:
                 if (t.linear) {
                     if (!_int("threshold_hi", -999, 9999, t.thresholdHi)) return;
                     if (t.thresholdHi <= t.threshold) {
-                        _errorPage(PSTR(L_HIGH_ABOVE), PSTR("/iot"));
+                        _errorPage(PSTR(L_HIGH_ABOVE), P_IOT);
                         return;
                     }
                 }
@@ -2148,29 +2209,29 @@ private:
                 String from = _server.arg("win_start");   // a temporary inside || counts one more branch
                 String to = _server.arg("win_end");
                 if (!parseHhmm(from, t.winStart) || !parseHhmm(to, t.winEnd)) {
-                    _errorPage(PSTR(L_INVALID_TIME), PSTR("/iot"));
+                    _errorPage(PSTR(L_INVALID_TIME), P_IOT);
                     return;
                 }
                 if (t.winStart == t.winEnd) {
-                    _errorPage(PSTR(L_WINDOW_SAME), PSTR("/iot"));
+                    _errorPage(PSTR(L_WINDOW_SAME), P_IOT);
                     return;
                 }
             }
         }
         t.notify = _flag("notify");
         if (!PowerService::pinsFree(_cfg.bat_sda, t)) {
-            _errorPage(PSTR(L_PIN_GAUGE), PSTR("/iot"));
+            _errorPage(PSTR(L_PIN_GAUGE), P_IOT);
             return;
         }
         if ((hs || ha) && !_cfg.api_token[0]) _newToken();
 
         _cfg.iot = t;
         if (!_store.save()) {
-            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/iot"));
+            _errorPage(S_SAVE_FAILED, P_IOT);
             return;
         }
         _iot.begin();
-        _savedPage(PSTR(L_IOT_SET), PSTR("/iot"));
+        _savedPage(PSTR(L_IOT_SET), P_IOT);
     }
 
     // State as JSON, or the command error
@@ -2264,10 +2325,10 @@ private:
         if (!_checkCSRF()) return;
         _newToken();
         if (!_store.save()) {
-            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/iot"));
+            _errorPage(S_SAVE_FAILED, P_IOT);
             return;
         }
-        _savedPage(PSTR(L_NEW_TOKEN_DONE), PSTR("/iot"));
+        _savedPage(PSTR(L_NEW_TOKEN_DONE), P_IOT);
     }
 
     // Deletes sensor, actuator, rule and token. Asks for confirmation on its
@@ -2278,26 +2339,26 @@ private:
         if (!_flag("confirm")) {
             _pageBegin();
             _title(PSTR(L_REMOVE));
-            _alertP(PSTR("warning"),
+            _alertP(S_WARNING,
                     PSTR(L_REMOVE_WARNING));
             _p(PSTR("<form action='/iot/clear' method='POST'>"));
             _csrfField();
             _p(PSTR("<input type='hidden' name='confirm' value='1'>"
                     "<button class='bx'>" L_YES_REMOVE "</button></form>"));
-            _backButton(PSTR("/iot"));
+            _backButton(P_IOT);
             _pageEnd();
             return;
         }
         _cfg.iot = IoTConfig();
         _cfg.api_token[0] = '\0';
         if (!_store.save()) {
-            _errorPage(PSTR(L_SAVE_FAILED), PSTR("/iot"));
+            _errorPage(S_SAVE_FAILED, P_IOT);
             return;
         }
         LittleFS.remove(IoTState::PATH);
         _iot.begin();
         _log.log(PSTR("IoT: sensor and actuator removed"));
-        _savedPage(PSTR(L_REMOVED), PSTR("/iot"));
+        _savedPage(PSTR(L_REMOVED), P_IOT);
     }
 
     // Token and examples to integrate without internet (scripts, Home Assistant)
@@ -2325,3 +2386,50 @@ private:
                              : PSTR("<button class='b2'>" L_GEN_TOKEN "</button></form>"));
     }
 };
+
+// Defined after the class: they point at its handlers
+inline const WebService::Route WebService::ROUTES[] PROGMEM = {
+    {HttpServer::GET, P_ROOT, [](WebService& w) { w._handleRoot(); }},
+    {HttpServer::GET, P_LOG, [](WebService& w) { w._handleLog(); }},
+    {HttpServer::GET, P_STATUS, [](WebService& w) { w._handleStatus(); }},
+    {HttpServer::GET, P_CLOUDFLARE, [](WebService& w) { w._handleCloudflare(); }},
+    {HttpServer::GET, P_NTFY, [](WebService& w) { w._handleNtfy(); }},
+    {HttpServer::GET, P_MQTT, [](WebService& w) { w._handleMqtt(); }},
+    {HttpServer::GET, P_PASSWORD, [](WebService& w) { w._handlePassword(); }},
+    {HttpServer::GET, P_LOGIN, [](WebService& w) { w._handleLogin(); }},
+    {HttpServer::GET, P_MFA, [](WebService& w) { w._handleMfa(); }},
+    {HttpServer::GET, P_IOT, [](WebService& w) { w._handleIot(); }},
+    {HttpServer::GET, P_CONFIG, [](WebService& w) { w._handleConfig(); }},
+    {HttpServer::GET, P_IOT_NOW, [](WebService& w) { w._handleIotNow(); }},
+    {HttpServer::GET, P_API_STATE, [](WebService& w) { w._handleApiState(); }},
+    {HttpServer::GET, P_UPDATE, [](WebService& w) { w._handleUpdate(); }},
+    {HttpServer::POST, P_SAVE, [](WebService& w) { w._handleSave(); }},
+    {HttpServer::POST, P_CONFIG_SAVE, [](WebService& w) { w._handleConfigSave(); }},
+    {HttpServer::POST, P_CLOUDFLARE_SAVE, [](WebService& w) { w._handleCloudflareSave(); }},
+    {HttpServer::POST, P_NTFY_SAVE, [](WebService& w) { w._handleNtfySave(); }},
+    {HttpServer::POST, P_MQTT_SAVE, [](WebService& w) { w._handleMqttSave(); }},
+    {HttpServer::POST, P_PASSWORD_SAVE, [](WebService& w) { w._handlePasswordSave(); }},
+    {HttpServer::POST, P_LOGIN, [](WebService& w) { w._handleLoginPost(); }},
+    {HttpServer::POST, P_LOGOUT, [](WebService& w) { w._handleLogout(); }},
+    {HttpServer::POST, P_MFA, [](WebService& w) { w._handleMfaPost(); }},
+    {HttpServer::POST, P_MFA_RESET, [](WebService& w) { w._handleMfaReset(); }},
+    {HttpServer::POST, P_IOT_SAVE, [](WebService& w) { w._handleIotSave(); }},
+    {HttpServer::POST, P_IOT_CMD, [](WebService& w) { w._handleIotCmd(); }},
+    {HttpServer::POST, P_IOT_TOKEN, [](WebService& w) { w._handleIotToken(); }},
+    {HttpServer::POST, P_IOT_CLEAR, [](WebService& w) { w._handleIotClear(); }},
+    {HttpServer::POST, P_API_CMD, [](WebService& w) { w._handleApiCmd(); }},
+    {HttpServer::POST, P_UPDATE_AUTO, [](WebService& w) { w._handleUpdateAuto(); }},
+    {HttpServer::POST, P_UPDATE_CHECK, [](WebService& w) { w._handleUpdateCheck(); }},
+    {HttpServer::POST, P_UPDATE_INSTALL, [](WebService& w) { w._handleUpdateInstall(); }},
+};
+
+inline const WebService::Asset WebService::ASSETS[] PROGMEM = {
+    {P_S_CSS, "text/css", WEB_CSS_GZ, sizeof(WEB_CSS_GZ), true, true},
+    {P_IOT_JS, "text/javascript", WEB_IOT_GZ, sizeof(WEB_IOT_GZ), true, true},
+    {P_I18N_JS, "text/javascript", WEB_I18N_GZ, sizeof(WEB_I18N_GZ), true, true},
+    {P_PINOUT_SVG, "image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ), true, true},
+    {P_ESP01_AVIF, "image/avif", ASSET_PHOTO, sizeof(ASSET_PHOTO), false, false},
+};
+
+inline const size_t WebService::ROUTE_COUNT = sizeof(ROUTES) / sizeof(ROUTES[0]);
+inline const size_t WebService::ASSET_COUNT = sizeof(ASSETS) / sizeof(ASSETS[0]);

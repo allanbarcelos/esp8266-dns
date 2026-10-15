@@ -100,6 +100,7 @@ public:
     }
 
     void sendContent(const char* s)   { _put(s, strlen(s), false); }
+    void sendContent(const char* s, size_t n) { _put(s, n, false); }
     void sendContent(const String& s) { _put(s.c_str(), s.length(), false); }
     void sendContent_P(PGM_P s)       { _put(s, strlen_P(s), true); }
 

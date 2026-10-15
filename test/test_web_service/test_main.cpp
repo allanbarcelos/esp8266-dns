@@ -136,9 +136,13 @@ void tearDown() {}
 
 // ── static helpers ───────────────────────────────────────────────────────────
 
+// Variable text is escaped as it goes out (the log shows any text)
 void test_escape() {
-    TEST_ASSERT_EQUAL_STRING("&lt;a href=&quot;x&quot;&gt;&amp;&#39;ok",
-        WebService::escape("<a href=\"x\">&'ok").c_str());
+    Fixture f;
+    logger.log("%s", "<a href=\"x\">&'ok and more");
+    f.get("/log");
+    TEST_ASSERT_TRUE(contains(f.srv.raw, "&lt;a href=&quot;x&quot;&gt;&amp;&#39;ok and more"));
+    TEST_ASSERT_FALSE(contains(f.srv.raw, "<a href"));
 }
 
 void test_mask_secret() {
@@ -148,19 +152,22 @@ void test_mask_secret() {
 }
 
 void test_format_duration() {
-    TEST_ASSERT_EQUAL_STRING("1h 01m 01s", WebService::formatDuration(3661000UL).c_str());
+    char b[WebService::DURATION_LEN];
+    TEST_ASSERT_EQUAL_STRING("1h 01m 01s", WebService::formatDuration(3661000UL, b));
 }
 
 void test_format_bytes() {
-    TEST_ASSERT_EQUAL_STRING("0 B", WebService::formatBytes(0).c_str());
-    TEST_ASSERT_EQUAL_STRING("8 B", WebService::formatBytes(8).c_str());
-    TEST_ASSERT_EQUAL_STRING("1000 B", WebService::formatBytes(1000).c_str());
-    TEST_ASSERT_EQUAL_STRING("1 KB", WebService::formatBytes(1024).c_str());
-    TEST_ASSERT_EQUAL_STRING("1.5 KB", WebService::formatBytes(1500).c_str());
-    TEST_ASSERT_EQUAL_STRING("1 MB", WebService::formatBytes(1024UL * 1024UL).c_str());
-    TEST_ASSERT_EQUAL_STRING("1.5 MB", WebService::formatBytes(1572864).c_str());
-    TEST_ASSERT_EQUAL_STRING("1 GB", WebService::formatBytes(1024UL * 1024UL * 1024UL).c_str());
-    TEST_ASSERT_EQUAL_STRING("1.5 GB", WebService::formatBytes(1610612736UL).c_str());
+    char b[WebService::BYTES_LEN];
+    TEST_ASSERT_EQUAL_STRING("0 B", WebService::formatBytes(0, b));
+    TEST_ASSERT_EQUAL_STRING("8 B", WebService::formatBytes(8, b));
+    TEST_ASSERT_EQUAL_STRING("1000 B", WebService::formatBytes(1000, b));
+    TEST_ASSERT_EQUAL_STRING("1 KB", WebService::formatBytes(1024, b));
+    TEST_ASSERT_EQUAL_STRING("1.5 KB", WebService::formatBytes(1500, b));
+    TEST_ASSERT_EQUAL_STRING("1 MB", WebService::formatBytes(1024UL * 1024UL, b));
+    TEST_ASSERT_EQUAL_STRING("1.5 MB", WebService::formatBytes(1572864, b));
+    TEST_ASSERT_EQUAL_STRING("1 GB", WebService::formatBytes(1024UL * 1024UL * 1024UL, b));
+    TEST_ASSERT_EQUAL_STRING("1.5 GB", WebService::formatBytes(1610612736UL, b));
+    TEST_ASSERT_EQUAL_STRING("4 GB", WebService::formatBytes(4294967295UL, b));
 }
 
 // ── startup and security ────────────────────────────────────────────────────

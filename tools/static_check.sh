@@ -9,6 +9,8 @@
 #   unusedStructMember  a header analyzed alone does not see who uses the field
 #   cstyleCast          the project uses C casts on simple types
 #   useStlAlgorithm     an explicit loop is clearer than std::find_if here
+#   unusedPrivateFunction  WebService.h only: the handlers are called from
+#                       the route table, defined after the class
 #   test/stubs          the stubs only imitate the Arduino core
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,6 +22,7 @@ cppcheck --language=c++ --std=c++17 \
     --suppress=missingIncludeSystem --suppress=missingInclude \
     --suppress=unusedStructMember \
     --suppress=cstyleCast --suppress=useStlAlgorithm \
+    --suppress=unusedPrivateFunction:WebService.h \
     --suppress='*:test/stubs/*' \
     --template='{file}:{line}: {severity} [{id}] {message}' \
     ./*.h
