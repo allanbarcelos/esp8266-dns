@@ -49,6 +49,9 @@ public:
         _tickStream(now);
     }
 
+    // The next tick will post (TLS): the remote access relay lets go first
+    bool postDue(unsigned long now) const { return _postDue(now); }
+
     // DNS or OTA will use TLS: the stream closes and frees the heap
     void hold(bool on) {
         _held = on;

@@ -321,6 +321,9 @@ void test_full_round_trip() {
     strlcpy(config.dev_name,   "Garage gate", sizeof(config.dev_name));
     strlcpy(config.hostname,   "portao",           sizeof(config.hostname));
     strlcpy(config.web_hosts,  "esp.example.com",  sizeof(config.web_hosts));
+    strlcpy(config.relay_host, "esp-pump.example.com", sizeof(config.relay_host));
+    strlcpy(config.relay_secret, "0123abcd", sizeof(config.relay_secret));
+    config.relay_ver = 1;
     config.tz = -180;
     config.bat_sda = 3;
     strlcpy(config.lang, "pt", sizeof(config.lang));
@@ -340,6 +343,9 @@ void test_full_round_trip() {
     TEST_ASSERT_EQUAL_STRING("Garage gate", config.dev_name);
     TEST_ASSERT_EQUAL_STRING("portao",           config.hostname);
     TEST_ASSERT_EQUAL_STRING("esp.example.com",  config.web_hosts);
+    TEST_ASSERT_EQUAL_STRING("esp-pump.example.com", config.relay_host);
+    TEST_ASSERT_EQUAL_STRING("0123abcd", config.relay_secret);
+    TEST_ASSERT_EQUAL(1, config.relay_ver);
     TEST_ASSERT_EQUAL(-180, config.tz);
     TEST_ASSERT_EQUAL(3, config.bat_sda);
     TEST_ASSERT_EQUAL_STRING("pt", config.lang);
@@ -384,6 +390,10 @@ void test_save_worst_case_fits() {
     std::memset(config.dev_name,   'd', sizeof(config.dev_name) - 1);
     std::memset(config.hostname,   'o', sizeof(config.hostname) - 1);
     std::memset(config.lang,       'l', sizeof(config.lang) - 1);
+    std::memset(config.web_hosts,  'w', sizeof(config.web_hosts) - 1);
+    std::memset(config.relay_host, 'r', sizeof(config.relay_host) - 1);
+    std::memset(config.relay_secret, 'f', sizeof(config.relay_secret) - 1);
+    config.relay_ver = 255;
     std::memset(config.iot.sensor,   's', sizeof(config.iot.sensor) - 1);
     std::memset(config.iot.actuator, 'a', sizeof(config.iot.actuator) - 1);
     std::memset(config.iot.onText,   'o', sizeof(config.iot.onText) - 1);
@@ -402,6 +412,8 @@ void test_save_worst_case_fits() {
     TEST_ASSERT_EQUAL(63, (int)std::strlen(config.mqtt_host));
     TEST_ASSERT_EQUAL(31, (int)std::strlen(config.mqtt_user));
     TEST_ASSERT_EQUAL(63, (int)std::strlen(config.mqtt_pass));
+    TEST_ASSERT_EQUAL(79, (int)std::strlen(config.relay_host));
+    TEST_ASSERT_EQUAL(64, (int)std::strlen(config.relay_secret));
     TEST_ASSERT_EQUAL_UINT8(0xA5, config.totp[0]);
     TEST_ASSERT_EQUAL_UINT8(0xA5, config.totp[Totp::KEY_LEN - 1]);
     TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, config.totpStep);

@@ -160,7 +160,9 @@ private:
     CS_KEY(K_NAME, "name") CS_KEY(K_HOSTNAME, "hostname") CS_KEY(K_HOSTS, "hosts") CS_KEY(K_TZ, "tz") CS_KEY(K_BAT_SDA, "bat_sda")
     CS_KEY(K_LANG, "lang") CS_KEY(K_OTA_AUTO, "ota_auto") CS_KEY(K_API_TOKEN, "api_token")
     CS_KEY(K_CF_TOKEN, "cf_token") CS_KEY(K_CF_ZONE, "cf_zone") CS_KEY(K_CF_HOST, "cf_host")
-    CS_KEY(K_CF_RECORD, "cf_record") CS_KEY(K_SENSOR, "sensor") CS_KEY(K_SENSOR_PIN, "sensor_pin")
+    CS_KEY(K_CF_RECORD, "cf_record") CS_KEY(K_RELAY_HOST, "relay_host")
+    CS_KEY(K_RELAY_KEY, "relay_key") CS_KEY(K_RELAY_VER, "relay_ver")
+    CS_KEY(K_SENSOR, "sensor") CS_KEY(K_SENSOR_PIN, "sensor_pin")
     CS_KEY(K_SENSOR_HIGH, "sensor_high") CS_KEY(K_SENSOR_ON, "sensor_on") CS_KEY(K_SENSOR_OFF, "sensor_off")
     CS_KEY(K_METRIC, "metric") CS_KEY(K_NOTIFY, "notify") CS_KEY(K_ACTUATOR, "actuator")
     CS_KEY(K_ACTUATOR_PIN, "actuator_pin") CS_KEY(K_ACTUATOR_HIGH, "actuator_high")
@@ -208,6 +210,8 @@ private:
         CS_CFG(K_API_TOKEN, api_token, T_CHARS, 0), CS_CFG(K_CF_TOKEN, cf_token, T_CHARS, 0),
         CS_CFG(K_CF_ZONE, cf_zone, T_CHARS, 0), CS_CFG(K_CF_HOST, cf_host, T_CHARS, 0),
         CS_CFG(K_CF_RECORD, cf_record, T_CHARS, 0),
+        CS_CFG(K_RELAY_HOST, relay_host, T_CHARS, 0), CS_CFG(K_RELAY_KEY, relay_secret, T_CHARS, 0),
+        CS_CFG(K_RELAY_VER, relay_ver, T_U8, 0),
         CS_IOT(K_SENSOR, sensor, T_CHARS, 0), CS_IOT(K_SENSOR_PIN, sensorPin, T_I8, -1),
         CS_IOT(K_SENSOR_HIGH, sensorHigh, T_BOOL, 1), CS_IOT(K_SENSOR_ON, onText, T_CHARS, 0),
         CS_IOT(K_SENSOR_OFF, offText, T_CHARS, 0), CS_IOT(K_METRIC, metric, T_U8, 0),

@@ -4,7 +4,8 @@
 
 # Fuzzing of the parsers of outside input: MQTT packets from the broker,
 # command text, HTTPS answers, the Cloudflare response, the ntfy stream,
-# the relay WebSocket, config.json and the DNS answer to the reverse query.
+# the relay WebSocket and its frames, config.json and the DNS answer to the
+# reverse query.
 # libFuzzer + AddressSanitizer + UndefinedBehaviorSanitizer, over the same
 # stubs as the tests. A finding stops the script and leaves the case in .pio/fuzz/.
 #

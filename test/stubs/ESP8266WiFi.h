@@ -339,6 +339,7 @@ namespace MockTLS {
     inline bool                      mfln          = false;
     inline int                       stopCalls     = 0;
     inline std::vector<uint16_t>     suites;                  // last setCiphers
+    inline std::string               wire;                    // what the device sent after a 101 (WebSocket)
     // On the Nth setBufferSizes call (1-based) the largest free block
     // drops to shrinkBlockTo: the BearSSL allocation fragmented the heap.
     inline int                       buffersCalls  = 0;
@@ -350,7 +351,7 @@ namespace MockTLS {
         timeoutCalls = 0; lastTimeoutMs = 0;
         bufIn = 0; bufOut = 0; nullOwned = false;
         failConnect = false; connectCalls = 0; failOnConnect = 0;
-        mfln = false; suites.clear(); stopCalls = 0;
+        mfln = false; suites.clear(); stopCalls = 0; wire.clear();
     }
 }
 
@@ -397,12 +398,17 @@ public:
         _tx.clear();
         _rx.clear();
         _rxPos = 0;
+        _ws = false;
         return 1;
     }
 
     // The response goes out once the request is whole: headers and the
     // body of its Content-Length
     size_t write(const uint8_t* buf, size_t n) override {
+        if (_ws) {                                // upgraded: frames, not HTTP
+            MockTLS::wire.append(reinterpret_cast<const char*>(buf), n);
+            return n;
+        }
         _tx.append(reinterpret_cast<const char*>(buf), n);
         auto end = _tx.find("\r\n\r\n");
         if (end == std::string::npos) return n;
@@ -495,6 +501,7 @@ private:
             _rx = std::move(MockHTTP::rawHttp);
             MockHTTP::rawHttp.clear();
             _rxPos = 0;
+            _ws = _rx.compare(0, 12, "HTTP/1.1 101") == 0;
             return;
         }
 
@@ -525,4 +532,5 @@ private:
     std::string _rx;
     size_t      _rxPos = 0;
     bool        _connected = false;
+    bool        _ws = false;
 };

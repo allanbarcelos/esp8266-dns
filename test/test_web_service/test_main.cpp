@@ -685,6 +685,11 @@ void test_unknown_host_is_refused() {
     TEST_ASSERT_EQUAL(421, hostGet(f, "example.com"));
     TEST_ASSERT_EQUAL(421, hostGet(f, "esp.example.co"));
     TEST_ASSERT_EQUAL(421, hostGet(f, "esp.example.net"));          // as long as a listed one
+
+    // The remote access relay's address
+    TEST_ASSERT_EQUAL(421, hostGet(f, "esp-pump.example.com"));
+    strlcpy(cfg.relay_host, "esp-pump.example.com", sizeof(cfg.relay_host));
+    TEST_ASSERT_EQUAL(200, hostGet(f, "ESP-pump.example.com"));
 }
 
 void test_settings_save_other_addresses() {

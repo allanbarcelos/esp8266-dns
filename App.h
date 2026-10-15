@@ -17,6 +17,7 @@
 #include "MqttService.h"
 #include "PowerService.h"
 #include "WebService.h"
+#include "RelayService.h"
 
 // Composition of every service. Members are declared in layers: each one
 // depends only on those declared before it.
@@ -43,6 +44,9 @@ public:
 
     // Layer 3: web panel
     WebService web{config, logger, configStore, wifi, ota, iot, &ntfy, &mqtt, &power};
+
+    // Layer 4: remote access, through the panel's server
+    RelayService relay{config, logger, clock, web.server(), &iot};
 
     void begin() {
         Serial.begin(115200);
@@ -81,9 +85,13 @@ public:
         wifi.tickRestart(now);
         clock.tick(now);
 
-        // One TLS session at a time: the ntfy command stream releases its own
-        // before the IP check, DNS or OTA use the network in this tick
-        if (!ota.slim()) ntfy.hold(ota.wantsNet(now) || resolver.due(now) || dns.due(now));
+        // One TLS session at a time: the ntfy command stream and the relay
+        // release theirs before the IP check, DNS, OTA or an ntfy post use
+        // the network in this tick. While the relay is set up, it holds the
+        // session and the command stream waits.
+        bool net = !ota.slim() && (ota.wantsNet(now) || resolver.due(now) || dns.due(now));
+        if (!ota.slim()) ntfy.hold(net || relay.configured());
+        relay.hold(ota.slim() || ota.busy() || net || ntfy.postDue(now));
 
         // A new IP reaches DNS in the same tick
         if (!ota.slim() && !ota.busy()) {
@@ -97,6 +105,7 @@ public:
         }
         // ntfy opens another TLS session: waits for OTA to release its own (heap)
         if (!ota.slim() && !ota.busy()) ntfy.tick(now);
+        relay.tick(now);
         // MQTT is plain TCP, no TLS: it only lets go during the OTA download
         mqtt.hold(ota.slim() || ota.inProgress());
         mqtt.tick(now);

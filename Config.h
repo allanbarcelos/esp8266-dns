@@ -63,6 +63,12 @@ struct Config {
     char    cf_record[40]             = {};  // ID of the A record to update
     char    cf_host[64]               = {};  // shown on the panel only
 
+    // Remote access relay (RelayService.h): the Worker's address, the secret
+    // shared with it and the protocol version it was deployed with
+    char    relay_host[80]            = {};   // "" = off
+    char    relay_secret[65]          = {};   // 64 hex
+    uint8_t relay_ver                 = 0;
+
     char    ntfy_topic[64]            = {};
     char    ntfy_cmd[64]              = {};   // command topic; "" turns it off
     char    ntfy_token[48]            = {};   // ntfy access token (optional)

@@ -5,6 +5,7 @@
 #include "../test_support.h"
 #include "App.h"
 #include "../web_browser.h"
+#include "../ws_frames.h"
 
 void setUp()    { resetMocks(); }
 void tearDown() {}
@@ -129,6 +130,52 @@ void test_tick_releases_ntfy_before_ip_and_dns() {
     TEST_ASSERT_TRUE(contains(MockHTTP::calledURLs.back(), "/dns_records/R"));
 }
 
+// The relay holds the TLS session: the command stream waits, the relay lets
+// go while the IP check runs, and a request it brings reaches the panel
+void test_tick_runs_the_relay() {
+    MockFS::put("/config.json", R"({"v":2,"ssid":"Home","pass":"12345678",
+        "webpss":"strong-pass","ota_auto":false,"ntfy_cmd":"cmd-x","ntfy_topic":"data-x",
+        "actuator":"relay","actuator_pin":0,"notify":true,
+        "relay_host":"esp-pump.example.com","relay_ver":1,
+        "relay_key":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"})");
+    App app;
+    app.begin();
+    MockHTTP::keepOpen = true;
+    setMillis(1000);
+    app.tick();                                    // public IP first: the relay waits
+    TEST_ASSERT_EQUAL_STRING("paused", app.relay.status());
+    TEST_ASSERT_EQUAL_STRING("paused", app.ntfy.commandStatus());
+
+    MockHTTP::rawHttp = "HTTP/1.1 101 Switching Protocols\r\n\r\n";
+    setMillis(2000);
+    app.tick();
+    TEST_ASSERT_EQUAL_STRING("connected", app.relay.status());
+    TEST_ASSERT_EQUAL_STRING("paused", app.ntfy.commandStatus());
+
+    std::string r = std::string("R\x00\x01\x00\x00\x00\x00", 7) +
+                    "GET /login HTTP/1.1\r\nHost: esp-pump.example.com\r\n\r\n";
+    MockTLS::live->inject(serverFrame(WsClient::BINARY, r));
+    setMillis(2100);
+    app.tick();
+    std::string answer;
+    size_t at = 0;
+    for (ClientFrame f = takeClientFrame(MockTLS::wire, at); f.ok; f = takeClientFrame(MockTLS::wire, at))
+        if (f.payload[0] == 'D') answer += f.payload.substr(3);
+    TEST_ASSERT_TRUE(answer.rfind("HTTP/1.1 200 ", 0) == 0);
+
+    // An ntfy post takes the session for its tick, then the relay comes back
+    app.iot.command("on", 2100);
+    MockHTTP::push(200);
+    setMillis(2100 + NtfyNotifier::POST_GAP);
+    app.tick();
+    TEST_ASSERT_EQUAL_STRING("paused", app.relay.status());
+    TEST_ASSERT_EQUAL_STRING("https://ntfy.sh/data-x", MockHTTP::requests.back().url.c_str());
+    MockHTTP::rawHttp = "HTTP/1.1 101 Switching Protocols\r\n\r\n";
+    setMillis(2200 + NtfyNotifier::POST_GAP);
+    app.tick();
+    TEST_ASSERT_EQUAL_STRING("connected", app.relay.status());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_begin_starts_services);
@@ -140,5 +187,6 @@ int main() {
     RUN_TEST(test_tick_in_recovery_runs_only_ota);
     RUN_TEST(test_tick_pauses_dns_during_ota);
     RUN_TEST(test_tick_releases_ntfy_before_ip_and_dns);
+    RUN_TEST(test_tick_runs_the_relay);
     return UNITY_END();
 }

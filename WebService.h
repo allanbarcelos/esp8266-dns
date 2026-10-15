@@ -138,6 +138,9 @@ public:
 
     void tick() { _server.handleClient(); }
 
+    // For the remote access relay, which hands requests to the same server
+    HttpServer& server() { return _server; }
+
     // Boot token (sign-in and first setup) and the token of the forms of
     // the current session (the boot one while there is none)
     const char* csrfToken() const { return _csrfToken; }
@@ -340,8 +343,9 @@ private:
     // device's address would reach the panel as that site, from inside the
     // home. So only the names the device answers to: an IP address, a name
     // with no dot (the router's DNS), the hostname with any domain after it
-    // (garage.local), the Cloudflare host, and the names listed in Settings
-    // (a tunnel or a proxy). No Host header at all is not a browser.
+    // (garage.local), the Cloudflare host, the relay's address, and the names
+    // listed in Settings (a tunnel or a proxy). No Host header at all is not
+    // a browser.
     bool _hostOk() const {
         const char* h = _server.host();
         if (*h == '?') return false;
@@ -351,7 +355,8 @@ private:
         else snprintf(own, sizeof(own), "esp-%06x", (unsigned)ESP.getChipId());   // the core's ESP-XXXXXX
         size_t label = strcspn(h, ".");
         if (strlen(own) == label && strncasecmp(h, own, label) == 0) return true;
-        return strcasecmp(h, _cfg.cf_host) == 0 || _listed(_cfg.web_hosts, h);
+        return strcasecmp(h, _cfg.cf_host) == 0 || strcasecmp(h, _cfg.relay_host) == 0 ||
+               _listed(_cfg.web_hosts, h);
     }
 
     // h is one of the comma-separated names in list
