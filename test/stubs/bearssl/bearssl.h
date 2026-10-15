@@ -94,13 +94,19 @@ struct Sha1 {
 };
 }  // namespace stub_sha1
 
-// Keys up to one block (the authenticator's are 20 bytes)
+// A key longer than one block is hashed first (RFC 2104), as BearSSL does
 struct br_hmac_key_context { uint8_t k[64]; };
 struct br_hmac_context { stub_sha1::Sha1 inner; uint8_t k[64]; };
 
 inline void br_hmac_key_init(br_hmac_key_context* kc, const br_hash_class*, const void* key,
                              size_t key_len) {
     memset(kc->k, 0, sizeof(kc->k));
+    if (key_len > sizeof(kc->k)) {
+        stub_sha1::Sha1 h;
+        h.update(key, key_len);
+        h.final(kc->k);
+        return;
+    }
     memcpy(kc->k, key, key_len);
 }
 

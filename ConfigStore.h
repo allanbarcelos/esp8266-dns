@@ -11,6 +11,7 @@
 #include "IoTCatalog.h"
 #include "IoTState.h"
 #include "Totp.h"
+#include "Password.h"
 
 // /config.json with a version ("v"). On load, an old version goes
 // through the migrations in order up to the current one, the original file
@@ -73,6 +74,13 @@ public:
         ctx.self = this;
         json::object(text.get(), _member, &ctx);
 
+        // A password from before the hash: replaced now, and saved below
+        bool rehash = _cfg.webpss.length() && !Password::hashed(_cfg.webpss);
+        if (rehash) {
+            _cfg.webpss = Password::hash(_cfg.webpss);
+            _log.log(PSTR("Panel password: now stored as a hash"));
+        }
+
         if (ctx.version == 1) {
             _migrateV1(ctx);
             _log.log(PSTR("Configuration migrated to v%d"), VERSION);
@@ -81,6 +89,7 @@ public:
             return true;
         }
         if (ctx.version > VERSION) _log.log(PSTR("Configuration v%d, newer than the firmware"), (int)ctx.version);
+        else if (rehash) save();
         _log.log(PSTR("Configuration loaded"));
         return true;
     }

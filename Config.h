@@ -51,7 +51,7 @@ struct IoTConfig {
 
 struct Config {
     String  webusr;
-    String  webpss;
+    String  webpss;          // Password.h: the salted hash ("" = none yet)
     uint8_t totp[20] = {};   // authenticator secret; all zeros = not enrolled
     uint32_t totpStep = 0;   // last authenticator step accepted (a code works once)
     String  ssid;

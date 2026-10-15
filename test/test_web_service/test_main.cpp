@@ -446,7 +446,8 @@ void test_save_wifi_first_access_needs_panel_password() {
     f.post("/save", {{"ssid", "Home"}, {"user", "me"}, {"pass1", "abcdefgh"}, {"pass2", "abcdefgh"}});
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL_STRING("me",       cfg.webusr.c_str());
-    TEST_ASSERT_EQUAL_STRING("abcdefgh", cfg.webpss.c_str());
+    TEST_ASSERT_TRUE(Password::hashed(cfg.webpss));
+    TEST_ASSERT_TRUE(Password::check("abcdefgh", cfg.webpss));
 }
 
 void test_save_wifi_write_fails() {
@@ -1112,7 +1113,8 @@ void test_password_save_rotates_csrf() {
     f.post("/password/save", confirmed({{"user", "new"}, {"pass1", "secret123"}, {"pass2", "secret123"}}));
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL_STRING("new",       cfg.webusr.c_str());
-    TEST_ASSERT_EQUAL_STRING("secret123", cfg.webpss.c_str());
+    TEST_ASSERT_TRUE(Password::hashed(cfg.webpss));
+    TEST_ASSERT_TRUE(Password::check("secret123", cfg.webpss));
     TEST_ASSERT_TRUE(old != f.web.csrfToken());
     TEST_ASSERT_TRUE(contains(f.out(), "url=/login"));
     f.get("/status");
@@ -1144,7 +1146,7 @@ void test_password_save_needs_current_password_and_code() {
     a.erase("code");
     f.post("/password/save", a);
     TEST_ASSERT_EQUAL(400, f.srv.code);
-    TEST_ASSERT_EQUAL_STRING("strong-pass", cfg.webpss.c_str());
+    TEST_ASSERT_TRUE(Password::check("strong-pass", cfg.webpss));
     for (int i = 3; i < WebService::FREE_LOGIN_FAILS; i++) {
         a = confirmed(np);
         a["pass"] = "wrong-pass!";
@@ -1152,12 +1154,13 @@ void test_password_save_needs_current_password_and_code() {
     }
     f.post("/password/save", confirmed(np));
     TEST_ASSERT_EQUAL(429, f.srv.code);
-    TEST_ASSERT_EQUAL_STRING("strong-pass", cfg.webpss.c_str());
+    TEST_ASSERT_TRUE(Password::check("strong-pass", cfg.webpss));
 
     setMillis(WebService::LOGIN_WAIT_MAX_MS);
     f.post("/password/save", confirmed(np));
     TEST_ASSERT_EQUAL(200, f.srv.code);
-    TEST_ASSERT_EQUAL_STRING("secret123", cfg.webpss.c_str());
+    TEST_ASSERT_TRUE(Password::hashed(cfg.webpss));
+    TEST_ASSERT_TRUE(Password::check("secret123", cfg.webpss));
     TEST_ASSERT_EQUAL_UINT32((uint32_t)(PANEL_TIME / 30), cfg.totpStep);
     TEST_ASSERT_EQUAL_MEMORY(PANEL_TOTP, cfg.totp, sizeof(PANEL_TOTP));   // the key stays
 }
@@ -1171,7 +1174,8 @@ void test_password_save_first_password() {
     f.post("/password/save", {{"user", "admin"}, {"pass1", "secret123"}, {"pass2", "secret123"}});
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL_STRING("admin",     cfg.webusr.c_str());
-    TEST_ASSERT_EQUAL_STRING("secret123", cfg.webpss.c_str());
+    TEST_ASSERT_TRUE(Password::hashed(cfg.webpss));
+    TEST_ASSERT_TRUE(Password::check("secret123", cfg.webpss));
 }
 
 // A blank key never matches, even inside a session: its codes are public
@@ -1181,7 +1185,7 @@ void test_blank_key_code_never_matches() {
     f.post("/password/save", confirmed({{"user", "admin"}, {"pass1", "secret123"}, {"pass2", "secret123"}}));
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "Wrong user, password or code"));
-    TEST_ASSERT_EQUAL_STRING("strong-pass", cfg.webpss.c_str());
+    TEST_ASSERT_TRUE(Password::check("strong-pass", cfg.webpss));
 }
 
 // The menu only where its pages open: signed in with the authenticator, or
@@ -1233,7 +1237,7 @@ void test_password_save_invalid() {
                                        PANEL_TIME + 60));
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "8 to 64"));
-    TEST_ASSERT_EQUAL_STRING("strong-pass", cfg.webpss.c_str());
+    TEST_ASSERT_TRUE(Password::check("strong-pass", cfg.webpss));
 }
 
 // ── /update ──────────────────────────────────────────────────────────────────

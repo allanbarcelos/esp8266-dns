@@ -7,6 +7,7 @@
 #include "Clock.h"
 #include "Config.h"
 #include "Totp.h"
+#include "Password.h"
 #include "Logger.h"
 #include "Version.h"
 #include "ConfigStore.h"
@@ -436,7 +437,7 @@ private:
 
     bool _credentialOk(const String& user, const String& pass) const {
         bool u = _spanEq(user.c_str(), user.length(), _cfg.webusr.c_str(), _cfg.webusr.length(), 32);
-        bool p = _spanEq(pass.c_str(), pass.length(), _cfg.webpss.c_str(), _cfg.webpss.length(), 64);
+        bool p = Password::check(pass, _cfg.webpss);
         return u && p;
     }
 
@@ -793,7 +794,7 @@ private:
             return false;
         }
         _cfg.webusr = user;
-        _cfg.webpss = pass1;
+        _cfg.webpss = Password::hash(pass1);
         return true;
     }
 

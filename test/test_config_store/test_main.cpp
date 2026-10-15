@@ -345,7 +345,8 @@ void test_full_round_trip() {
     TEST_ASSERT_EQUAL(6 * 60, config.iot.winEnd);
 
     TEST_ASSERT_EQUAL_STRING("user",             config.webusr.c_str());
-    TEST_ASSERT_EQUAL_STRING("secret123",        config.webpss.c_str());
+    TEST_ASSERT_TRUE(Password::hashed(config.webpss));
+    TEST_ASSERT_TRUE(Password::check("secret123", config.webpss));
     TEST_ASSERT_EQUAL_STRING("MinhaRede",        config.ssid.c_str());
     TEST_ASSERT_EQUAL_STRING("Pass1234",         config.pass.c_str());
     TEST_ASSERT_EQUAL_STRING("tok_abc123",       config.cf_token);
@@ -500,6 +501,32 @@ void test_text_with_special_characters_round_trip() {
     TEST_ASSERT_EQUAL_STRING("Port\xc3\xa3o \"A\"", config.dev_name);
 }
 
+// A password saved before the hash is replaced on the first boot, and the
+// file no longer holds it; a newer file is not rewritten, only read
+void test_plain_password_becomes_a_hash() {
+    MockFS::put("/config.json", R"({"v":2,"webusr":"admin","webpss":"old-plain-pass"})");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_TRUE(Password::hashed(config.webpss));
+    TEST_ASSERT_TRUE(Password::check("old-plain-pass", config.webpss));
+    TEST_ASSERT_TRUE(logHas(logger, "now stored as a hash"));
+    TEST_ASSERT_FALSE(contains(MockFS::files["/config.json"], "old-plain-pass"));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], config.webpss.c_str()));
+
+    // Already a hash: loaded as is, nothing rewritten
+    std::string saved = MockFS::files["/config.json"];
+    logger = Logger();
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_FALSE(logHas(logger, "now stored as a hash"));
+    TEST_ASSERT_FALSE(logHas(logger, "Configuration saved"));
+    TEST_ASSERT_EQUAL_STRING(saved.c_str(), MockFS::files["/config.json"].c_str());
+
+    const char* v3 = R"({"v":3,"webpss":"plain-in-v3"})";
+    MockFS::put("/config.json", v3);
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_TRUE(Password::check("plain-in-v3", config.webpss));
+    TEST_ASSERT_EQUAL_STRING(v3, MockFS::files["/config.json"].c_str());
+}
+
 void test_save_open_fails() {
     MockFS::failWriteOpen = true;
     TEST_ASSERT_FALSE(store.save());
@@ -551,6 +578,7 @@ int main() {
     RUN_TEST(test_wrong_types_and_ranges_keep_defaults);
     RUN_TEST(test_odd_version_and_record_list);
     RUN_TEST(test_text_with_special_characters_round_trip);
+    RUN_TEST(test_plain_password_becomes_a_hash);
     RUN_TEST(test_save_open_fails);
     RUN_TEST(test_save_rename_failure_keeps_original);
     RUN_TEST(test_save_atomic_without_temp_file);
