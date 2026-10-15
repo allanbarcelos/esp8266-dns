@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
+
+# The workflow actions are pinned by commit (a moved tag cannot change what
+# builds and signs the firmware). Dependabot opens a pull request when a new
+# release comes out, with the commit and the version in the comment.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/setup-arduino
+      - /.github/actions/compile
+    schedule:
+      interval: monthly
