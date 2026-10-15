@@ -16,9 +16,25 @@
 // WAIT_MS; if another one arrives with data, the idle one yields after
 // YIELD_MS (browser preconnect).
 //
+// A request can also come from elsewhere: serve() takes it from any
+// HttpLink (the remote access relay, RelayService.h) and answers there,
+// through the same parser and the same handler.
+//
 // Reading a request blocks the loop, so it has a total deadline
 // (REQUEST_MS) and a cap on header lines: a client that sends one byte
 // at a time cannot hold the loop, where the actuator's safety timer runs.
+// Where a request comes from and where its response goes
+class HttpLink {
+public:
+    virtual int      available() = 0;
+    virtual int      read() = 0;
+    virtual bool     connected() = 0;
+    virtual void     write(const uint8_t* p, size_t n) = 0;
+    virtual uint32_t remoteIP() = 0;
+protected:
+    ~HttpLink() = default;
+};
+
 class HttpServer {
 public:
     enum : uint8_t { GET, POST, OTHER };
@@ -34,6 +50,8 @@ public:
     static constexpr uint8_t       MAX_HEADERS    = 32;
 
     explicit HttpServer(uint16_t port) : _server(port) {}
+    HttpServer(const HttpServer&) = delete;   // _link points into the object
+    HttpServer& operator=(const HttpServer&) = delete;
 
     void begin(Handler h, void* ctx) {
         _handler = h;
@@ -58,6 +76,13 @@ public:
         _client.stop();
     }
 
+    // One request from another link, answered there
+    void serve(HttpLink& link) {
+        _link = &link;
+        _serve();
+        _link = &_socket;
+    }
+
     // ── Request ──────────────────────────────────────────────────────────────
     uint8_t       method() const        { return _method; }
     const char*   path() const          { return _path; }
@@ -66,7 +91,7 @@ public:
     // The Host header without the port, lowercase; "" if none was sent. A
     // name longer than the buffer, or with no name before the port, is "?".
     const char*   host() const           { return _host; }
-    uint32_t      remoteIP()             { return (uint32_t)_client.remoteIP(); }
+    uint32_t      remoteIP()             { return _link->remoteIP(); }
 
     // Argument value (query, then urlencoded body); "plain" is the body
     String arg(const char* name) const {
@@ -105,8 +130,23 @@ public:
     void sendContent_P(PGM_P s)       { _put(s, strlen_P(s), true); }
 
 private:
+    // The accepted connection, as a link
+    class Socket : public HttpLink {
+    public:
+        explicit Socket(WiFiClient& c) : _c(c) {}
+        int      available() override { return _c.available(); }
+        int      read() override { return _c.read(); }
+        bool     connected() override { return _c.connected(); }
+        void     write(const uint8_t* p, size_t n) override { _c.write(p, n); }
+        uint32_t remoteIP() override { return (uint32_t)_c.remoteIP(); }
+    private:
+        WiFiClient& _c;
+    };
+
     WiFiServer    _server;
     WiFiClient    _client;
+    Socket        _socket{_client};
+    HttpLink*     _link = &_socket;
     Handler       _handler = nullptr;
     void*         _ctx     = nullptr;
     unsigned long _since   = 0;
@@ -220,8 +260,8 @@ private:
                 _late = true;
                 return -1;
             }
-            if (_client.available()) return _client.read();
-            if (!_client.connected() || millis() - t >= READ_MS) return -1;
+            if (_link->available()) return _link->read();
+            if (!_link->connected() || millis() - t >= READ_MS) return -1;
             delay(1);
         }
     }
@@ -282,7 +322,7 @@ private:
 
     // Only called with something in the buffer: full, or at the end of the response
     void _flush() {
-        _client.write(reinterpret_cast<const uint8_t*>(_out), _used);
+        _link->write(reinterpret_cast<const uint8_t*>(_out), _used);
         _used = 0;
     }
 };

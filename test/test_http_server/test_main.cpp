@@ -338,8 +338,56 @@ void test_body_from_flash() {
     TEST_ASSERT_TRUE(p.b.out == std::string(DATA, sizeof(DATA) - 1));
 }
 
+// ── another link ─────────────────────────────────────────────────────────────
+
+// A request from memory, as the relay brings it: same parser and handler,
+// the answer goes back to the link, and the socket stays the default
+struct MemLink : HttpLink {
+    std::string in, out;
+    size_t      pos = 0;
+    uint32_t    ip  = 0x0F0E0D0C;
+    int      available() override { return (int)(in.size() - pos); }
+    int      read() override { return (uint8_t)in[pos++]; }
+    bool     connected() override { return false; }
+    void     write(const uint8_t* p, size_t n) override { out.append((const char*)p, n); }
+    uint32_t remoteIP() override { return ip; }
+};
+
+void test_request_from_another_link() {
+    Probe p;
+    uint32_t seen = 0;
+    p.reply = [&](Probe& q) {
+        seen = q.srv.remoteIP();
+        q.srv.send(200, "text/plain", "via link");
+    };
+    MemLink l;
+    l.in = "POST /r HTTP/1.1\r\nHost: relay.example\r\nContent-Length: 2\r\n\r\nhi";
+    p.srv.serve(l);
+    TEST_ASSERT_EQUAL(1, p.calls);
+    TEST_ASSERT_EQUAL_STRING("/r", p.path.c_str());
+    TEST_ASSERT_EQUAL_STRING("hi", p.plain.c_str());
+    TEST_ASSERT_EQUAL_STRING("relay.example", p.srv.host());
+    TEST_ASSERT_EQUAL_HEX32(0x0F0E0D0C, seen);
+    TEST_ASSERT_TRUE(contains(l.out, "HTTP/1.1 200 \r\n"));
+    TEST_ASSERT_TRUE(contains(l.out, "\r\n\r\nvia link"));
+
+    // An incomplete request ends at the link's end: 400, there
+    MemLink cut;
+    cut.in = "GET /r HTTP/1.1\r\n";
+    p.srv.serve(cut);
+    TEST_ASSERT_EQUAL(1, p.calls);
+    TEST_ASSERT_TRUE(contains(cut.out, "HTTP/1.1 400 "));
+
+    // The socket is the link again
+    p.b.send("GET /s HTTP/1.1\r\n\r\n");
+    TEST_ASSERT_EQUAL(2, p.calls);
+    TEST_ASSERT_EQUAL_HEX32(0x0A01A8C0, seen);
+    TEST_ASSERT_EQUAL_STRING("via link", p.b.out.c_str());
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_request_from_another_link);
     RUN_TEST(test_get_with_query_and_sized_response);
     RUN_TEST(test_post_urlencoded_and_plain);
     RUN_TEST(test_body_that_is_not_a_form);
