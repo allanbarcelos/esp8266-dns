@@ -14,12 +14,54 @@
 #include "WiFiService.h"
 #include "TlsClient.h"
 
+// The image's SHA-256 bound to the version it was downloaded as: the
+// signature covers SHA-256(SHA-256(image) || tag), not the image alone.
+// Over an unvalidated connection, someone in the middle could otherwise
+// answer "v99" and hand over an older release, genuinely signed, and the
+// device would install it. The second round reuses the same hash object
+// (the core's SHA-256), so this adds no crypto code.
+class TaggedHash : public UpdaterHashClass {
+public:
+    explicit TaggedHash(UpdaterHashClass& inner) : _inner(inner) {}
+
+    void tag(const char* t) { strlcpy(_tag, t, sizeof(_tag)); }
+
+    void begin() override { _inner.begin(); }
+    void add(const void* data, uint32_t len) override { _inner.add(data, len); }
+    void end() override {
+        _inner.end();
+        uint8_t image[32];   // SHA-256
+        memcpy(image, _inner.hash(), sizeof(image));
+        _inner.begin();
+        _inner.add(image, sizeof(image));
+        _inner.add(_tag, (uint32_t)strlen(_tag));
+        _inner.end();
+    }
+    int len() override { return _inner.len(); }
+    const void* hash() override { return _inner.hash(); }
+    const unsigned char* oid() override { return _inner.oid(); }
+
+private:
+    UpdaterHashClass& _inner;
+    char              _tag[16] = {};
+};
+
+#if ARDUINO_SIGNING
+// The core's SHA-256 and RSA verifier with public.key (BearSSLHelpers.cpp)
+namespace esp8266 {
+extern UpdaterHashClass& updaterSigningHash;
+extern UpdaterVerifyClass& updaterSigningVerifier;
+}
+#endif
+
 // OTA update from GitHub Releases.
 //
 // The transport uses TLS without certificate validation. The downloaded file
 // depends on whether the build embeds public.key:
-//   - with the key, firmware.signed.bin; Update.end() checks the
-//     RSA-2048/SHA-256 signature and writes only the gzip;
+//   - with the key, firmware.tagged.bin; Update.end() checks the
+//     RSA-2048/SHA-256 signature over the image and its tag (TaggedHash)
+//     and writes only the gzip. firmware.signed.bin, signed over the image
+//     alone, stays in each release for devices from before the tag;
 //   - without the key, firmware.bin (plain gzip).
 // eboot reads the uncompressed size from the last 4 bytes. In the signed
 // file those bytes are the signature length. Writing it without removing the
@@ -67,6 +109,9 @@ public:
     }
 
     void begin() {
+#if ARDUINO_SIGNING
+        Update.installSignature(&_tagged, &esp8266::updaterSigningVerifier);
+#endif
         _loadRejected();
         _loadPending();
     }
@@ -147,7 +192,7 @@ public:
     // ARDUINO_SIGNING comes from the build. Do not include Updater_Signing.h:
     // the core's redefines the macro as 0 and would erase the asset choice.
     static const char* assetName(bool signing) {
-        return signing ? "firmware.signed.bin" : "firmware.bin";
+        return signing ? "firmware.tagged.bin" : "firmware.bin";
     }
 
     static bool signingEnabled() {
@@ -205,6 +250,9 @@ public:
 private:
     Logger&      _log;
     WiFiService& _wifi;
+#if ARDUINO_SIGNING
+    TaggedHash   _tagged{esp8266::updaterSigningHash};
+#endif
 
     bool             _inProgress    = false;
     bool             _automatic     = true;
@@ -607,6 +655,9 @@ private:
     // ── download start (redirects up to the CDN) ──────────────────────────────
 
     void _download(const char* version, unsigned long now) {
+#if ARDUINO_SIGNING
+        _tagged.tag(version);   // the signature must name the version asked for
+#endif
         if (!_tlsReady()) {
             _recoverHeap();
             _downloadFailed(now);

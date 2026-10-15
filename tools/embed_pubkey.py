@@ -96,12 +96,12 @@ def _require_verifier(source, target, env):
         env.Exit(1)
     # The sketch and the Updater must agree. Without this literal the device
     # would download the plain gzip and Update.end() would reject the image.
-    if b"firmware.signed.bin" not in blob:
+    if b"firmware.tagged.bin" not in blob:
         sys.stderr.write(
-            "OTA: the sketch does not ask for firmware.signed.bin; "
+            "OTA: the sketch does not ask for firmware.tagged.bin; "
             "ARDUINO_SIGNING did not reach OTAService\n")
         env.Exit(1)
-    print("OTA: updaterSigningVerifier, public.key and firmware.signed.bin are in the firmware")
+    print("OTA: updaterSigningVerifier, public.key and firmware.tagged.bin are in the firmware")
 
 
 if late and not env.get("OTA_SIGNING_CHECK"):

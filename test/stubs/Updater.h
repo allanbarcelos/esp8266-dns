@@ -4,8 +4,35 @@
 #pragma once
 #include "Arduino.h"
 
+// The core's interfaces for the image hash and the signature check
+class UpdaterHashClass {
+public:
+    virtual ~UpdaterHashClass() {}
+    virtual void begin() = 0;
+    virtual void add(const void* data, uint32_t len) = 0;
+    virtual void end() = 0;
+    virtual int len() = 0;
+    virtual const void* hash() = 0;
+    virtual const unsigned char* oid() = 0;
+};
+
+class UpdaterVerifyClass {
+public:
+    virtual ~UpdaterVerifyClass() {}
+    virtual uint32_t length() = 0;
+    virtual bool verify(UpdaterHashClass* hash, const void* signature, uint32_t len) = 0;
+};
+
 class UpdaterClass {
 public:
+    bool installSignature(UpdaterHashClass* hash, UpdaterVerifyClass* verify) {
+        _hash = hash;
+        _verify = verify;
+        return true;
+    }
+    UpdaterHashClass*   _hash   = nullptr;
+    UpdaterVerifyClass* _verify = nullptr;
+
     bool begin(size_t size) {
         if (size == 0) return false;
         _size = size; _written = 0;

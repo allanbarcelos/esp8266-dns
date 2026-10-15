@@ -185,7 +185,8 @@ jobs:
         run: |
           python3 .github/scripts/package_ota.py build/firmware.raw.bin dist \
             --map build/esp8266-dns.ino.map \
-            --key "$RUNNER_TEMP/test.key" --pubkey "$RUNNER_TEMP/test.pub"
+            --key "$RUNNER_TEMP/test.key" --pubkey "$RUNNER_TEMP/test.pub" \
+            --tag "${{ needs.plan.outputs.version }}"
 
       # The same generator as the pages job: ESP8266 image, within the
       # maximum sketch and with the version the manifest announces
@@ -272,7 +273,8 @@ jobs:
           key="$RUNNER_TEMP/ota.key"
           umask 077
           printf '%s\n' "$OTA_SIGNING_KEY" > "$key"
-          python3 .github/scripts/package_ota.py build/firmware.raw.bin dist --key "$key"
+          python3 .github/scripts/package_ota.py build/firmware.raw.bin dist --key "$key" \
+            --tag "${{ needs.plan.outputs.version }}"
           rm -f "$key"
 
       - name: Publish the GitHub Release
@@ -284,6 +286,7 @@ jobs:
           files: |
             dist/firmware.bin
             dist/firmware.signed.bin
+            dist/firmware.tagged.bin
           fail_on_unmatched_files: true
 
   # ── Web installer (ESP Web Tools) on GitHub Pages ────────────────────────

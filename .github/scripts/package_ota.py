@@ -7,17 +7,25 @@
 Produces, from arduino-cli's raw .bin:
   firmware.bin         unsigned gzip (legacy devices, no verification)
   firmware.signed.bin  gzip + RSA/SHA-256 signature + u32 LE signature length
-                       (the format of the ESP8266 core's signing.py)
+                       (the format of the ESP8266 core's signing.py), for
+                       devices from before the tagged signature
+  firmware.tagged.bin  the same layout, but the signature covers
+                       SHA-256(SHA-256(gzip) || tag): the device checks it
+                       against the version it asked for (TaggedHash in
+                       OTAService.h), so an older release cannot pass as a
+                       newer one
 
 Why two files: eboot reads the uncompressed size from the image's last 4
 bytes. Firmware with verification strips the signature before writing the
 boot command; legacy firmware does not, and would read the wrong size.
 
-Usage: package_ota.py <raw.bin> <out_dir> [--key private.key] [--pubkey public.key]
-Without --key, only firmware.bin is produced (PR builds).
+Usage: package_ota.py <raw.bin> <out_dir> [--key private.key] [--pubkey public.key] [--tag vN]
+Without --key, only firmware.bin is produced; without --tag, no
+firmware.tagged.bin.
 """
 import argparse
 import gzip
+import hashlib
 import os
 import re
 import struct
@@ -81,13 +89,22 @@ def device_view(payload: bytes) -> bytes:
     return bytes(out)
 
 
-def sign(payload: bytes, key: str) -> bytes:
+def signed_message(payload: bytes, tag) -> bytes:
+    """What the signature covers: the image, or SHA-256(image) + tag.
+
+    openssl hashes the message once more, so the signed digest is
+    SHA-256(SHA-256(image) || tag), as TaggedHash computes on the device.
+    """
+    return payload if tag is None else hashlib.sha256(payload).digest() + tag.encode()
+
+
+def sign(payload: bytes, key: str, tag=None) -> bytes:
     sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", key],
-                         input=payload, capture_output=True, check=True).stdout
+                         input=signed_message(payload, tag), capture_output=True, check=True).stdout
     return payload + sig + struct.pack("<L", len(sig))
 
 
-def verify(signed: bytes, pubkey: str) -> bytes:
+def verify(signed: bytes, pubkey: str, tag=None) -> bytes:
     (sig_len,) = struct.unpack("<L", signed[-4:])
     payload = signed[: -4 - sig_len]
     sig = signed[-4 - sig_len: -4]
@@ -96,7 +113,8 @@ def verify(signed: bytes, pubkey: str) -> bytes:
         with open(sig_path, "wb") as f:
             f.write(sig)
         r = subprocess.run(["openssl", "dgst", "-sha256", "-verify", pubkey,
-                            "-signature", sig_path], input=payload, capture_output=True)
+                            "-signature", sig_path], input=signed_message(payload, tag),
+                           capture_output=True)
     if r.returncode != 0:
         fail("signature does not match public.key: " + r.stderr.decode())
     if device_view(payload) != payload:
@@ -168,6 +186,26 @@ def check_reserve(image: int, raw: int, label: str) -> None:
         fail(f"{label}: image {image} B > OTA reserve {OTA_RESERVE} B")
 
 
+def package_signed(gz: bytes, raw: bytes, args, name: str, tag) -> str:
+    """Signs gz (over the image alone, or with tag), checks it as the device will, writes it."""
+    signed = sign(gz, args.key, tag)
+    check_gzip(verify(signed, args.pubkey, tag), raw, name)
+    sig_len = struct.unpack("<L", signed[-4:])[0]
+    if sig_len != 256:
+        fail(f"RSA-2048 signature has {sig_len} bytes; expected 256")
+    if eboot_isize(signed, name) != sig_len:
+        fail("the last 4 bytes of the signed file are not the signature length")
+    payload = signed[: -4 - sig_len]
+    if eboot_isize(payload, "gzip after stripping the signature") != len(raw):
+        fail("Update.end() would make eboot read the wrong size")
+    check_reserve(len(signed), len(raw), name)
+    check_fits(len(signed), len(raw), len(raw), "new → next")
+    check_fits(len(signed), MAX_SKETCH, len(raw), "maximum → next")
+    with open(os.path.join(args.out_dir, name), "wb") as f:
+        f.write(signed)
+    return f"| {name} | {len(signed)} B |"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("raw")
@@ -175,6 +213,7 @@ def main() -> None:
     ap.add_argument("--key")
     ap.add_argument("--pubkey", default="public.key")
     ap.add_argument("--map", help="link map; confirms the shrunk IROM")
+    ap.add_argument("--tag", help="release tag (vN); also writes firmware.tagged.bin")
     args = ap.parse_args()
 
     check_ld()
@@ -200,24 +239,12 @@ def main() -> None:
 
     lines = [f"| raw | {len(raw)} B |", f"| gzip | {len(gz)} B |"]
 
+    if args.tag is not None and not re.fullmatch(r"v[0-9]{1,9}|ci-[0-9a-f]{7}", args.tag):
+        fail(f"tag {args.tag!r} is neither vN nor ci-<sha>")
     if args.key:
-        signed = sign(gz, args.key)
-        check_gzip(verify(signed, args.pubkey), raw, "firmware.signed.bin")
-        sig_len = struct.unpack("<L", signed[-4:])[0]
-        if sig_len != 256:
-            fail(f"RSA-2048 signature has {sig_len} bytes; expected 256")
-        if eboot_isize(signed, "firmware.signed.bin") != sig_len:
-            fail("the last 4 bytes of the signed file are not the signature length")
-        payload = signed[: -4 - sig_len]
-        if eboot_isize(payload, "gzip after stripping the signature") != len(raw):
-            fail("Update.end() would make eboot read the wrong size")
-        check_reserve(len(signed), len(raw), "firmware.signed.bin")
-        check_fits(len(signed), len(raw), len(raw), "new → next")
-        check_fits(len(signed), MAX_SKETCH, len(raw), "maximum → next")
-        with open(os.path.join(args.out_dir, "firmware.signed.bin"), "wb") as f:
-            f.write(signed)
-        lines.append(f"| signed gzip | {len(signed)} B |")
-
+        lines.append(package_signed(gz, raw, args, "firmware.signed.bin", None))
+        if args.tag is not None:
+            lines.append(package_signed(gz, raw, args, "firmware.tagged.bin", args.tag))
     lines.append(f"| OTA reserve | {OTA_RESERVE} B |")
     lines.append(f"| maximum sketch | {MAX_SKETCH} B |")
     lines.append(f"| limit (running + OTA) | {UPDATE_END} B |")
