@@ -154,7 +154,7 @@ private:
 #define CS_KEY(name, text) static constexpr char name[] PROGMEM = text;
     CS_KEY(K_V, "v") CS_KEY(K_RECORDS, "cf_records")
     CS_KEY(K_WEBUSR, "webusr") CS_KEY(K_WEBPSS, "webpss") CS_KEY(K_TOTP, "totp")
-    CS_KEY(K_TOTP_STEP, "totp_step") CS_KEY(K_SSID, "ssid") CS_KEY(K_PASS, "pass")
+    CS_KEY(K_TOTP_STEP, "totp_step") CS_KEY(K_TOTP_BSTEP, "totp_bstep") CS_KEY(K_SSID, "ssid") CS_KEY(K_PASS, "pass")
     CS_KEY(K_NTFY_TOPIC, "ntfy_topic") CS_KEY(K_NTFY_CMD, "ntfy_cmd") CS_KEY(K_NTFY_TOKEN, "ntfy_token")
     CS_KEY(K_MQTT_HOST, "mqtt_host") CS_KEY(K_MQTT_USER, "mqtt_user") CS_KEY(K_MQTT_PASS, "mqtt_pass")
     CS_KEY(K_NAME, "name") CS_KEY(K_HOSTNAME, "hostname") CS_KEY(K_HOSTS, "hosts") CS_KEY(K_TZ, "tz") CS_KEY(K_BAT_SDA, "bat_sda")
@@ -196,6 +196,7 @@ private:
     static constexpr Field FIELDS[] PROGMEM = {
         CS_CFG(K_WEBUSR, webusr, T_STRING, 0), CS_CFG(K_WEBPSS, webpss, T_STRING, 0),
         CS_CFG(K_TOTP, totp, T_HEX20, 0), CS_CFG(K_TOTP_STEP, totpStep, T_U32, 0),
+        CS_CFG(K_TOTP_BSTEP, totpBrowserStep, T_U32, 0),
         CS_CFG(K_SSID, ssid, T_STRING, 0), CS_CFG(K_PASS, pass, T_STRING, 0),
         CS_CFG(K_NTFY_TOPIC, ntfy_topic, T_CHARS, 0), CS_CFG(K_NTFY_CMD, ntfy_cmd, T_CHARS, 0),
         CS_CFG(K_NTFY_TOKEN, ntfy_token, T_CHARS, 0), CS_CFG(K_MQTT_HOST, mqtt_host, T_CHARS, 0),

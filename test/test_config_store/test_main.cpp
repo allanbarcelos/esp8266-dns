@@ -332,6 +332,7 @@ void test_full_round_trip() {
     };
     std::memcpy(config.totp, key, sizeof(key));
     config.totpStep = 56670000;
+    config.totpBrowserStep = 56670123;
 
     TEST_ASSERT_TRUE(store.save());
     config = Config{};
@@ -361,6 +362,7 @@ void test_full_round_trip() {
     TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"],
                               "3132333435363738393031323334353637383930"));
     TEST_ASSERT_EQUAL_UINT32(56670000u, config.totpStep);
+    TEST_ASSERT_EQUAL_UINT32(56670123u, config.totpBrowserStep);
 }
 
 // Every field at its maximum size fits under the read limit

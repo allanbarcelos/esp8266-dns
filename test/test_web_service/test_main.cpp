@@ -1251,7 +1251,7 @@ void test_password_save_needs_current_password_and_code() {
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_TRUE(Password::hashed(cfg.webpss));
     TEST_ASSERT_TRUE(Password::check("secret123", cfg.webpss));
-    TEST_ASSERT_EQUAL_UINT32((uint32_t)(PANEL_TIME / 30), cfg.totpStep);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)(PANEL_TIME / 30), cfg.totpBrowserStep);
     TEST_ASSERT_EQUAL_MEMORY(PANEL_TOTP, cfg.totp, sizeof(PANEL_TOTP));   // the key stays
 }
 
@@ -2538,6 +2538,45 @@ void test_code_works_once() {
 // No clock (setup access point, no internet): the browser's time, sent by
 // i18n.js, checks the code. It cannot bring back a spent code, and the
 // device clock wins once it is synchronized.
+// A browser clock that ran a year ahead, used while the device had no time,
+// does not lock the authenticator once SNTP sets the real one; codes
+// spent against the real clock still never come back
+void test_browser_clock_ahead_does_not_lock_out() {
+    Fixture f;
+    f.srv.authOk = false;
+    const time_t ahead = PANEL_TIME + 365L * 24 * 3600;
+    auto login = [&](time_t codeAt, const std::string& t) {
+        char c[8];
+        Totp::codeAt(cfg.totp, codeAt, c);
+        f.srv.request(HTTP_POST, "/login", {{"user", "admin"}, {"pass", "strong-pass"}, {"code", c},
+                                            {"t", t}, {"_csrf", f.web.csrfToken()}});
+    };
+    webNow = 0;
+    login(ahead, std::to_string((long long)ahead));
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)(ahead / 30), cfg.totpBrowserStep);
+    // Still without a clock: the browser's step holds, even for a right clock
+    login(PANEL_TIME, std::to_string((long long)PANEL_TIME));
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+
+    // SNTP sets the real time: that step lies in the future, and is ignored
+    webNow = PANEL_TIME;
+    login(PANEL_TIME, "");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)(PANEL_TIME / 30), cfg.totpStep);
+    login(PANEL_TIME, "");                            // spent, against the real clock
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+
+    // A browser step that is not ahead still counts with the real clock
+    cfg.totpBrowserStep = (uint32_t)(PANEL_TIME / 30) + 1;
+    webNow = PANEL_TIME + 30;
+    login(PANEL_TIME + 30, "");
+    TEST_ASSERT_EQUAL(401, f.srv.code);
+    webNow = PANEL_TIME + 60;
+    login(PANEL_TIME + 60, "");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+}
+
 void test_browser_time_while_clock_not_synced() {
     Fixture f;
     f.srv.authOk = false;
@@ -2568,7 +2607,7 @@ void test_browser_time_while_clock_not_synced() {
     login(code, at);
     TEST_ASSERT_EQUAL(302, f.srv.code);
     TEST_ASSERT_EQUAL_STRING("/", f.srv.headers["Location"].c_str());
-    TEST_ASSERT_EQUAL_UINT32((uint32_t)(PANEL_TIME / 30), cfg.totpStep);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)(PANEL_TIME / 30), cfg.totpBrowserStep);   // kept apart
     login(code, at);                                   // spent
     TEST_ASSERT_EQUAL(401, f.srv.code);
     char old[8];
@@ -2901,6 +2940,7 @@ int main() {
     RUN_TEST(test_authentication_required);
     RUN_TEST(test_session_authentication);
     RUN_TEST(test_code_works_once);
+    RUN_TEST(test_browser_clock_ahead_does_not_lock_out);
     RUN_TEST(test_browser_time_while_clock_not_synced);
     RUN_TEST(test_setup_mode_sign_in_without_clock);
     RUN_TEST(test_replacement_given_up_keeps_key);

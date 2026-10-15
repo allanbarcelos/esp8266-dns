@@ -480,19 +480,42 @@ private:
     // Until then (setup access point, no internet, a reboot without RAM
     // clock) the browser's, which i18n.js puts in t when the form is sent.
     // A time the browser makes up does not bring an old code back: every
-    // step at or before the last one accepted (totpStep, kept in flash) is
-    // refused, so it only opens a code nobody has seen, which would still
-    // have to be guessed under the same wait. 0: no usable time.
-    time_t _codeTime() const {
-        time_t now = _iot.unixTime();
-        if (now) return now;
-        String t = _server.arg("t");
-        const char* s = t.c_str();
+    // step at or before the last one accepted (kept in flash) is refused, so
+    // it only opens a code nobody has seen, which would still have to be
+    // guessed under the same wait. now 0: no usable time.
+    struct CodeTime {
+        time_t now = 0;
+        bool   browser = false;
+    };
+
+    CodeTime _codeTime() const {
+        CodeTime t;
+        t.now = _iot.unixTime();
+        if (t.now) return t;
+        String arg = _server.arg("t");
+        const char* s = arg.c_str();
         char* end;
-        if (t.length() > 10 || *s < '0' || *s > '9') return 0;
+        if (arg.length() > 10 || *s < '0' || *s > '9') return t;
         unsigned long v = strtoul(s, &end, 10);
-        if (*end) return 0;
-        return v > (unsigned long)Clock::MIN_VALID_EPOCH && v < 4000000000UL ? (time_t)v : 0;
+        if (*end) return t;
+        t.browser = true;
+        t.now = v > (unsigned long)Clock::MIN_VALID_EPOCH && v < 4000000000UL ? (time_t)v : 0;
+        return t;
+    }
+
+    // The step a new code must pass. Steps accepted against the browser's
+    // clock are kept apart (totpBrowserStep): once the device has its own
+    // time, one from a browser clock that ran ahead is ignored, instead of
+    // refusing every code until that day comes.
+    uint32_t _floor(const CodeTime& t) const {
+        uint32_t b = _cfg.totpBrowserStep;
+        if (!t.browser && b > (uint32_t)t.now / Totp::STEP + 1) b = 0;
+        return b > _cfg.totpStep ? b : _cfg.totpStep;
+    }
+
+    void _spend(const CodeTime& t, uint32_t step) {
+        if (t.browser) _cfg.totpBrowserStep = step;
+        else _cfg.totpStep = step;
     }
 
     // Code from the form against key; step starts at the last accepted one
@@ -509,20 +532,20 @@ private:
     // plain HTTP, is not enough. A wrong one is a counted mistake. On
     // success the code is spent in RAM; the caller saves the config.
     bool _confirmed() {
-        time_t now = _codeTime();
-        if (!now) {
+        CodeTime t = _codeTime();
+        if (!t.now) {
             _errorPage(PSTR(L_CLOCK_NOT_SYNC), PSTR("/password"));
             return false;
         }
-        uint32_t step = _cfg.totpStep;
+        uint32_t step = _floor(t);
         bool passOk = _credentialOk(_cfg.webusr, _server.arg("pass"));
-        bool codeOk = _codeOk(_cfg.totp, now, step);
+        bool codeOk = _codeOk(_cfg.totp, t.now, step);
         if (!passOk || !codeOk) {
             _loginFailed(_tries());
             _errorPage(PSTR(L_SIGN_IN_FAILED), PSTR("/password"));
             return false;
         }
-        _cfg.totpStep = step;
+        _spend(t, step);
         return true;
     }
 
@@ -1443,11 +1466,11 @@ private:
         if (_loginBlocked()) return;
         if (!_checkCSRF(true)) return;
         bool mfa = _mfaOn();
-        time_t now = mfa ? _codeTime() : 0;
+        CodeTime t = mfa ? _codeTime() : CodeTime();
         // No time at all (no clock and no browser time): every attempt looks
         // the same, and it does not count. Otherwise a wrong password could
         // be told apart from a code that cannot be checked.
-        if (mfa && !now) {
+        if (mfa && !t.now) {
             _loginPage(PSTR(L_CLOCK_NOT_SYNC), true);
             return;
         }
@@ -1455,8 +1478,8 @@ private:
         user.trim();
         String pass = _server.arg("pass");
         bool passOk = _credentialOk(user, pass);
-        uint32_t step = _cfg.totpStep;
-        bool codeOk = !mfa || _codeOk(_cfg.totp, now, step);
+        uint32_t step = _floor(t);
+        bool codeOk = !mfa || _codeOk(_cfg.totp, t.now, step);
         if (!passOk || !codeOk) {
             _loginFailed(_tries());
             _loginPage(PSTR(L_SIGN_IN_FAILED), false);
@@ -1466,7 +1489,7 @@ private:
         if (mfa) {
             // The code is spent, also after a reboot. A failed save keeps it
             // in RAM until the next one.
-            _cfg.totpStep = step;
+            _spend(t, step);
             _store.save();
         }
         // A key shown to an earlier session is not offered again
@@ -1497,25 +1520,26 @@ private:
     void _handleMfaPost() {
         if (!_enrollGuard()) return;
         if (!_checkCSRF()) return;
-        time_t now = _codeTime();
-        if (!now) {
+        CodeTime t = _codeTime();
+        if (!t.now) {
             _mfaPage(PSTR(L_CLOCK_NOT_SYNC), true);
             return;
         }
-        uint32_t step = _cfg.totpStep;
-        if (!_pendingSet || !_codeOk(_pending, now, step)) {
+        uint32_t step = _floor(t);
+        if (!_pendingSet || !_codeOk(_pending, t.now, step)) {
             _loginFailed(_tries());
             _mfaPage(PSTR(L_SIGN_IN_FAILED), false);
             return;
         }
         uint8_t prev[Totp::KEY_LEN];
-        uint32_t prevStep = _cfg.totpStep;
+        uint32_t prevStep = _cfg.totpStep, prevBrowser = _cfg.totpBrowserStep;
         memcpy(prev, _cfg.totp, Totp::KEY_LEN);
         memcpy(_cfg.totp, _pending, Totp::KEY_LEN);
-        _cfg.totpStep = step;
+        _spend(t, step);
         if (!_store.save()) {
             memcpy(_cfg.totp, prev, Totp::KEY_LEN);
             _cfg.totpStep = prevStep;
+            _cfg.totpBrowserStep = prevBrowser;
             _errorPage(PSTR(L_SAVE_FAILED), PSTR("/mfa"));
             return;
         }

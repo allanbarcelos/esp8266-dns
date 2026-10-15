@@ -54,6 +54,7 @@ struct Config {
     String  webpss;          // Password.h: the salted hash ("" = none yet)
     uint8_t totp[20] = {};   // authenticator secret; all zeros = not enrolled
     uint32_t totpStep = 0;   // last authenticator step accepted (a code works once)
+    uint32_t totpBrowserStep = 0;  // the same, for codes checked against the browser's clock
     String  ssid;
     String  pass;
 
