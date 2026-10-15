@@ -88,3 +88,18 @@ A measured analysis of the firmware (map, symbols, prototypes built from the sam
 | `c89ddc3` | Authenticator steps from the browser's clock kept apart (`totp_bstep`) | 477,040 |
 | `9887b1e` | CI actions pinned by commit, Dependabot for updates | 477,040 |
 | `d4331c2` | Web panel code: route table, streaming escape, rows without `String` temporaries, shared strings | 475,136 |
+
+## Remote access round (2026-10-15)
+
+The panel and the API from anywhere at the user's own HTTPS address, with no open port and no computer at home: the device keeps a WebSocket to a Cloudflare Worker it deploys itself with the API token ([REMOTE-ACCESS.md](REMOTE-ACCESS.md)). The Cloudflare page went to the token alone along the way. Native tests, ASan and UBSan, cppcheck and the fuzzers green on Linux at every step; the Worker's tests at 100 % on Node.
+
+| Commit | What changed | Firmware |
+|---|---|---|
+| `f9af9be` | `HttpServer` takes a request from any link (`HttpLink`), not only the socket | 475,312 |
+| `d00b6e3` | WebSocket client (`WsClient.h`), with a fuzz target; not linked yet | 475,312 |
+| `630d609` | Relay connection on the device (`RelayService.h`): requests through the panel's server, hello with a keyed hash of the API token, state on change; a fuzz target for the frames | 479,024 |
+| `8a7d91e` | The Worker (`relay/worker.mjs`): Durable Object with hibernation, queue, rate limit, last state for the API, ntfy polling; tests on Node in CI | 479,024 |
+| `5a706c8` | Cloudflare from the token alone: domain list, DDNS record by name (created if missing), jobs from the loop; streaming JSON reader (`JsonStream.h`) and one API call shared with the DDNS (`CloudflareApi.h`) | 483,680 |
+| `30d78ac` | The device deploys its Worker: script byte-pair encoded in the firmware (`RelayScript.h`, 7.8 KB in 4.2 KB), own domain or workers.dev, a new secret per upload, redeploy after a protocol change | 491,152 |
+| `7b87752` | Remote access page | 493,664 |
+| `ca395c5` | ntfy commands through the relay, with the device's own stream as the fallback; poll interval on the ntfy page | 495,104 |

@@ -6,20 +6,92 @@ How to use the device away from home without exposing it to the internet.
 
 The ESP-01 has no memory to serve HTTPS. The panel and the API speak plain HTTP. The panel signs in with a form and then keeps a session cookie; the API uses a Bearer token. If the router's port 80 points at it, anyone on the path can steal that cookie or token, and any bot scanning the internet finds the panel within hours. The authenticator stops a stolen password from being enough, and the login attempt limit slows guessing. An open port remains unsafe.
 
-So the design is different: the device only makes outgoing connections. It already does that with ntfy (commands from the phone) and MQTT (Home Assistant). To reach the panel, put a tunnel with HTTPS and its own login in front of it.
-
-The device's DDNS does not get in the way: it only keeps the DNS record pointing at the home IP. With no open port, that IP leads nowhere.
+So the device only makes outgoing connections: to ntfy (commands from the phone), to MQTT (Home Assistant), and to its own relay Worker on Cloudflare (the panel and the API from anywhere).
 
 ## Which path to choose
 
 | You want | Use | Needs |
 | --- | --- | --- |
+| The panel and the API from anywhere, at an HTTPS address | **Remote access** (built in) | A free Cloudflare account; a domain on it is optional |
 | To switch things on and off from the phone, nothing else | **ntfy** (built in) | Just the ntfy app |
 | To control it through Home Assistant from outside | **Home Assistant remote access** | HA already reachable from outside |
-| To open the panel from anywhere, only you | **Tailscale** | A computer always on in the network (Raspberry Pi, PC, NAS or a compatible router) |
-| To open the panel at your own address, with e-mail login | **Cloudflare Tunnel + Access** | A domain on Cloudflare and a computer always on in the network |
+| A private network to everything at home, only you | **Tailscale** | A computer always on in the network |
+| A Cloudflare Tunnel you already run for other things | **Cloudflare Tunnel** | A computer always on in the network |
 
-The last two need a computer in the network, because the ESP-01 has no memory to run the tunnel itself.
+## Remote access (built in)
+
+```
+browser / app ──HTTPS──> esp-pump.example.com ──> Worker + Durable Object (your Cloudflare account)
+                                                     ║  WebSocket over TLS, opened by the device,
+                                                     ║  authenticated by a secret only the two know
+                                                   ESP-01 ── the same panel, sign-in and API
+```
+
+The device opens a connection to a Cloudflare Worker in your account and keeps it. Each request to your address goes down that connection; the device answers it with the same panel, password, authenticator and API token as at home, and the answer goes back up. Nothing is opened on the router, and nothing besides the Worker runs anywhere: no Raspberry Pi, no `cloudflared`.
+
+The device sets the Worker up itself, with the API token: you never upload code or touch the Workers dashboard.
+
+### 1. The token
+
+In Cloudflare, **My Profile → API Tokens → Create Token → Create Custom Token**, with these permissions:
+
+| Scope | Permission | For |
+| --- | --- | --- |
+| Account | **Workers Scripts: Edit** | the relay Worker and its workers.dev address |
+| Account | **Account Settings: Read** | finding the account when there is no domain |
+| Zone | **Zone: Read** | listing your domains |
+| Zone | **DNS: Edit** | the DDNS record |
+| Zone | **Workers Routes: Edit** | putting the Worker on your own domain |
+
+Without a domain on Cloudflare, the two account permissions are enough. Paste the token on the panel's **Cloudflare** page and press **Save and check**: the page lists the domains the token reaches (and the DDNS record is picked there by name, created if it does not exist).
+
+### 2. Turn it on
+
+On the panel, **Remote access**:
+
+- **Address**: one of your domains, or **workers.dev** (free, no domain needed).
+- **Name**: the first part of the address and the Worker's name, such as `esp-pump`. The address becomes `esp-pump.example.com`, or `esp-pump.<account>.workers.dev`. Each device gets its own name. A Worker of yours that already has that name, and is not a relay, is left alone (the panel says so).
+- **workers.dev name for the account**: only if the account never had one; Cloudflare asks for it once per account.
+
+Press **Turn on**. The device uploads the Worker (from its own firmware), with a new random secret, and puts it on the address. The page follows the steps and then shows the link and the connection state. A new workers.dev address can take a minute or two to answer the first time.
+
+Do not use the name of the DDNS record (the one that points at your home): the Worker needs a name of its own.
+
+**Turn off** stops the device from connecting. The Worker stays in your account and answers that the device is offline; delete it in the Cloudflare dashboard if you no longer want it (**Workers & Pages**).
+
+### What works through it
+
+- **The panel**, with the same sign-in. The session cookie only travels over HTTPS (browser to Cloudflare) and TLS (Cloudflare to the device).
+- **The API**, from scripts or apps anywhere:
+
+  ```bash
+  curl -H 'Authorization: Bearer <token>' https://esp-pump.example.com/api/state
+  curl -H 'Authorization: Bearer <token>' -d 'level 70' https://esp-pump.example.com/api/cmd
+  ```
+
+  At home, the same calls go straight to `http://<device ip>/api/...`, faster; an app can try the local address first.
+- **With the device offline** (power cut, no internet), `/api/state` answers from the last state the device sent, with `"online": false` and `"seen"` (Unix time), to whoever holds the API token. The Worker keeps only a keyed hash of the token, never the token.
+- **ntfy commands and the notification buttons** keep working: while the relay is up, the Worker checks the command topic for the device (every 5 s by default; 2, 10 or 30 s on the **ntfy** page) and sends each command down the relay. If the relay stays down for more than a minute, the device goes back to its own ntfy stream, from the last message it saw.
+- **MQTT** stays on the local network, unchanged.
+
+### Limits and costs
+
+- One request at a time reaches the device; others wait their turn at the Worker (up to 16). Expect 0.5 to 2 s per page or API call.
+- Sign-in and API paths are limited to **60 requests per minute per address** at the Worker, before they reach the device. The device keeps its own attempt limits.
+- Bodies over 2 KB get 413 (the panel's forms are much smaller).
+- Cloudflare's free plan includes 100,000 Worker requests a day. Polling ntfy every 5 s takes about 17,000; an app reading `/api/state` every 5 s about 17,000 more.
+- The device has room for one TLS session: the relay steps aside for a few seconds while the device checks its public IP, updates DNS, posts to ntfy or downloads an update. The Worker holds requests meanwhile.
+- After a firmware update that changes the relay protocol, the device uploads the new Worker by itself.
+
+### A login in front (optional)
+
+The panel keeps its password and authenticator, and bots meet the Worker's rate limit first. For one more layer, put **Cloudflare Access** in front of the address: **Zero Trust → Access → Applications → Add an application → Self-hosted**, the application domain being the relay's address, with a policy **Allow → Emails → your e-mail** (Access sends a code by e-mail on each login). Access needs the Zero Trust area enabled on the account, which may ask for a payment method even on the free plan.
+
+With Access on, scripts calling the API are blocked too. Add an application rule that **bypasses** Access for `/api/*` (the API has its own token), or give the scripts an Access **Service Token**.
+
+### Several devices
+
+One name per device: `esp-pump`, `esp-light`, `esp-gate`, each its own Worker and address. The token can be the same.
 
 ## ntfy
 
@@ -52,54 +124,15 @@ Replace `192.168.1.0/24` with your network's range. Then:
 2. Install Tailscale on the phone and sign in to the same account.
 3. Open `http://<device ip>` in the phone's browser.
 
-Traffic between the phone and home is encrypted by Tailscale. From the computer to the ESP-01 it is HTTP on the local network, as at home.
+## Cloudflare Tunnel
 
-## Cloudflare Tunnel + Access
+If a computer at home already runs `cloudflared`, a **Public Hostname** of the tunnel can point at the device: service `HTTP`, `192.168.1.50:80` (its reserved IP), with Access in front as above. Then tell the device about that name: on the panel, at home, open **Settings** and enter it under **Other addresses**. The panel only answers to its own names (an IP address, its hostname, the DDNS record, the relay's address and that list); a page on another site that points its own name at the device gets nothing (DNS rebinding). Without this step the tunnel shows "Unknown address". Instead of the list, `cloudflared` can send the device's IP as the host (**HTTP Host Header** in the tunnel's settings, `httpHostHeader` in `config.yml`).
 
-`cloudflared` runs on a home computer and opens an outgoing connection to Cloudflare. Cloudflare publishes the panel at your address, with HTTPS, and Access asks for a login before letting anyone through.
-
-### 1. Tunnel
-
-In the Cloudflare dashboard (**Zero Trust → Networks → Tunnels → Create a tunnel**), choose **Cloudflared**, give it a name (for example `home`) and follow the install command it shows for your system. Under **Public Hostname**:
-
-- **Subdomain / Domain:** `esp.yourdomain.com`
-- **Service:** `HTTP` and `192.168.1.50:80` (the device's reserved IP)
-
-If you prefer a configuration file, the equivalent in `~/.cloudflared/config.yml` is:
-
-```yaml
-tunnel: <tunnel id>
-credentials-file: /home/<user>/.cloudflared/<tunnel id>.json
-ingress:
-  - hostname: esp.yourdomain.com
-    service: http://192.168.1.50:80
-  - service: http_status:404
-```
-
-with the tunnel created by `cloudflared tunnel create home`, the DNS by `cloudflared tunnel route dns home esp.yourdomain.com` and the service installed by `sudo cloudflared service install`.
-
-Use a subdomain different from the records the device itself updates through DDNS.
-
-Then tell the device about that name: on the panel, at home, open **Settings** and enter `esp.yourdomain.com` under **Other addresses**. The panel only answers to its own names (an IP address, its hostname, the Cloudflare host and that list); a page on another site that points its own name at the device gets nothing (DNS rebinding). Without this step the tunnel shows "Unknown address". Instead of the list, you can also have `cloudflared` send the device's IP as the host (**HTTP Host Header** in the tunnel's settings, `httpHostHeader` in `config.yml`).
-
-### 2. Login in front (required)
-
-Without this part, the panel is public with only the device's password and authenticator. In **Zero Trust → Access → Applications → Add an application → Self-hosted**:
-
-- **Application domain:** `esp.yourdomain.com`
-- **Policy:** action **Allow**, rule **Emails** with your e-mail (Access sends a code by e-mail on each login).
-
-After that, opening `https://esp.yourdomain.com` first asks for the Access code and only then for the panel user, password and authenticator code.
-
-### Notes
-
-- Between the browser and Cloudflare, everything is HTTPS. From `cloudflared` to the device it is HTTP on the local network.
-- The panel sends `Cache-Control: no-store` and `X-Frame-Options: DENY`: nothing stays in the Cloudflare or browser cache, and the panel does not open inside another site.
-- The local API (`/api/state`, `/api/cmd`) also goes through the tunnel, but behind Access it does not answer scripts. For automation from outside, prefer Home Assistant or ntfy. If you really need the API, create an Access **Service Token** just for it.
+The built-in remote access does the same without the computer; the tunnel is only worth it if you run one anyway.
 
 ## What not to do
 
 - Open a router port to the device, even "just for a while".
-- Publish the tunnel without Access in front.
+- Publish the panel through a tunnel without Access in front, or turn off the panel's password.
 - Expose the MQTT broker to the internet without TLS and without a password.
 - Use the Wi-Fi password as the panel password.

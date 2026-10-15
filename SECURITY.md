@@ -53,9 +53,12 @@ you own.
   shown back), or reading a stored secret (Wi-Fi password, Cloudflare token, API token) from a page.
 - **Device control**: operating a sensor or actuator, or reading its state, without the panel
   login or the API token, or through a command that the configured module type should refuse.
+- **Remote access relay**: reaching the device through its relay Worker without the panel login
+  or the API token, connecting to someone's Worker as their device, reading the state the Worker
+  keeps without the token, or getting a device to deploy a Worker over someone else's.
 - **Setup mode**: keeping or forcing a configured device in the setup access point.
-- **Memory safety**: crashes or code execution from a crafted HTTP request, ntfy message, or
-  GitHub/Cloudflare response.
+- **Memory safety**: crashes or code execution from a crafted HTTP request, ntfy message, relay
+  frame, or GitHub/Cloudflare response.
 
 **Out of scope** — known and documented limits:
 
@@ -75,6 +78,11 @@ you own.
   point can configure the device, so knowing the AP password means physical access to the serial
   port or to the panel. A password derived from the chip ID would not do: the chip ID is part of
   the MAC address the access point broadcasts.
+- **The relay Worker runs in the user's Cloudflare account.** Whoever controls that account (or
+  the API token stored on the device) can replace the Worker, read the relay secret and the ntfy
+  token the device sends it, and see the traffic between browsers and the device as it passes
+  through Cloudflare. Use a token limited to the permissions listed in
+  [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md) and keep the account protected.
 - **ntfy.sh topics are public by name.** Anyone who knows a topic can read it, and anyone who knows
   the command topic can send commands, unless an ntfy access token is configured. Keep the topic
   names secret and long.
@@ -128,11 +136,11 @@ you own.
   one for the address of the last sign-in, and the one for every other address. Someone guessing
   elsewhere on the network waits alone; the owner and scripts using the API carry on.
 - **Requests**: the panel answers only to its own names (an IP address, a name without a dot, its
-  hostname with any domain, the Cloudflare host and the names listed under Settings, Other
-  addresses), so a page on another site cannot reach it through DNS rebinding. A request must
+  hostname with any domain, the DDNS record, the relay's address and the names listed under
+  Settings, Other addresses), so a page on another site cannot reach it through DNS rebinding. A request must
   arrive whole within 3 s and with at most 32 header lines, so a slow client cannot hold the loop
-  where the actuator's safety timer runs. The Cloudflare IDs and token accept only the characters
-  they can have.
+  where the actuator's safety timer runs. The Cloudflare token, record names and relay names
+  accept only the characters they can have, so nothing typed changes an API path or header.
 - **Local API**: `/api/state` and `/api/cmd` exist only while a sensor or actuator is configured,
   and require a Bearer token separate from the panel password (32 hex characters from the hardware
   RNG, compared in constant time, regenerated from the IoT page).
@@ -150,6 +158,18 @@ you own.
   Every connection offers only TLS 1.2 ECDHE with AES-GCM (forward secrecy, no CBC or 3DES); the
   other ciphers are not even in the firmware (`TlsTrim.h`).
   Commands older than 10 minutes are ignored.
+- **Remote access** (optional): the device opens a WebSocket over TLS to its own Worker, with the
+  certificate checked against the pinned roots, and authenticates with a 256-bit secret drawn by
+  the hardware RNG at every deploy and compared by the Worker in constant time; another protocol
+  version is refused (426). Requests that come down the relay go through the same server, routes,
+  sign-in, CSRF and attempt counts as on the local network (the Worker passes the client's
+  address; an IPv6 one is hashed into four bytes). Between the browser and Cloudflare it is HTTPS,
+  so the session cookie and the API token never travel in clear. The Worker limits sign-in and API
+  paths to 60 requests per minute per address, refuses bodies over 2 KB and queues at most 16
+  requests. For `/api/state` with the device offline it keeps the last state and an HMAC-SHA1 of
+  the API token keyed with the relay secret, never the token itself. The device only deploys over
+  a Worker of the same name that already binds the relay's Durable Object; any other is left
+  alone.
 - **Credentials** live only in `/config.json` on the device's LittleFS, written atomically. The
   panel password is a salted hash; the Wi-Fi password, tokens and the authenticator secret must be
   usable by the device and are stored as they are (physical access reads them).
@@ -169,7 +189,7 @@ you own.
   panel to the internet. Do not forward port 80 to it.
 - Use long, random ntfy topic names, or an ntfy access token. Without a token, the panel refuses
   a command topic shorter than 20 characters.
-- To reach the device from outside, use a tunnel with its own login (see
-  [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)); never forward a router port to it.
+- To reach the device from outside, turn on **Remote access**, optionally with Cloudflare Access
+  in front (see [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)); never forward a router port to it.
 - Erasing the flash draws a new setup-network password; a build with `-DAP_PASSWORD=\"...\"`
   uses a fixed one instead (keep it long and private).

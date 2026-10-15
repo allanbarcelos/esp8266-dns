@@ -1,18 +1,28 @@
 # Firmware status and next steps
 
-Status on 2026-10-14, after the size and security round (`3346611` to `d4331c2`). What went in, and in which commit, is in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+Status on 2026-10-15, after the remote access round (`f9af9be` to `ca395c5`). What went in, and in which commit, is in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Where we are
 
-A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and drives an actuator. It can be controlled from the web panel (in four languages, behind a password and an authenticator), a local API, ntfy and MQTT, and Home Assistant finds the device on its own. It updates itself through signed OTA and installs from the browser.
+A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and drives an actuator. It can be controlled from the web panel (in four languages, behind a password and an authenticator), a local API, ntfy and MQTT, and Home Assistant finds the device on its own. The panel and the API also open from anywhere, at the user's own HTTPS address, through a Cloudflare Worker the device sets up itself. It updates itself through signed OTA and installs from the browser.
 
 | | |
 | --- | --- |
-| Firmware | 475,136 of 500,000 bytes (24,864 to spare) |
-| Signed OTA package | ~347 KB of 400 KB |
-| Static RAM | 37,512 bytes |
-| Native tests | 491, with 100 % of lines, functions and branches |
-| In CI | no compiler warnings, ASan and UBSan, cppcheck, fuzzing of 7 inputs |
+| Firmware | 495,104 of 500,000 bytes (4,896 to spare) |
+| Signed OTA package | ~354 KB of 400 KB |
+| Static RAM | 38,704 bytes |
+| Native tests | 571, with 100 % of lines, functions and branches |
+| Relay Worker tests | 23 on Node, 100 % of lines, functions and branches, on the source and on the embedded script |
+| In CI | no compiler warnings, ASan and UBSan, cppcheck, fuzzing of 9 inputs |
+
+## Remote access round (2026-10-15)
+
+- **Remote access without a port or a computer at home.** The device keeps a WebSocket over TLS to a Cloudflare Worker in the user's account; requests to the user's address go down it and through the same panel, sign-in and API as at home. The device deploys the Worker itself with the API token (own domain or workers.dev), with a new secret per upload, and again after an update that changes the relay protocol. With the device offline, `/api/state` answers from the last state to the token holder. The Worker limits sign-in and API requests per address.
+- **ntfy commands through the relay.** Only one TLS session fits, so the Worker polls the command topic for the device (2, 5, 10 or 30 s) and sends the commands down the relay; if the relay stays down a minute, the device's own stream takes over.
+- **Cloudflare from the token alone.** The page lists the token's domains and picks the DDNS record by name, created if missing. No IDs to copy.
+- **Cost:** +20 KB of firmware, of which 4.2 KB is the Worker itself (byte-pair encoded) and 1.9 KB the new panel text in four languages. About 1.2 KB more static RAM.
+
+**Not verified on a device yet:** the whole round. The Cloudflare API calls (zone list, record creation, Worker upload with its Durable Object migration, custom domain, workers.dev) and the relay's heap with MQTT connected need the [on-device checklist](HARDWARE-TEST.md), section 10c, with a real Cloudflare account.
 
 ## Size and security round (2026-10-14)
 
@@ -94,17 +104,17 @@ Safe order:
 
 ## Next steps
 
-In order, with an effort estimate. Items that change the firmware need room first (see above).
+In order, with an effort estimate. Items that change the firmware need room first: 4.9 KB are left.
 
-1. **Run the on-device test** and fix what comes up. 2 to 4 hours of testing, plus whatever needs fixing.
-2. **Version check that survives the rename** (see above), then the rename itself. Half a day; about the same flash.
-3. **Measure main-loop stalls.** TLS connections and the MQTT one hold the loop for a few seconds; meanwhile the panel does not answer and the actuator pulse can run past what was asked. Measure first (a log warning when a cycle goes past, say, 200 ms), then decide. Half a day.
-4. **Stable release channel.** Automatic OTA installs only versions marked as stable; the others stay as beta, for whoever wants them. About 1 day; ~0.2 KB.
-5. **End-to-end test in CI.** Bring the Mosquitto and Home Assistant test, manual today, into CI. About 1 day; does not change the firmware.
-6. **Field diagnostics.** Keep the last crash (address and stack) and show it on the panel; publish heap, Wi-Fi signal and uptime over MQTT. About 1 day; the size depends on how much goes in.
-7. **Battery in the API and MQTT**, and the INA219 ([BATTERY-AND-SOLAR.md](BATTERY-AND-SOLAR.md)). Small.
-8. **Validate GitHub's certificate on OTA.** Today the signature protects the image, but someone in the middle of the connection can block updates. Half a day; ~1.5 KB.
-9. **MQTT with TLS to a cloud broker** (optional). Control over the internet without a tunnel. It would be one or the other with the ntfy command stream, because only one TLS session fits. About 2 days; ~1.5 KB.
+1. **Run the on-device test** and fix what comes up, remote access included (section 10c, with a Cloudflare account). 3 to 5 hours of testing, plus whatever needs fixing.
+2. **Make room.** The long help texts of the Cloudflare, remote access and ntfy pages (four languages each) and the Worker's own size are the first candidates. Half a day.
+3. **Version check that survives the rename** (see above), then the rename itself. Half a day; about the same flash.
+4. **Measure main-loop stalls.** TLS connections and the MQTT one hold the loop for a few seconds; meanwhile the panel does not answer and the actuator pulse can run past what was asked. Measure first (a log warning when a cycle goes past, say, 200 ms), then decide. Half a day.
+5. **Stable release channel.** Automatic OTA installs only versions marked as stable; the others stay as beta, for whoever wants them. About 1 day; ~0.2 KB.
+6. **End-to-end test in CI.** Bring the Mosquitto and Home Assistant test, manual today, into CI. About 1 day; does not change the firmware.
+7. **Field diagnostics.** Keep the last crash (address and stack) and show it on the panel; publish heap, Wi-Fi signal and uptime over MQTT. About 1 day; the size depends on how much goes in.
+8. **Battery in the API and MQTT**, and the INA219 ([BATTERY-AND-SOLAR.md](BATTERY-AND-SOLAR.md)). Small.
+9. **Validate GitHub's certificate on OTA.** Today the signature protects the image, but someone in the middle of the connection can block updates. Half a day; ~1.5 KB.
 10. **Smaller pieces:** a physical button, a backup second Wi-Fi, a remote log through ntfy ([PORTING-FROM-TASMOTA.md](PORTING-FROM-TASMOTA.md)).
 
 Battery and solar panel, with or without a charge reading: [BATTERY-AND-SOLAR.md](BATTERY-AND-SOLAR.md). Powering it does not change the firmware. The charge reading competes with the button for the two free pins.

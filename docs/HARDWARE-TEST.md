@@ -56,10 +56,10 @@ Flash again **without** erasing: the AP password must stay the same. Then flash 
 
 1. With neither Cloudflare nor ntfy configured, wait for the clock to sync and open **Status**.
 2. Leave the device on for 15 minutes and look at the log.
-3. If you use Cloudflare: set the token, zone and record ID on the **Cloudflare** page.
+3. If you use Cloudflare: paste the token on the **Cloudflare** page and press **Save and check**; pick the domain and a record name (try one that does not exist yet).
 4. Change that record's IP to `1.1.1.1` in the Cloudflare dashboard and reboot the device. It compares the public IP with the last one it sent, not with the record, but every boot sends once.
 
-**Expected:** the **Public IP** card under Status shows the home IP, the provider's reverse name (or `-` if the provider has none) and the last check, which moves every 5 minutes. The log has one `Public IP: ...` line at boot and nothing more while the IP does not change. With Cloudflare, the log shows `Updating DNS to ...` and then `DNS updated!`, and the record goes back to the home IP. With the clock still in 1970 (right after power-up), the device waits instead of failing.
+**Expected:** the Cloudflare page lists the token's domains within a few seconds; saving the record shows `DDNS record ready`, and the record exists in the dashboard pointing at the home IP. A wrong token shows Cloudflare's own message. The **Public IP** card under Status shows the home IP, the provider's reverse name (or `-` if the provider has none) and the last check, which moves every 5 minutes. The log has one `Public IP: ...` line at boot and nothing more while the IP does not change. With Cloudflare, the log shows `Updating DNS to ...` and then `DNS updated!`, and the record goes back to the home IP. With the clock still in 1970 (right after power-up), the device waits instead of failing.
 
 ## 6. ntfy (if used)
 
@@ -116,6 +116,29 @@ curl -i -H 'Authorization: Bearer wrong' http://<ip>/api/state
 3. Open the panel as `http://<ip>`, as `http://<hostname>.local` and through the router's name for the device: all open. Point a name of your own at the device's IP (hosts file) and open it: `Unknown address`. Add that name under **Settings → Other addresses** and it opens.
 4. With a slow client (`telnet <ip> 80`, type a few characters and wait), the panel answers again in at most 3 s on another browser tab, and a running `pulse 5` ends on time.
 5. Without internet (setup access point), sign in with the browser clock set a day ahead; then give the device internet back, wait for the clock, and sign in with a current code: it works.
+
+## 10c. Remote access
+
+Needs a Cloudflare account; a domain on it is optional. The token carries the permissions in [REMOTE-ACCESS.md](REMOTE-ACCESS.md).
+
+1. On **Remote access**, pick a domain, name it `esp-test` and press **Turn on**. Repeat later with **workers.dev** (on an account that never had a workers.dev name, fill it in).
+2. On the phone, off the home Wi-Fi, open the link the page shows. Sign in.
+3. From a computer outside the home network: `curl -H 'Authorization: Bearer <token>' https://<address>/api/state` and `-d on .../api/cmd`.
+4. Send `on` to the ntfy command topic; press a notification button.
+5. Unplug the device; call `/api/state` again; then try a wrong token.
+6. Plug it back; while it checks the public IP or posts to ntfy, reload a panel page.
+7. Leave it on for a day with remote access on and look at **Status**.
+8. **Turn off**.
+
+**Expected:**
+- The page follows the deploy and then shows the link, with state `connected`. The Worker shows up in the Cloudflare dashboard (**Workers & Pages**) with the name given, and the log has `Cloudflare: relay at ...` and `relay: connected`. A name already taken by another Worker of the account is refused with `another Worker has this name`.
+- The panel opens over HTTPS with the same password and authenticator; pages take about 0.5 to 2 s. The API answers the same JSON as at home.
+- The ntfy command switches the LED within the chosen interval (5 s by default), and the ntfy page shows `relay` as the command state.
+- With the device unplugged, `/api/state` answers the last state with `"online": false` and `"seen"`; a wrong token gets `Device offline` (503). Other pages answer `Device offline` after about 8 s.
+- During the IP check or the ntfy post, the page loads a few seconds late but loads.
+- After a day: free heap above 15 KB with the relay connected, no unexpected resets, the relay reconnected after the daily reboot.
+- After **Turn off**, the address answers `Device offline` and the ntfy page shows the command stream `connected` again within about a minute.
+- With the relay unable to connect (for instance, the Worker deleted in the dashboard), the ntfy stream takes over the commands after a minute.
 
 ## 11. Memory after a day
 

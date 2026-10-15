@@ -5,6 +5,7 @@ Firmware for the **ESP-01 (ESP8266, 1 MB)**. One device does three jobs:
 1. **Dynamic DNS**: keeps a Cloudflare A record pointing at the residential public IP and sends that IP through [ntfy.sh](https://ntfy.sh).
 2. **IoT**: one sensor and one actuator, each optional. Operated from the panel, from a **local API** that works without internet, and from **ntfy commands** delivered in about a second.
 3. **Self-maintenance**: signed OTA updates from GitHub Releases, Wi-Fi/memory watchdogs and a daily reboot.
+4. **Remote access**: the panel and the API at an HTTPS address of yours from anywhere, through a Cloudflare Worker the device sets up itself. No open port, no extra computer.
 
 The web panel is self-contained (CSS and images are in the firmware), so it works in setup mode and on networks with no internet.
 
@@ -19,17 +20,23 @@ Each service is a header with dependencies injected by reference, composed in la
 | `App.h`              | Service composition, `setup()`/`loop()`, one TLS session at a time              |
 | `Config.h`           | Configuration and runtime state; AP credentials; `IoTConfig`                    |
 | `ConfigStore.h`      | `/config.json` (LittleFS) with **atomic writes**, a version number and migrations |
-| `Json.h`             | Small JSON reader and writer (config, state, Cloudflare and ntfy answers)        |
+| `Json.h`             | Small JSON reader and writer (config, state, ntfy answers)                       |
 | `Password.h`         | Panel password as PBKDF2-HMAC-SHA1 with a random salt                            |
 | `Logger.h`           | Ring buffer of log lines (Serial + panel)                                        |
 | `Clock.h`            | SNTP wall clock (required to validate TLS certificates)                          |
 | `Totp.h`             | Authenticator codes (RFC 6238): HMAC-SHA1 from BearSSL, 30 s, 6 digits           |
 | `TlsTrim.h`          | Leaves unused BearSSL and C runtime code out of the firmware (sketch only)       |
-| `TlsClient.h`        | TLS client (small buffers, ECDHE + AES-GCM) and one-shot HTTPS requests          |
+| `TlsClient.h`        | TLS client (small buffers, ECDHE + AES-GCM) and one-shot HTTPS requests, body in parts |
 | `WiFiService.h`      | Connection, configuration mode (AP), reconnection and watchdogs                  |
 | `PublicIPResolver.h` | Public IPv4 over HTTPS every 5 min (trust anchors in `CloudflareCA.h`)           |
 | `ReverseDNS.h`       | Reverse name (PTR) of the public IP, asked to the network's DNS over UDP        |
-| `CloudflareDNS.h`    | PATCHes the record through the Cloudflare API                                    |
+| `CloudflareApi.h`    | One Cloudflare API call; the answer read as it streams in (`JsonStream.h`)       |
+| `JsonStream.h`       | JSON read one byte at a time, for answers too big to keep (zone lists)           |
+| `CloudflareDNS.h`    | PATCHes the DDNS record through the Cloudflare API                               |
+| `CloudflareSetup.h`  | From the token alone: domains, the DDNS record by name, and the relay Worker's deploy |
+| `RelayService.h`     | Remote access: keeps a WebSocket to the relay Worker and serves its requests     |
+| `WsClient.h`         | WebSocket client (RFC 6455), only what the relay uses                            |
+| `RelayScript.h`      | The relay Worker (`relay/worker.mjs`), minified and byte-pair encoded by `tools/embed_relay.py` |
 | `NtfyNotifier.h`     | ntfy both ways: publishes IP and IoT events; subscribes to the command topic    |
 | `MqttService.h`      | MQTT on the local network: state, commands and availability                     |
 | `OTAService.h`       | Version check and signed firmware download (signature bound to the tag)          |
@@ -55,10 +62,10 @@ Each service is a header with dependencies injected by reference, composed in la
 1. Flash from the browser with the **[web installer](https://allanbarcelos.github.io/esp8266-dns/)** (Chrome or Edge on a computer, nothing to install) or over serial (see [Local build](#-local-build)). Either way, the ESP-01 needs **GPIO0 tied to GND** when the adapter is plugged in; release it after flashing and plug it in again.
 2. With no Wi-Fi configured, the ESP creates the **`ESP_Config`** network. The password is **drawn per device** on first boot (12 characters) and printed on the serial port every 30 s (`AP ESP_Config, password: ...`); the web installer reads it with the **Read the device password** button. Afterwards it shows on the panel, under **Status**. For a fixed password, build with `-DAP_PASSWORD=\"...\"`.
 3. Open `http://192.168.4.1`, enter the Wi-Fi credentials and **set the panel user and password** (at least 8 characters).
-4. After the reboot, open the ESP's local IP and **sign in** with the user and password. The panel shows an authenticator key once, as text and as a QR code. Scan it or type it into an authenticator app and enter the 6-digit code. The code is checked against the device clock; until SNTP has set it (for example on the setup access point), the browser sends its own time with the form. Until that code is accepted, the other pages stay closed. Then configure **Cloudflare**, **ntfy** and **IoT** as needed; each part is optional. The **Settings** page sets a **name** (shown at the top of the panel and in Home Assistant), a **hostname** (what the router shows in its DHCP list; it applies on the next Wi-Fi connection), the **time zone** (for the rule's time window) and the panel **language**.
+4. After the reboot, open the ESP's local IP and **sign in** with the user and password. The panel shows an authenticator key once, as text and as a QR code. Scan it or type it into an authenticator app and enter the 6-digit code. The code is checked against the device clock; until SNTP has set it (for example on the setup access point), the browser sends its own time with the form. Until that code is accepted, the other pages stay closed. Then configure **Cloudflare**, **Remote access**, **ntfy** and **IoT** as needed; each part is optional. The **Settings** page sets a **name** (shown at the top of the panel and in Home Assistant), a **hostname** (what the router shows in its DHCP list; it applies on the next Wi-Fi connection), the **time zone** (for the rule's time window) and the panel **language**.
 
 > The panel requires a password and an authenticator (6 digits, a new code every 30 s). Until a password is set, every page redirects to `/password`. A device updated from an older firmware has no authenticator yet: sign in with the password and the panel shows a new key. Each code works once. After 5 wrong passwords, codes or API tokens in a row, each new mistake doubles a wait from 2 s up to 5 min. The sign-in lasts 12 hours, is forgotten on reboot, and a new sign-in replaces the previous browser. Changing the password or the authenticator asks for the current password and a code; changing the password signs out. HTTP Basic authentication is gone: scripts use the local API with its Bearer token.
-> To use it away from home, see [Remote access](docs/REMOTE-ACCESS.md): never forward a router port to the device.
+> To use it away from home, turn on **Remote access** ([docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)): never forward a router port to the device.
 > If the configured Wi-Fi fails at boot, the ESP brings up the AP **and** keeps trying the network in the background. Once it connects, the AP is turned off.
 
 ### Panel language
@@ -69,7 +76,9 @@ Reserve the device's IP in your router (DHCP reservation): the panel and the loc
 
 ### Cloudflare token
 
-Create a least-privilege token: **Zone → DNS → Edit**, restricted to the zone in use.
+The **Cloudflare** page asks only for an API token. **Save and check** lists the domains it reaches; the DDNS record is then picked by domain and name (`home` or `home.example.com`) and created if it does not exist. No zone or record IDs to copy. The work runs in the background and the page refreshes until it is done; a failure shows Cloudflare's own message.
+
+Create a custom token with **Zone → Zone → Read** and **Zone → DNS → Edit** for the DDNS, plus **Account → Workers Scripts → Edit**, **Account → Account Settings → Read** and **Zone → Workers Routes → Edit** for [remote access](docs/REMOTE-ACCESS.md). Restrict the zones to the ones in use. A device set up before keeps its IDs and shows its zone as selected.
 
 ---
 
@@ -163,7 +172,7 @@ curl -H 'Authorization: Bearer <token>' -d 'cmd=pulse 5' http://192.168.1.50/api
 - A command that does not parse or does not fit the actuator returns **400** with `{"error":"..."}`; nothing changes.
 - In Home Assistant, prefer [MQTT](#-mqtt): the device shows up on its own. Without a broker, HA reads it with the `rest` sensor and sends commands with `rest_command`.
 
-> The panel and the API are plain HTTP (the ESP-01 has no memory for a TLS server). Use them on a trusted network and do not forward port 80 to the device.
+> The panel and the API are plain HTTP (the ESP-01 has no memory for a TLS server). Use them on a trusted network and do not forward port 80 to the device. From outside, the same API answers at the [remote access](docs/REMOTE-ACCESS.md) address over HTTPS, with the same token; with the device offline, `/api/state` answers there from the last state, with `"online": false`.
 
 ---
 
@@ -180,6 +189,7 @@ curl -H 'Authorization: Bearer <token>' -d 'cmd=pulse 5' http://192.168.1.50/api
 Set a **command topic** on the ntfy page (the button generates a random name). The device subscribes to it with a long-lived connection (`GET /<topic>/json`) and every message becomes a command, delivered in about a second. Replies to invalid commands go to the data topic as `[error] …`.
 
 - **One TLS session at a time.** The ESP-01 has memory for a single TLS session. Before publishing, or when Cloudflare or the OTA is about to use the network, the stream closes. On reopening it asks for `since=<last id>`, and ntfy (which keeps messages for 12 hours) delivers whatever arrived in between. Nothing is lost; at worst a command waits a few seconds.
+- **With remote access on**, the relay holds that session, so its Worker checks the command topic for the device (every 2, 5, 10 or 30 s, chosen on the ntfy page; 5 s by default) and sends each command down the relay. The page shows `relay` as the command state. If the relay stays down for more than a minute, the device's own stream takes over again, from the last message.
 - **The ntfy.sh certificate is validated** (ISRG Root X1, already embedded), on the command stream and when publishing: a command forged on the path would switch real equipment, and a publish carries the token and, in the action buttons, the command topic. Until the clock syncs nothing is published; the message waits for the next attempt.
 - Commands older than 10 minutes are ignored. Failed connections retry from 5 s up to 5 min. A stream silent for 2 minutes is reopened (ntfy sends a keepalive every 45 s).
 - ntfy.sh topics are public by name: whoever knows the command topic can send commands. Use a long random name (without a token, the panel refuses names shorter than 20 characters), different from the data topic, or an **ntfy access token** (used for both publishing and subscribing). The action buttons carry the command topic (and the token, if any), so keep the data topic private too.
@@ -266,7 +276,7 @@ The device checks its public IP **every 5 minutes** (while Wi-Fi is up and the c
 
 The **Status** page shows the public IP, its reverse name, when it last changed and when it was last checked; the home page shows it next to the local IP.
 
-With Cloudflare configured (token, zone and **one record ID**), a public IP different from the **last synchronized IP** (kept in memory) sends a `PATCH` to that record; a failure retries every minute. The firmware does not rely on local DNS resolution: it is cached by TTL and returns Cloudflare IPs for *proxied* records. Each boot performs one initial `PATCH`, which is idempotent. The connection to `api.cloudflare.com` validates the certificate against the roots in `CloudflareCA.h` (GTS Root R1/R4, ISRG Root X1/X2). Older configurations with several record IDs keep the first one.
+With the DDNS record picked on the Cloudflare page, a public IP different from the **last synchronized IP** (kept in memory) sends a `PATCH` to that record; a failure retries every minute. The firmware does not rely on local DNS resolution: it is cached by TTL and returns Cloudflare IPs for *proxied* records. Each boot performs one initial `PATCH`, which is idempotent. The connection to `api.cloudflare.com` validates the certificate against the roots in `CloudflareCA.h` (GTS Root R1/R4, ISRG Root X1/X2). Older configurations with several record IDs keep the first one.
 
 ---
 
@@ -305,9 +315,10 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 475,136 of 500,000 bytes (24,864 to spare) |
-| Panel text, 4 languages | 313 texts (the pin drawing included), 34 KB as text, 12 KB in flash |
-| Signed OTA package | ~347 KB of 400 KB (about 53 KB free) |
+| Firmware | 495,104 of 500,000 bytes (4,896 to spare) |
+| Panel text, 4 languages | 337 texts (the pin drawing included), 45 KB as text, 16 KB in flash |
+| Relay Worker | 7.8 KB of script, 4.2 KB in flash (byte-pair encoded) |
+| Signed OTA package | ~354 KB of 400 KB (about 46 KB free) |
 | Embedded images | 1.1 KB pinout (gzipped SVG), 3.2 KB ESP-01 photo (AVIF, white background) |
 | Configuration filesystem | 64 KB, unchanged |
 
@@ -329,7 +340,7 @@ Kept small on purpose: page text in flash (`PSTR`) as 3-byte markers, with the t
 
 ## 🧪 Tests
 
-Native tests (Unity + PlatformIO) use Arduino core stubs in `test/stubs`. CI requires **100 % line, function and branch coverage** of the firmware headers, builds with no warnings (`-Wall -Wextra -Werror`) and runs everything again under **AddressSanitizer and UndefinedBehaviorSanitizer** (buffer overflow, use after free, leaks, undefined behavior). Whatever comes from outside the device (MQTT packets, commands, the Cloudflare response, the ntfy stream, `config.json`) is also **fuzzed** (libFuzzer, `test/fuzz/`).
+Native tests (Unity + PlatformIO) use Arduino core stubs in `test/stubs`. CI requires **100 % line, function and branch coverage** of the firmware headers, builds with no warnings (`-Wall -Wextra -Werror`) and runs everything again under **AddressSanitizer and UndefinedBehaviorSanitizer** (buffer overflow, use after free, leaks, undefined behavior). Whatever comes from outside the device (MQTT packets, commands, the Cloudflare answers, the ntfy stream, the relay's frames, `config.json`) is also **fuzzed** (libFuzzer, `test/fuzz/`). The relay Worker (`relay/worker.mjs`) has its own tests on Node, with the Workers runtime pieces imitated, also at 100 % coverage, and they run again on the minified script the firmware carries.
 
 ```bash
 python -m venv venv && . venv/bin/activate
@@ -339,6 +350,7 @@ pio test -e native        # any host compiler
 pio test -e sanitize      # ASan + UBSan (gcc or clang)
 tools/static_check.sh     # cppcheck, as in CI
 test/fuzz/run.sh 30       # fuzzing, 30 s per target (requires clang)
+node --test relay/worker.test.mjs   # the relay Worker (Node 22)
 ./test/coverage.sh        # requires gcc (Linux) — same command as CI
 ```
 
@@ -351,8 +363,8 @@ Tests run on the computer, with the core simulated. Before calling a version sta
 | Job (`ci.yml`) | When | What it does |
 | --- | --- | --- |
 | `plan` | always, first | Decides: is there new firmware (since the last `vN` tag)? only test changes? which version? publish? |
-| `check` | always | Repository rules: every source file carries the SPDX license header; static analysis (cppcheck) with no findings |
-| `build` | new firmware | Embedded CSS/JS up to date, compiles with arduino-cli, firmware within **500,000 bytes**, signature verifier, OTA package size |
+| `check` | always | Repository rules: every source file carries the SPDX license header; static analysis (cppcheck) with no findings; the relay Worker's tests at 100 % coverage, on the source and on the embedded script |
+| `build` | new firmware | Embedded CSS/JS, TLS roots and relay Worker up to date, compiles with arduino-cli, firmware within **500,000 bytes**, signature verifier, OTA package size |
 | `test` | after `build`, or alone when only tests changed | Tests + 100 % coverage, no warnings; again under ASan and UBSan |
 | `release` | push to `main` with new firmware | Compresses, signs, **verifies the signature** and publishes the release |
 | `pages` | after `release`, when `install/` changes on `main`, or on *Run workflow* | Publishes the [web installer](https://allanbarcelos.github.io/esp8266-dns/) to GitHub Pages with the latest release's firmware |
@@ -402,6 +414,8 @@ Local builds report version `dev` and update to the latest release on the first 
 The panel style and the IoT page script live in `web/panel.css` and `web/iot.js`. The device serves them gzipped (`/s.css`, `/iot.js`): the browser decompresses them and keeps them in its cache, and the URL carries a hash of the content, so a new version never uses a stale copy. After editing, run `python3 tools/embed_web.py` and commit `WebAssets.h`; CI runs `python3 tools/embed_web.py --check`.
 
 Panel text lives in `web/i18n.tsv`: one row per text, with a key and the English, Portuguese, Spanish and French columns (empty = same as English). The C++ uses the key (`L_SAVE` in `I18n.h`) and `web/iot.js` the English text (`L('Save')`), which the build swaps for the row number. After editing the table, run `python3 tools/embed_web.py` and commit `WebAssets.h`, `I18n.h` and `test/i18n_en.h`. With `pip install zopfli` the gzip comes out about 3 % smaller; without it the tool uses zlib, and the check compares the decompressed content either way.
+
+The relay Worker lives in `relay/worker.mjs`; the device uploads it to the user's account itself. After editing it, run `python3 tools/embed_relay.py` and commit `RelayScript.h`; CI runs `python3 tools/embed_relay.py --check`. Its `VERSION` must match `RelayService::PROTOCOL`; raising both makes devices upload the new Worker after the update.
 
 The TLS roots are kept readable in `ca/roots.pem` (name, expiry and SHA-256 of each). The firmware carries them in DER, which takes less flash and needs no decoding on each connection. After changing a root, run `python3 tools/embed_ca.py` and commit `CloudflareCA.h`; CI runs `python3 tools/embed_ca.py --check`.
 
