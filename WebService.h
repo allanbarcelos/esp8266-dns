@@ -1236,7 +1236,7 @@ private:
         _csrfField();
         // Token: an empty field keeps the current one and checks it again
         _passwordInput(PSTR(L_API_TOKEN " <span class='m'>" L_KEEP_BLANK "</span>"),
-                       PSTR("token"), PSTR("placeholder='" L_NEW_TOKEN "' maxlength='47' pattern='[A-Za-z0-9_\\-]*'"));
+                       PSTR("token"), PSTR("placeholder='" L_NEW_TOKEN "' maxlength='79' pattern='[A-Za-z0-9_\\-]*'"));
         _p(PSTR("<p class='m'>" L_CF_TOKEN_HELP "</p>"));
         _button(PSTR(L_CF_CHECK));
         if (!_cf || !_cfg.cf_token[0]) {

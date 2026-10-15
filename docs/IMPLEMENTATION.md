@@ -103,3 +103,4 @@ The panel and the API from anywhere at the user's own HTTPS address, with no ope
 | `30d78ac` | The device deploys its Worker: script byte-pair encoded in the firmware (`RelayScript.h`, 7.8 KB in 4.2 KB), own domain or workers.dev, a new secret per upload, redeploy after a protocol change | 491,152 |
 | `7b87752` | Remote access page | 493,664 |
 | `ca395c5` | ntfy commands through the relay, with the device's own stream as the fallback; poll interval on the ntfy page | 495,104 |
+| Token length | Cloudflare tokens of the new format (`cfut_`, 53 characters) fit: the field took 47 | 495,200 |

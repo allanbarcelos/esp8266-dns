@@ -58,7 +58,7 @@ struct Config {
     String  ssid;
     String  pass;
 
-    char    cf_token[48]              = {};
+    char    cf_token[80]              = {};  // new tokens (cfut_...) have 53 characters
     char    cf_zone[40]               = {};
     char    cf_record[40]             = {};  // ID of the A record to update
     char    cf_host[64]               = {};  // the record's name

@@ -1072,6 +1072,12 @@ void test_iot_respects_gauge() {
 // A new token is saved and checked right away; the page shows the result
 void test_cloudflare_save_token_and_check() {
     Fixture f;
+    // A token in the new format (cfut_ and 48 characters) fits
+    const std::string longToken = "cfut_" + std::string(48, 'A');
+    f.post("/cloudflare/save", {{"token", longToken}});
+    TEST_ASSERT_EQUAL(303, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING(longToken.c_str(), cfg.cf_token);
+
     f.post("/cloudflare/save", {{"token", " NEW_TOKEN-x "}});
     TEST_ASSERT_EQUAL(303, f.srv.code);
     TEST_ASSERT_EQUAL_STRING("/cloudflare", f.srv.headers["Location"].c_str());
@@ -1103,7 +1109,7 @@ void test_cloudflare_save_rejects_odd_tokens() {
         TEST_ASSERT_EQUAL(400, f.srv.code);
         TEST_ASSERT_TRUE(contains(f.out(), "Invalid token"));
     }
-    f.post("/cloudflare/save", {{"token", std::string(64, 'x')}});
+    f.post("/cloudflare/save", {{"token", std::string(80, 'x')}});
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "too long"));
     TEST_ASSERT_EQUAL_STRING("OLD", cfg.cf_token);
