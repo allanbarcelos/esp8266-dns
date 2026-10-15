@@ -36,6 +36,9 @@ struct Answer {
     File*   out = nullptr;      // where a zone list goes, a line per zone
     uint8_t zones = 0;
     char    account[33] = "";   // the first zone's account
+    char    sub[64] = "";       // result.subdomain (workers.dev)
+    bool    relay = false;      // a Worker's settings bind the relay's Durable Object
+    int     http = 0;           // the HTTP status
 };
 
 inline bool _isId(const char* v) { return strlen(v) == 32 && strspn(v, "0123456789abcdef") == 32; }
@@ -63,7 +66,10 @@ inline void _value(void* ctx, const JsonStream& s, const char* v) {
         // other members, or text too long to be what is wanted
     } else if (d == 3 && s.is(3, PSTR("name"))) {
         strlcpy(a.z.name, v, sizeof(a.z.name));
-
+    } else if (d == 2 && s.is(2, PSTR("subdomain"))) {
+        strlcpy(a.sub, v, sizeof(a.sub));
+    } else if (d == 4 && s.is(2, PSTR("bindings")) && s.is(4, PSTR("class_name"))) {
+        a.relay = a.relay || strcmp(v, "Device") == 0;
     } else if (!_isId(v)) {
         // an ID is 32 hex digits: anything else is not one
     } else if (s.is(d, ID) && d <= 3) {
@@ -98,6 +104,7 @@ inline bool call(const Config& cfg, const Clock& clock, const char* method, cons
     snprintf_P(head, sizeof(head), PSTR("Authorization: Bearer %s\r\nContent-Type: %s\r\n"), cfg.cf_token, type);
     JsonStream js(_value, &a);
     int code = https::exchange(client, "api.cloudflare.com", method, path, head, parts, count, CALL_MS, _feed, &js);
+    a.http = code;
     if (code <= 0) snprintf_P(why, 64, PSTR("no connection (%d)"), code);
     else if (a.success == 1) return true;
     else if (a.message[0]) strlcpy(why, a.message, 64);

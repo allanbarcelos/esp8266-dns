@@ -12,6 +12,7 @@
 #include "HttpServer.h"
 #include "IoTService.h"
 #include "PublicIPResolver.h"  // memoryOk
+#include "RelayScript.h"
 #include "TlsClient.h"
 #include "WsClient.h"
 
@@ -292,3 +293,6 @@ private:
         _open = false;
     }
 };
+
+// The Worker in the firmware speaks this protocol (tools/embed_relay.py checks it too)
+static_assert(RELAY_VERSION == RelayService::PROTOCOL, "relay/worker.mjs VERSION and RelayService::PROTOCOL differ");

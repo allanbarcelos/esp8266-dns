@@ -7,6 +7,7 @@
 import { test, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 
 class FakeWS {
   constructor() {
@@ -47,7 +48,8 @@ globalThis.Response = class extends RealResponse {
   }
 };
 
-const worker = await import('./worker.mjs');
+// WORKER: another file to test, such as the minified script the firmware embeds
+const worker = await import(process.env.WORKER ? pathToFileURL(process.env.WORKER).href : './worker.mjs');
 const { Device, same, ipBytes, hmacHex, toResponse } = worker;
 const SECRET = 'ab'.repeat(32);
 const enc = new TextEncoder();

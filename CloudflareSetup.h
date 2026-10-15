@@ -10,10 +10,14 @@
 #include "Clock.h"
 #include "CloudflareApi.h"
 #include "CloudflareDNS.h"
+#include "RelayScript.h"
+
+#define RELAY_BOUNDARY "esp8266-relay-part"
 
 // Cloudflare from the API token alone: which domains (zones) it reaches,
-// and the DDNS record by name, created if it does not exist. No IDs to copy
-// from the dashboard.
+// the DDNS record by name, created if it does not exist, and the remote
+// access relay's Worker (relay/worker.mjs, embedded in RelayScript.h). No
+// IDs to copy from the dashboard.
 //
 // The panel only asks; the work runs from tick(), one job per tick, so the
 // page answers at once and the TLS session is free (App holds the other
@@ -21,10 +25,11 @@
 // ("id account name"), for the panel's select.
 class CloudflareSetup {
 public:
-    enum Job : uint8_t { NONE, SCAN, RECORD };
+    enum Job : uint8_t { NONE, SCAN, RECORD, DEPLOY };
     enum State : uint8_t { IDLE, WORKING, DONE, FAILED };
 
     static constexpr const char* ZONES_PATH = "/cf.zones";
+    static constexpr unsigned long REDEPLOY_MS = 3600000UL;
 
     using Zone = cfapi::Zone;
 
@@ -41,6 +46,33 @@ public:
         _start(RECORD);
     }
 
+    // The relay Worker, from the firmware, into the account: name is its
+    // name and the first label of its address, zone the zone of the address
+    // ("" = the account's workers.dev; wd names it if the account has none)
+    void deploy(const char* name, const char* zone, const char* wd) {
+        strlcpy(_name, name, sizeof(_name));
+        strlcpy(_zone, zone, sizeof(_zone));
+        strlcpy(_wd, wd, sizeof(_wd));
+        _start(DEPLOY);
+    }
+
+    // After a firmware update with another relay protocol, the Worker goes
+    // up again by itself, at most once an hour
+    void redeploy(unsigned long now) {
+        if (!_cfg.relay_host[0] || _cfg.relay_ver == RELAY_VERSION || _job != NONE) return;
+        if (_redeployed && now - _redeployAt < REDEPLOY_MS) return;
+        _redeployed = true;
+        _redeployAt = now;
+        deploy(_cfg.relay_name, _cfg.relay_zone, "");
+    }
+
+    // A deploy just finished: true once
+    bool takeDeployed() {
+        bool d = _deployed;
+        _deployed = false;
+        return d;
+    }
+
     // The next tick will use TLS
     bool due() const { return _job != NONE && WiFi.status() == WL_CONNECTED && _clock.synced(); }
 
@@ -48,8 +80,9 @@ public:
         if (!due()) return;
         uint8_t j = _job;
         _job = NONE;
-        bool ok = j == SCAN ? _scan() : _record();
+        bool ok = j == SCAN ? _scan() : j == RECORD ? _record() : _deploy();
         if (!ok) _log.log(PSTR("Cloudflare: %s"), _message);
+        else _message[0] = 0;   // a step that may fail (a missing Worker) said why
         _state = ok ? DONE : FAILED;
     }
 
@@ -98,6 +131,9 @@ private:
     char           _message[64] = "";
     char           _zone[33] = "";
     char           _name[sizeof(Config::cf_host)] = "";
+    char           _wd[64] = "";              // workers.dev name for an account without one
+    bool           _deployed = false, _redeployed = false;
+    unsigned long  _redeployAt = 0;
 
     void _start(uint8_t j) {
         _job = _last = j;
@@ -157,6 +193,128 @@ private:
         strlcpy(_cfg.cf_host, _name, sizeof(_cfg.cf_host));
         _store.save();
         if (_dns) _dns->resync();
+        return true;
+    }
+
+    // The Worker, expanded from its byte pairs as it goes out (RelayScript.h)
+    static void _script(WiFiClient& c) {
+        uint8_t out[64];
+        uint8_t stack[RELAY_DEPTH + 2];
+        size_t n = 0;
+        for (size_t i = 0; i < sizeof(RELAY_SCRIPT); i++) {
+            uint8_t k = 0;
+            stack[k++] = pgm_read_byte(&RELAY_SCRIPT[i]);
+            while (k) {
+                uint8_t b = stack[--k];
+                // The code's rank: 0x7F up first, then the control bytes but the newline
+                int r = b >= 0x7F ? b - 0x7F : (b < 0x20 && b != '\n') ? 129 + b - (b > '\n') : -1;
+                if (r < 0) {
+                    out[n++] = b;
+                    if (n == sizeof(out)) {
+                        c.write(out, n);
+                        n = 0;
+                    }
+                } else {
+                    stack[k++] = pgm_read_byte(&RELAY_PAIRS[2 * r + 1]);
+                    stack[k++] = pgm_read_byte(&RELAY_PAIRS[2 * r]);
+                }
+            }
+        }
+        c.write(out, n);
+    }
+
+    // The upload: metadata (the secret, the Durable Object and, on the first
+    // upload, its migration) and the script, as multipart/form-data
+    bool _upload(const char* acc, bool first, const char* secret) {
+        static const char META_A[] PROGMEM =
+            "--" RELAY_BOUNDARY "\r\nContent-Disposition: form-data; name=\"metadata\"\r\n"
+            "Content-Type: application/json\r\n\r\n"
+            "{\"main_module\":\"worker.mjs\",\"compatibility_date\":\"2025-09-01\",\"bindings\":["
+            "{\"type\":\"secret_text\",\"name\":\"SECRET\",\"text\":\"";
+        static const char META_B[] PROGMEM =
+            "\"},{\"type\":\"durable_object_namespace\",\"name\":\"DEVICE\",\"class_name\":\"Device\"}]";
+        static const char MIGRATION[] PROGMEM = ",\"migrations\":{\"new_tag\":\"v1\",\"new_sqlite_classes\":[\"Device\"]}";
+        static const char META_C[] PROGMEM =
+            "}\r\n--" RELAY_BOUNDARY "\r\nContent-Disposition: form-data; name=\"worker.mjs\"; filename=\"worker.mjs\"\r\n"
+            "Content-Type: application/javascript+module\r\n\r\n";
+        static const char TAIL[] PROGMEM = "\r\n--" RELAY_BOUNDARY "--\r\n";
+        const https::Part parts[] = {
+            {META_A, sizeof(META_A) - 1, true},
+            {secret, strlen(secret), false},
+            {META_B, sizeof(META_B) - 1, true},
+            {MIGRATION, first ? sizeof(MIGRATION) - 1 : 0, true},
+            {META_C, sizeof(META_C) - 1, true},
+            {nullptr, RELAY_SCRIPT_LEN, false, _script},
+            {TAIL, sizeof(TAIL) - 1, true},
+        };
+        char path[sizeof("/client/v4/accounts//workers/scripts/") + 32 + sizeof(_name)];
+        snprintf_P(path, sizeof(path), PSTR("/client/v4/accounts/%s/workers/scripts/%s"), acc, _name);
+        cfapi::Answer a;
+        return cfapi::call(_cfg, _clock, "PUT", path, parts, sizeof(parts) / sizeof(parts[0]), a, _message,
+                           "multipart/form-data; boundary=" RELAY_BOUNDARY);
+    }
+
+    bool _deploy() {
+        Zone z = {};
+        bool own = _zone[0];
+        if (own && !find(_zone, z)) return _fail(PSTR("unknown zone"));
+        const char* acc = own ? z.account : _cfg.cf_account;
+        if (!cfapi::_isId(acc)) return _fail(PSTR("no account: save and check the token"));
+
+        // A Worker by that name must be a relay already, or not exist
+        char path[sizeof("/client/v4/accounts//workers/scripts//settings") + 32 + sizeof(_name)];
+        int n = snprintf_P(path, sizeof(path), PSTR("/client/v4/accounts/%s/workers/"), acc);
+        snprintf_P(path + n, sizeof(path) - n, PSTR("scripts/%s/settings"), _name);
+        cfapi::Answer a;
+        bool exists = cfapi::call(_cfg, _clock, "GET", path, nullptr, a, _message);
+        if (!exists && a.http != 404) return false;
+        if (exists && !a.relay) return _fail(PSTR("another Worker has this name"));
+
+        char host[sizeof(_name) + sizeof(Zone::name) + sizeof(".workers.dev")];   // room for any, checked below
+        if (own) {
+            snprintf(host, sizeof(host), "%s.%s", _name, z.name);
+        } else {
+            // The account's workers.dev name, created if it has none
+            strcpy_P(path + n, PSTR("subdomain"));
+            cfapi::Answer s;
+            if (!cfapi::call(_cfg, _clock, "GET", path, nullptr, s, _message) || !s.sub[0]) {
+                if (!_wd[0]) return _fail(PSTR("the account needs a workers.dev name"));
+                char body[sizeof("{\"subdomain\":\"\"}") + sizeof(_wd)];
+                snprintf_P(body, sizeof(body), PSTR("{\"subdomain\":\"%s\"}"), _wd);
+                cfapi::Answer put;
+                if (!cfapi::call(_cfg, _clock, "PUT", path, body, put, _message)) return false;
+                strlcpy(s.sub, _wd, sizeof(s.sub));
+            }
+            snprintf(host, sizeof(host), "%s.%s.workers.dev", _name, s.sub);
+        }
+        if (strlen(host) >= sizeof(_cfg.relay_host)) return _fail(PSTR("address too long"));
+
+        // A new secret on every upload: only this device and the Worker know it
+        char secret[sizeof(_cfg.relay_secret)];
+        for (int i = 0; i < 8; i++) snprintf(secret + 8 * i, 9, "%08lx", (unsigned long)ESP.random());
+        if (!_upload(acc, !exists, secret)) return false;
+
+        // The address: the zone's name, or workers.dev
+        cfapi::Answer r;
+        if (own) {
+            strcpy_P(path + n, PSTR("domains"));
+            char body[sizeof("{\"hostname\":\"\",\"service\":\"\",\"zone_id\":\"\"}") + sizeof(host) + sizeof(_name) + 32];
+            snprintf_P(body, sizeof(body), PSTR("{\"hostname\":\"%s\",\"service\":\"%s\",\"zone_id\":\"%s\"}"),
+                       host, _name, z.id);
+            if (!cfapi::call(_cfg, _clock, "PUT", path, body, r, _message)) return false;
+        } else {
+            snprintf_P(path + n, sizeof(path) - n, PSTR("scripts/%s/subdomain"), _name);
+            if (!cfapi::call(_cfg, _clock, "POST", path, "{\"enabled\":true,\"previews_enabled\":false}", r, _message))
+                return false;
+        }
+        strlcpy(_cfg.relay_secret, secret, sizeof(_cfg.relay_secret));
+        strlcpy(_cfg.relay_host, host, sizeof(_cfg.relay_host));
+        strlcpy(_cfg.relay_name, _name, sizeof(_cfg.relay_name));
+        strlcpy(_cfg.relay_zone, _zone, sizeof(_cfg.relay_zone));
+        _cfg.relay_ver = RELAY_VERSION;
+        _store.save();
+        _deployed = true;
+        _log.log(PSTR("Cloudflare: relay at %s"), host);
         return true;
     }
 };

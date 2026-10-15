@@ -193,6 +193,37 @@ void test_tick_runs_the_cloudflare_setup() {
     TEST_ASSERT_EQUAL_STRING("01a7362d577a6c3019a474fd6f485823", app.config.cf_account);
 }
 
+// After an update with another relay protocol, the Worker goes up again and
+// the relay reconnects with the new secret
+void test_tick_redeploys_an_outdated_relay() {
+    MockFS::put("/config.json", R"({"v":2,"ssid":"Home","pass":"12345678","webpss":"strong-pass",
+        "ota_auto":false,"cf_token":"TOKEN","relay_host":"esp-pump.example.com","relay_ver":0,
+        "relay_name":"esp-pump","relay_zone":"023e105f4ecef8ad9ca31a8372d0c353",
+        "relay_key":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"})");
+    MockFS::put(CloudflareSetup::ZONES_PATH,
+                "023e105f4ecef8ad9ca31a8372d0c353 01a7362d577a6c3019a474fd6f485823 example.com\n");
+    App app;
+    app.begin();
+    TEST_ASSERT_EQUAL_STRING("off", app.relay.status());
+    MockHTTP::push(200, "1.2.3.4");                              // the public IP check
+    MockHTTP::push(200, R"({"success":true,"result":{"bindings":[{"class_name":"Device"}]}})");
+    MockHTTP::push(200, R"({"success":true,"result":{}})");     // upload
+    MockHTTP::push(200, R"({"success":true,"result":{}})");     // address
+    setMillis(1000);
+    app.tick();
+    TEST_ASSERT_EQUAL_STRING("", app.cfsetup.message());
+    TEST_ASSERT_EQUAL(CloudflareSetup::DONE, app.cfsetup.state());
+    TEST_ASSERT_EQUAL(RelayService::PROTOCOL, app.config.relay_ver);
+    TEST_ASSERT_EQUAL_STRING("paused", app.relay.status());    // the deploy held the session
+
+    MockHTTP::keepOpen = true;
+    MockHTTP::rawHttp = "HTTP/1.1 101 Switching Protocols\r\n\r\n";
+    setMillis(2000);
+    app.tick();
+    TEST_ASSERT_EQUAL_STRING("connected", app.relay.status());
+    TEST_ASSERT_TRUE(contains(MockHTTP::lastRaw, app.config.relay_secret));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_begin_starts_services);
@@ -206,5 +237,6 @@ int main() {
     RUN_TEST(test_tick_releases_ntfy_before_ip_and_dns);
     RUN_TEST(test_tick_runs_the_relay);
     RUN_TEST(test_tick_runs_the_cloudflare_setup);
+    RUN_TEST(test_tick_redeploys_an_outdated_relay);
     return UNITY_END();
 }

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
 #include <unity.h>
+#include <vector>
 #include "../test_support.h"
 #include "Config.h"
 #include "Clock.h"
@@ -301,6 +302,252 @@ void test_zone_list_lines() {
     TEST_ASSERT_FALSE(CloudflareSetup::find(Z1, z));
 }
 
+// ── deploy ───────────────────────────────────────────────────────────────────
+
+static const char* NOT_FOUND = R"({"success":false,"errors":[{"code":10007,"message":"workers.api.error.script_not_found"}]})";
+static const char* OK = R"({"success":true,"errors":[],"result":{}})";
+static const char* OURS = R"({"success":true,"result":{"bindings":[{"type":"secret_text","name":"SECRET"},)"
+                          R"({"type":"durable_object_namespace","name":"DEVICE","class_name":"Device"},)"
+                          R"({"type":"durable_object_namespace","name":"OTHER","class_name":"Other"}]}})";
+
+// The script as the firmware expands it, by the same rule as the tool
+static std::string expanded() {
+    std::string out;
+    for (size_t i = 0; i < sizeof(RELAY_SCRIPT); i++) {
+        std::vector<uint8_t> stack{RELAY_SCRIPT[i]};
+        while (!stack.empty()) {
+            uint8_t b = stack.back();
+            stack.pop_back();
+            int r = -1;
+            for (int i = 0x7F, k = 0; k < 160; k++, i = i == 0xFF ? 0 : i + 1 + (i == 9)) {
+                if (i == b) r = k;
+            }
+            if (r < 0) {
+                out += (char)b;
+            } else {
+                stack.push_back(RELAY_PAIRS[2 * r + 1]);
+                stack.push_back(RELAY_PAIRS[2 * r]);
+            }
+        }
+    }
+    return out;
+}
+
+static const MockHTTP::Request* find(const char* method, const char* urlPart) {
+    for (auto& r : MockHTTP::requests)
+        if (r.method == method && contains(r.url, urlPart)) return &r;
+    return nullptr;
+}
+
+void test_deploy_on_own_domain() {
+    zonesOnDisk();
+    Fixture f;
+    f.cf.deploy("esp-pump", Z1, "");
+    TEST_ASSERT_TRUE(f.cf.due());
+    MockHTTP::push(404, NOT_FOUND);
+    MockHTTP::push(200, OK);
+    MockHTTP::push(200, OK);
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL_STRING("", f.cf.message());
+    TEST_ASSERT_EQUAL(CloudflareSetup::DONE, f.cf.state());
+    TEST_ASSERT_EQUAL(CloudflareSetup::DEPLOY, f.cf.last());
+    TEST_ASSERT_EQUAL_STRING("esp-pump.example.com", cfg.relay_host);
+    TEST_ASSERT_EQUAL_STRING("esp-pump", cfg.relay_name);
+    TEST_ASSERT_EQUAL_STRING(Z1, cfg.relay_zone);
+    TEST_ASSERT_EQUAL(RELAY_VERSION, cfg.relay_ver);
+    TEST_ASSERT_EQUAL(64, (int)strlen(cfg.relay_secret));
+    TEST_ASSERT_EQUAL(64, (int)strspn(cfg.relay_secret, "0123456789abcdef"));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], cfg.relay_secret));
+    TEST_ASSERT_TRUE(f.cf.takeDeployed());
+    TEST_ASSERT_FALSE(f.cf.takeDeployed());
+    TEST_ASSERT_TRUE(logHas(logger, "Cloudflare: relay at esp-pump.example.com"));
+
+    std::string acc = std::string("/client/v4/accounts/") + A1 + "/workers/";
+    TEST_ASSERT_NOT_NULL(find("GET", (acc + "scripts/esp-pump/settings").c_str()));
+
+    // The upload: metadata with the secret and the first migration, then the script
+    const MockHTTP::Request* up = find("PUT", (acc + "scripts/esp-pump").c_str());
+    TEST_ASSERT_NOT_NULL(up);
+    TEST_ASSERT_TRUE(contains(up->header("Content-Type"), "multipart/form-data; boundary="));
+    TEST_ASSERT_EQUAL_STRING(std::to_string(up->payload.size()).c_str(), up->header("Content-Length").c_str());
+    TEST_ASSERT_TRUE(contains(up->payload, "name=\"metadata\""));
+    TEST_ASSERT_TRUE(contains(up->payload, (std::string("{\"type\":\"secret_text\",\"name\":\"SECRET\",\"text\":\"") +
+                                            cfg.relay_secret + "\"}").c_str()));
+    TEST_ASSERT_TRUE(contains(up->payload, "{\"type\":\"durable_object_namespace\",\"name\":\"DEVICE\",\"class_name\":\"Device\"}"));
+    TEST_ASSERT_TRUE(contains(up->payload, "\"migrations\":{\"new_tag\":\"v1\",\"new_sqlite_classes\":[\"Device\"]}"));
+    TEST_ASSERT_TRUE(contains(up->payload, "\"main_module\":\"worker.mjs\""));
+    std::string script = expanded();
+    TEST_ASSERT_EQUAL((int)RELAY_SCRIPT_LEN, (int)script.size());
+    TEST_ASSERT_TRUE(contains(up->payload, ("Content-Type: application/javascript+module\r\n\r\n" + script).c_str()));
+    TEST_ASSERT_TRUE(script.rfind("const VERSION = 1;\n", 0) == 0);
+    TEST_ASSERT_TRUE(contains(script, "export class Device"));
+
+    // The address on the domain
+    const MockHTTP::Request* dom = find("PUT", (acc + "domains").c_str());
+    TEST_ASSERT_NOT_NULL(dom);
+    TEST_ASSERT_EQUAL_STRING((std::string(R"({"hostname":"esp-pump.example.com","service":"esp-pump","zone_id":")") + Z1 + "\"}").c_str(),
+                             dom->payload.c_str());
+}
+
+// Already a relay: uploaded again, without the migration, with a new secret
+void test_deploy_again_over_its_own_worker() {
+    zonesOnDisk();
+    strlcpy(cfg.relay_secret, "old", sizeof(cfg.relay_secret));
+    Fixture f;
+    f.cf.deploy("esp-pump", Z1, "");
+    MockHTTP::push(200, OURS);
+    MockHTTP::push(200, OK);
+    MockHTTP::push(200, OK);
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL(CloudflareSetup::DONE, f.cf.state());
+    TEST_ASSERT_FALSE(contains(MockHTTP::requests[1].payload, "migrations"));
+    TEST_ASSERT_TRUE(strcmp(cfg.relay_secret, "old") != 0);
+}
+
+void test_deploy_on_workers_dev() {
+    strlcpy(cfg.cf_account, A2, sizeof(cfg.cf_account));
+    Fixture f;
+    f.cf.deploy("esp-light", "", "");
+    MockHTTP::push(404, NOT_FOUND);
+    MockHTTP::push(200, R"({"result":{"subdomain":"myacc"},"success":true})");
+    MockHTTP::push(200, OK);
+    MockHTTP::push(200, OK);
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL_STRING("", f.cf.message());
+    TEST_ASSERT_EQUAL_STRING("esp-light.myacc.workers.dev", cfg.relay_host);
+    TEST_ASSERT_EQUAL_STRING("", cfg.relay_zone);
+    std::string acc = std::string("/client/v4/accounts/") + A2 + "/workers/";
+    TEST_ASSERT_NOT_NULL(find("GET", (acc + "subdomain").c_str()));
+    const MockHTTP::Request* on = find("POST", (acc + "scripts/esp-light/subdomain").c_str());
+    TEST_ASSERT_NOT_NULL(on);
+    TEST_ASSERT_EQUAL_STRING(R"({"enabled":true,"previews_enabled":false})", on->payload.c_str());
+}
+
+// An account without a workers.dev name gets the one from the panel
+void test_deploy_names_the_workers_dev_subdomain() {
+    strlcpy(cfg.cf_account, A2, sizeof(cfg.cf_account));
+    Fixture f;
+    f.cf.deploy("esp-light", "", "");
+    MockHTTP::push(404, NOT_FOUND);
+    MockHTTP::push(404, R"({"success":false,"errors":[{"code":10007,"message":"no subdomain"}]})");
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL(CloudflareSetup::FAILED, f.cf.state());
+    TEST_ASSERT_EQUAL_STRING("the account needs a workers.dev name", f.cf.message());
+
+    f.cf.deploy("esp-light", "", "newacc");
+    MockHTTP::push(404, NOT_FOUND);
+    MockHTTP::push(200, R"({"result":{"subdomain":""},"success":true})");     // none yet
+    MockHTTP::push(200, R"({"result":{"subdomain":"newacc"},"success":true})");
+    MockHTTP::push(200, OK);
+    MockHTTP::push(200, OK);
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL_STRING("esp-light.newacc.workers.dev", cfg.relay_host);
+    const MockHTTP::Request* put = find("PUT", (std::string("/client/v4/accounts/") + A2 + "/workers/subdomain").c_str());
+    TEST_ASSERT_NOT_NULL(put);
+    TEST_ASSERT_EQUAL_STRING(R"({"subdomain":"newacc"})", put->payload.c_str());
+
+    // The name is taken
+    cfg.relay_host[0] = '\0';
+    f.cf.deploy("esp-light", "", "taken");
+    MockHTTP::push(404, NOT_FOUND);
+    MockHTTP::push(404, R"({"success":false,"errors":[{"message":"no subdomain"}]})");
+    MockHTTP::push(409, R"({"success":false,"errors":[{"message":"subdomain unavailable"}]})");
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL_STRING("subdomain unavailable", f.cf.message());
+    TEST_ASSERT_EQUAL_STRING("", cfg.relay_host);
+}
+
+void test_deploy_refusals() {
+    zonesOnDisk();
+    Fixture f;
+    // Another Worker already has the name: left alone
+    f.cf.deploy("site", Z1, "");
+    MockHTTP::push(200, R"({"success":true,"result":{"bindings":[{"type":"kv_namespace","name":"KV","class_name":"Other"}]}})");
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL_STRING("another Worker has this name", f.cf.message());
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+
+    // The check itself fails (not a missing Worker)
+    f.cf.deploy("esp-pump", Z1, "");
+    MockHTTP::push(403, R"({"success":false,"errors":[{"message":"no workers access"}]})");
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL_STRING("no workers access", f.cf.message());
+
+    f.cf.deploy("esp-pump", R1, "");
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL_STRING("unknown zone", f.cf.message());
+
+    f.cf.deploy("esp-pump", "", "");                      // workers.dev without an account
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL_STRING("no account: save and check the token", f.cf.message());
+
+    // An address longer than the config holds
+    MockFS::put(CloudflareSetup::ZONES_PATH, std::string(Z1) + " " + A1 + " " + std::string(60, 'd') + ".com\n");
+    f.cf.deploy("esp-pump-with-a-long-name", Z1, "");
+    MockHTTP::push(404, NOT_FOUND);
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL_STRING("address too long", f.cf.message());
+    TEST_ASSERT_EQUAL_STRING("", cfg.relay_host);
+}
+
+// A failed step leaves the relay as it was, secret included
+void test_deploy_failing_steps_change_nothing() {
+    zonesOnDisk();
+    strlcpy(cfg.relay_secret, "keep", sizeof(cfg.relay_secret));
+    Fixture f;
+    f.cf.deploy("esp-pump", Z1, "");
+    MockHTTP::push(404, NOT_FOUND);
+    MockHTTP::push(400, R"({"success":false,"errors":[{"message":"script too large"}]})");
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL_STRING("script too large", f.cf.message());
+    TEST_ASSERT_EQUAL_STRING("keep", cfg.relay_secret);
+
+    f.cf.deploy("esp-pump", Z1, "");
+    MockHTTP::push(404, NOT_FOUND);
+    MockHTTP::push(200, OK);
+    MockHTTP::push(409, R"({"success":false,"errors":[{"message":"hostname has DNS records"}]})");
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL_STRING("hostname has DNS records", f.cf.message());
+    TEST_ASSERT_EQUAL_STRING("", cfg.relay_host);
+
+    strlcpy(cfg.cf_account, A2, sizeof(cfg.cf_account));
+    f.cf.deploy("esp-pump", "", "");
+    MockHTTP::push(404, NOT_FOUND);
+    MockHTTP::push(200, R"({"result":{"subdomain":"myacc"},"success":true})");
+    MockHTTP::push(200, OK);
+    MockHTTP::push(500, R"({"success":false,"errors":[{"message":"enable failed"}]})");
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL_STRING("enable failed", f.cf.message());
+    TEST_ASSERT_FALSE(f.cf.takeDeployed());
+}
+
+// After an update with another relay protocol, the Worker goes up again
+void test_redeploy_after_a_protocol_change() {
+    zonesOnDisk();
+    Fixture f;
+    f.cf.redeploy(0);                                     // no relay: nothing
+    TEST_ASSERT_FALSE(f.cf.due());
+    strlcpy(cfg.relay_host, "esp-pump.example.com", sizeof(cfg.relay_host));
+    strlcpy(cfg.relay_name, "esp-pump", sizeof(cfg.relay_name));
+    strlcpy(cfg.relay_zone, Z1, sizeof(cfg.relay_zone));
+    cfg.relay_ver = RELAY_VERSION;
+    f.cf.redeploy(0);                                     // current: nothing
+    TEST_ASSERT_FALSE(f.cf.due());
+
+    cfg.relay_ver = RELAY_VERSION - 1;
+    f.cf.redeploy(0);
+    TEST_ASSERT_TRUE(f.cf.due());
+    f.cf.redeploy(1);                                     // busy: nothing new
+    MockHTTP::push(500, "");
+    f.cf.tick(0);
+    TEST_ASSERT_EQUAL(CloudflareSetup::FAILED, f.cf.state());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[0].url, "/scripts/esp-pump/settings"));
+
+    f.cf.redeploy(CloudflareSetup::REDEPLOY_MS - 1);      // at most once an hour
+    TEST_ASSERT_FALSE(f.cf.due());
+    f.cf.redeploy(CloudflareSetup::REDEPLOY_MS);
+    TEST_ASSERT_TRUE(f.cf.due());
+}
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_scan_lists_the_zones);
@@ -312,5 +559,12 @@ int main() {
     RUN_TEST(test_record_created_when_missing);
     RUN_TEST(test_record_failures);
     RUN_TEST(test_zone_list_lines);
+    RUN_TEST(test_deploy_on_own_domain);
+    RUN_TEST(test_deploy_again_over_its_own_worker);
+    RUN_TEST(test_deploy_on_workers_dev);
+    RUN_TEST(test_deploy_names_the_workers_dev_subdomain);
+    RUN_TEST(test_deploy_refusals);
+    RUN_TEST(test_deploy_failing_steps_change_nothing);
+    RUN_TEST(test_redeploy_after_a_protocol_change);
     return UNITY_END();
 }

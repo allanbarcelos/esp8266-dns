@@ -56,11 +56,12 @@ inline int _getc(WiFiClient& c, unsigned long& last, unsigned long ms) {
     }
 }
 
-// A piece of the body: in RAM, or in flash (pgm)
+// A piece of the body: in RAM, in flash (pgm), or written by fn (n bytes)
 struct Part {
     const char* p;
     size_t      n;
     bool        pgm;
+    void (*fn)(WiFiClient& c) = nullptr;
 };
 
 // Gets the answer's body one byte at a time
@@ -91,7 +92,8 @@ inline int exchange(WiFiClient& c, const char* host, const char* method, const c
     c.print(len);
     c.print("\r\n");
     for (size_t i = 0; i < count; i++) {
-        if (parts[i].pgm) c.write_P(parts[i].p, parts[i].n);
+        if (parts[i].fn) parts[i].fn(c);
+        else if (parts[i].pgm) c.write_P(parts[i].p, parts[i].n);
         else c.write(reinterpret_cast<const uint8_t*>(parts[i].p), parts[i].n);
     }
 

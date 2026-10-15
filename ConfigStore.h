@@ -163,6 +163,7 @@ private:
     CS_KEY(K_CF_RECORD, "cf_record") CS_KEY(K_CF_ACCOUNT, "cf_account")
     CS_KEY(K_RELAY_HOST, "relay_host")
     CS_KEY(K_RELAY_KEY, "relay_key") CS_KEY(K_RELAY_VER, "relay_ver")
+    CS_KEY(K_RELAY_NAME, "relay_name") CS_KEY(K_RELAY_ZONE, "relay_zone")
     CS_KEY(K_SENSOR, "sensor") CS_KEY(K_SENSOR_PIN, "sensor_pin")
     CS_KEY(K_SENSOR_HIGH, "sensor_high") CS_KEY(K_SENSOR_ON, "sensor_on") CS_KEY(K_SENSOR_OFF, "sensor_off")
     CS_KEY(K_METRIC, "metric") CS_KEY(K_NOTIFY, "notify") CS_KEY(K_ACTUATOR, "actuator")
@@ -212,7 +213,8 @@ private:
         CS_CFG(K_CF_ZONE, cf_zone, T_CHARS, 0), CS_CFG(K_CF_HOST, cf_host, T_CHARS, 0),
         CS_CFG(K_CF_RECORD, cf_record, T_CHARS, 0), CS_CFG(K_CF_ACCOUNT, cf_account, T_CHARS, 0),
         CS_CFG(K_RELAY_HOST, relay_host, T_CHARS, 0), CS_CFG(K_RELAY_KEY, relay_secret, T_CHARS, 0),
-        CS_CFG(K_RELAY_VER, relay_ver, T_U8, 0),
+        CS_CFG(K_RELAY_VER, relay_ver, T_U8, 0), CS_CFG(K_RELAY_NAME, relay_name, T_CHARS, 0),
+        CS_CFG(K_RELAY_ZONE, relay_zone, T_CHARS, 0),
         CS_IOT(K_SENSOR, sensor, T_CHARS, 0), CS_IOT(K_SENSOR_PIN, sensorPin, T_I8, -1),
         CS_IOT(K_SENSOR_HIGH, sensorHigh, T_BOOL, 1), CS_IOT(K_SENSOR_ON, onText, T_CHARS, 0),
         CS_IOT(K_SENSOR_OFF, offText, T_CHARS, 0), CS_IOT(K_METRIC, metric, T_U8, 0),

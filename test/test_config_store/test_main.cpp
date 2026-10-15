@@ -325,6 +325,8 @@ void test_full_round_trip() {
     strlcpy(config.relay_secret, "0123abcd", sizeof(config.relay_secret));
     strlcpy(config.cf_account, "01a7362d577a6c3019a474fd6f485823", sizeof(config.cf_account));
     config.relay_ver = 1;
+    strlcpy(config.relay_name, "esp-pump", sizeof(config.relay_name));
+    strlcpy(config.relay_zone, "023e105f4ecef8ad9ca31a8372d0c353", sizeof(config.relay_zone));
     config.tz = -180;
     config.bat_sda = 3;
     strlcpy(config.lang, "pt", sizeof(config.lang));
@@ -348,6 +350,8 @@ void test_full_round_trip() {
     TEST_ASSERT_EQUAL_STRING("0123abcd", config.relay_secret);
     TEST_ASSERT_EQUAL_STRING("01a7362d577a6c3019a474fd6f485823", config.cf_account);
     TEST_ASSERT_EQUAL(1, config.relay_ver);
+    TEST_ASSERT_EQUAL_STRING("esp-pump", config.relay_name);
+    TEST_ASSERT_EQUAL_STRING("023e105f4ecef8ad9ca31a8372d0c353", config.relay_zone);
     TEST_ASSERT_EQUAL(-180, config.tz);
     TEST_ASSERT_EQUAL(3, config.bat_sda);
     TEST_ASSERT_EQUAL_STRING("pt", config.lang);
@@ -397,6 +401,8 @@ void test_save_worst_case_fits() {
     std::memset(config.relay_secret, 'f', sizeof(config.relay_secret) - 1);
     std::memset(config.cf_account, 'a', sizeof(config.cf_account) - 1);
     config.relay_ver = 255;
+    std::memset(config.relay_name, 'n', sizeof(config.relay_name) - 1);
+    std::memset(config.relay_zone, 'z', sizeof(config.relay_zone) - 1);
     std::memset(config.iot.sensor,   's', sizeof(config.iot.sensor) - 1);
     std::memset(config.iot.actuator, 'a', sizeof(config.iot.actuator) - 1);
     std::memset(config.iot.onText,   'o', sizeof(config.iot.onText) - 1);

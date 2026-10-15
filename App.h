@@ -91,6 +91,8 @@ public:
         // release theirs before the IP check, DNS, OTA or an ntfy post use
         // the network in this tick. While the relay is set up, it holds the
         // session and the command stream waits.
+        // After an update with another relay protocol, the Worker goes up again
+        if (!ota.slim()) cfsetup.redeploy(now);
         bool net = !ota.slim() && (ota.wantsNet(now) || resolver.due(now) || dns.due(now) || cfsetup.due());
         if (!ota.slim()) ntfy.hold(net || relay.configured());
         relay.hold(ota.slim() || ota.busy() || net || ntfy.postDue(now));
@@ -100,6 +102,7 @@ public:
             resolver.tick(now);
             dns.tick(now);
             cfsetup.tick(now);
+            if (cfsetup.takeDeployed()) relay.reconnect();
         }
         ota.tick(now);
         if (!ota.slim() && !ota.inProgress()) {

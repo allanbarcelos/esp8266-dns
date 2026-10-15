@@ -67,6 +67,8 @@ struct Config {
     // Remote access relay (RelayService.h): the Worker's address, the secret
     // shared with it and the protocol version it was deployed with
     char    relay_host[80]            = {};   // "" = off
+    char    relay_name[33]            = {};   // the Worker's name, also the first label of the address
+    char    relay_zone[33]            = {};   // the zone of the address; "" = workers.dev
     char    relay_secret[65]          = {};   // 64 hex
     uint8_t relay_ver                 = 0;
 

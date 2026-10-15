@@ -51,7 +51,7 @@ jobs:
           # Everything that changes the binary or the published package: sketch,
           # panel CSS/JS, key, linker, core/library versions, compile options
           # and OTA packaging
-          FIRMWARE_PATHS: '^([^/]+\.(ino|h)|web/|public\.key|ld/|tools/(ota_flash_ld|embed_web)\.py|\.github/(actions/(setup-arduino|compile)/|scripts/package_ota\.py))'
+          FIRMWARE_PATHS: '^([^/]+\.(ino|h)|web/|relay/worker\.mjs|public\.key|ld/|tools/(ota_flash_ld|embed_web|embed_relay)\.py|\.github/(actions/(setup-arduino|compile)/|scripts/package_ota\.py))'
           # Tests only: runs test, without build or release
           TEST_PATHS: '^(test/|platformio\.ini|requirements\.txt)'
           # Web installer: the page and the site generator
@@ -153,6 +153,12 @@ jobs:
           --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100
           relay/worker.test.mjs
 
+      # The same tests on the minified script the firmware uploads
+      - name: Relay Worker tests on the embedded (minified) script
+        run: |
+          python3 tools/embed_relay.py --check --min "$RUNNER_TEMP/worker.min.mjs"
+          WORKER="$RUNNER_TEMP/worker.min.mjs" node --test relay/worker.test.mjs
+
   # ── Builds the firmware: compiles, measures and packages ─────────────────
   # Runs before the tests: green tests with a firmware over the limit are
   # worth nothing, the device can still hang.
@@ -168,6 +174,9 @@ jobs:
 
       - name: Embedded TLS roots (CloudflareCA.h matches ca/roots.pem)
         run: python3 tools/embed_ca.py --check
+
+      - name: Embedded relay Worker (RelayScript.h matches relay/worker.mjs)
+        run: python3 tools/embed_relay.py --check
 
       - uses: ./.github/actions/setup-arduino
 
