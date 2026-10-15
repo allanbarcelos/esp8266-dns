@@ -8,13 +8,15 @@
 #include <deque>
 #include <memory>
 #include <utility>
+#include <cstdlib>
+#include <bearssl/bearssl.h>
 
-// Roots a TLS connection received (X509List::append)
+// Trust anchors a TLS connection received (setTrustAnchors)
 namespace MockTLS {
     struct Trust {
-        const uint8_t* first = nullptr;   // first root
-        size_t         count = 0;
-        size_t         bytes = 0;
+        size_t count    = 0;
+        size_t bytes    = 0;      // names + keys + exponents
+        bool   complete = false;  // every piece of every anchor is there
     };
 }
 
@@ -270,16 +272,45 @@ public:
 };
 
 namespace BearSSL {
+    // The core's layout and destructor (BearSSLHelpers): CloudflareCA.h fills it in place
     class X509List {
     public:
-        X509List() {}
-        bool append(const uint8_t* der, size_t len) {
-            if (!trust.count) trust.first = der;
-            trust.count++;
-            trust.bytes += len;
-            return true;
+        X509List() : _count(0), _cert(nullptr), _ta(nullptr) {}
+        ~X509List() {
+            free(_cert);
+            for (size_t i = 0; i < _count; i++) {
+                free(_ta[i].dn.data);
+                if (_ta[i].pkey.key_type == BR_KEYTYPE_RSA) {
+                    free(_ta[i].pkey.key.rsa.n);
+                    free(_ta[i].pkey.key.rsa.e);
+                } else {
+                    free(_ta[i].pkey.key.ec.q);
+                }
+            }
+            free(_ta);
         }
-        MockTLS::Trust trust;
+        X509List(const X509List&) = delete;
+        X509List& operator=(const X509List&) = delete;
+        size_t getCount() const { return _count; }
+        const br_x509_trust_anchor* getTrustAnchors() const { return _ta; }
+
+        MockTLS::Trust trust() const {
+            MockTLS::Trust t;
+            t.count = _count;
+            t.complete = _count > 0;
+            for (size_t i = 0; i < _count; i++) {
+                const br_x509_trust_anchor& a = _ta[i];
+                bool rsa = a.pkey.key_type == BR_KEYTYPE_RSA;
+                t.bytes += a.dn.len + (rsa ? a.pkey.key.rsa.nlen + a.pkey.key.rsa.elen : a.pkey.key.ec.qlen);
+                t.complete = t.complete && a.dn.data && a.flags == BR_X509_TA_CA &&
+                             (rsa ? a.pkey.key.rsa.n && a.pkey.key.rsa.e : a.pkey.key.ec.q != nullptr);
+            }
+            return t;
+        }
+    private:
+        size_t                _count;
+        br_x509_certificate*  _cert;
+        br_x509_trust_anchor* _ta;
     };
 }
 
@@ -340,7 +371,7 @@ public:
     }
     void setInsecure()                                 { MockTLS::insecureCalls++; insecure = true; }
     bool setCiphers(const uint16_t* list, int n)       { MockTLS::suites.assign(list, list + n); return true; }
-    void setTrustAnchors(const BearSSL::X509List* ta)  { MockTLS::lastTrust = trust = ta->trust; }
+    void setTrustAnchors(const BearSSL::X509List* ta)  { MockTLS::lastTrust = trust = ta->trust(); }
     void setX509Time(time_t t)                         { MockTLS::lastTime = x509Time = t; }
     bool probeMaxFragmentLength(const char*, uint16_t, uint16_t) { return MockTLS::mfln; }
 

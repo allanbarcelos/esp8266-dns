@@ -195,23 +195,47 @@ void test_reverse_without_answer_gives_up() {
     TEST_ASSERT_EQUAL_STRING("", cfg.publicHost);
 }
 
-// The generated CloudflareCA.h: each root is a complete DER certificate
-// (SEQUENCE with a long length), and the lengths cover the whole block
-void test_whole_der_roots() {
-    size_t off = 0;
-    for (uint16_t len : CLOUDFLARE_LEN) {
-        const uint8_t* d = CLOUDFLARE_DER + off;
-        TEST_ASSERT_EQUAL_HEX8(0x30, d[0]);
-        TEST_ASSERT_EQUAL_HEX8(0x82, d[1]);
-        TEST_ASSERT_EQUAL(len, ((d[2] << 8) | d[3]) + 4);
-        off += len;
-    }
-    TEST_ASSERT_EQUAL(sizeof(CLOUDFLARE_DER), off);
-    TEST_ASSERT_EQUAL(4, (int)(sizeof(CLOUDFLARE_LEN) / sizeof(CLOUDFLARE_LEN[0])));
-
+// The generated CloudflareCA.h: four anchors (two RSA-4096 and two P-384),
+// each with its name and key, read whole into the X509List
+void test_trust_anchors() {
     BearSSL::X509List list;
     cloudflareRoots(list);
-    TEST_ASSERT_TRUE(cloudflareTrust(list.trust));
+    TEST_ASSERT_TRUE(cloudflareTrust(list.trust()));
+    const br_x509_trust_anchor* ta = list.getTrustAnchors();
+    const unsigned char kinds[] = {BR_KEYTYPE_RSA, BR_KEYTYPE_EC, BR_KEYTYPE_RSA, BR_KEYTYPE_EC};
+    for (size_t i = 0; i < CLOUDFLARE_ROOTS; i++) {
+        TEST_ASSERT_EQUAL(kinds[i], ta[i].pkey.key_type);
+        TEST_ASSERT_EQUAL_HEX8(0x30, ta[i].dn.data[0]);          // the name is a DER SEQUENCE
+        TEST_ASSERT_EQUAL(ta[i].dn.len, (size_t)ta[i].dn.data[1] + 2);
+    }
+    TEST_ASSERT_EQUAL(512, (int)ta[0].pkey.key.rsa.nlen);
+    TEST_ASSERT_EQUAL(3, (int)ta[0].pkey.key.rsa.elen);           // 65537
+    TEST_ASSERT_EQUAL(24, ta[1].pkey.key.ec.curve);               // P-384
+    TEST_ASSERT_EQUAL(97, (int)ta[1].pkey.key.ec.qlen);
+    TEST_ASSERT_EQUAL_HEX8(0x04, ta[1].pkey.key.ec.q[0]);         // uncompressed point
+}
+
+// Out of memory, the list keeps only the complete anchors (a missing root
+// fails the validation, closed) and frees everything (ASan checks)
+void test_trust_anchors_out_of_memory() {
+    struct Case { size_t size; size_t left; };
+    const Case cases[] = {
+        {CLOUDFLARE_ROOTS * sizeof(br_x509_certificate), 0},
+        {CLOUDFLARE_ROOTS * sizeof(br_x509_trust_anchor), 0},
+        {73, 0},    // GTS Root R1's name
+        {512, 0},   // GTS Root R1's modulus
+        {3, 0},     // GTS Root R1's exponent
+        {97, 1},    // GTS Root R4's point
+        {81, 2},    // ISRG Root X1's name
+    };
+    for (const Case& c : cases) {
+        BearSSL::X509List list;
+        mock::failMallocSize = c.size;
+        cloudflareRoots(list);
+        TEST_ASSERT_EQUAL(0, (int)mock::failMallocSize);   // that allocation did fail
+        TEST_ASSERT_EQUAL(c.left, list.getCount());
+        if (c.left) TEST_ASSERT_TRUE(list.trust().complete);
+    }
 }
 
 int main() {
@@ -226,6 +250,7 @@ int main() {
     RUN_TEST(test_connection_failure_tries_next);
     RUN_TEST(test_errors_try_the_next);
     RUN_TEST(test_reverse_without_answer_gives_up);
-    RUN_TEST(test_whole_der_roots);
+    RUN_TEST(test_trust_anchors);
+    RUN_TEST(test_trust_anchors_out_of_memory);
     return UNITY_END();
 }

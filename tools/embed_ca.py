@@ -2,14 +2,19 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-"""Generates CloudflareCA.h with the roots from ca/roots.pem as DER.
+"""Generates CloudflareCA.h with the roots from ca/roots.pem as BearSSL trust
+anchors: each root's subject name and public key, nothing else.
 
-DER instead of PEM: 1.4 KB less flash (no base64 and no headers) and nothing
-to decode on every connection. X509List reads a DER block as a single
-certificate, so each root goes in with its own length.
+That is all BearSSL uses from a root. The whole certificate (X509List::append)
+took 2.3 KB more flash, the X.509 decoder (3.3 KB) to read it on every
+connection, and a heap copy of every certificate during the TLS session.
 
     python3 tools/embed_ca.py           generates CloudflareCA.h
     python3 tools/embed_ca.py --check   only checks (CI uses it); error if different
+
+Each anchor in CLOUDFLARE_TA: a 7-byte head (key type, curve, name length
+and key length as little-endian 16 bits, exponent length), then the name, the
+key (RSA modulus or EC point) and the RSA exponent.
 """
 import base64
 import os
@@ -20,6 +25,15 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 SRC = os.path.join(ROOT, "ca", "roots.pem")
 OUT = os.path.join(ROOT, "CloudflareCA.h")
 
+KEYTYPE_RSA, KEYTYPE_EC = 1, 2
+OID_RSA = bytes.fromhex("2a864886f70d010101")
+OID_EC = bytes.fromhex("2a8648ce3d0201")
+CURVES = {  # named curve OID → BearSSL curve ID
+    bytes.fromhex("2a8648ce3d030107"): ("P-256", 23),
+    bytes.fromhex("2b81040022"): ("P-384", 24),
+    bytes.fromhex("2b81040023"): ("P-521", 25),
+}
+
 
 def roots():
     text = open(SRC, encoding="utf-8").read().replace("\r\n", "\n")
@@ -27,23 +41,83 @@ def roots():
                        text, re.M | re.S)
     if len(found) != text.count("-----BEGIN CERTIFICATE-----"):
         sys.exit("ERROR: every certificate needs a \"# Name\" line right before it")
-    out = []
-    for name, body in found:
-        der = base64.b64decode("".join(body.split()), validate=True)
-        if der[:1] != b"\x30":
-            sys.exit(f"ERROR: {name} is not a DER certificate")
-        out.append((name.strip(), der))
+    out = [(name.strip(), base64.b64decode("".join(body.split()), validate=True)) for name, body in found]
     if not out:
         sys.exit("ERROR: no certificate in ca/roots.pem")
     return out
 
 
+def tlv(buf, pos):
+    """(tag, start of value, end of value) of the DER element at pos."""
+    tag = buf[pos]
+    n = buf[pos + 1]
+    pos += 2
+    if n & 0x80:
+        k = n & 0x7F
+        n = int.from_bytes(buf[pos:pos + k], "big")
+        pos += k
+    if pos + n > len(buf):
+        raise ValueError("truncated DER")
+    return tag, pos, pos + n
+
+
+def children(buf, start, end):
+    out = []
+    while start < end:
+        tag, vs, ve = tlv(buf, start)
+        out.append((tag, start, vs, ve))
+        start = ve
+    return out
+
+
+def anchor(name, der):
+    """(key type, curve, subject name, key, exponent) of a certificate."""
+    try:
+        tag, vs, ve = tlv(der, 0)
+        tbs = children(der, *tlv(der, vs)[1:])
+        if tbs[0][0] == 0xA0:          # explicit version
+            tbs = tbs[1:]
+        # serial, signature algorithm, issuer, validity, subject, public key
+        _, s0, _, s1 = tbs[4]
+        subject = der[s0:s1]
+        spki = children(der, tbs[5][2], tbs[5][3])
+        alg = children(der, spki[0][2], spki[0][3])
+        oid = der[alg[0][2]:alg[0][3]]
+        bits = der[spki[1][2] + 1:spki[1][3]]   # skip the unused-bits byte
+        if oid == OID_RSA:
+            n, e = children(bits, *tlv(bits, 0)[1:])
+            modulus = bits[n[2]:n[3]].lstrip(b"\x00")
+            exponent = bits[e[2]:e[3]].lstrip(b"\x00")
+            return KEYTYPE_RSA, 0, subject, modulus, exponent
+        if oid == OID_EC:
+            curve = der[alg[1][2]:alg[1][3]]
+            if curve not in CURVES:
+                sys.exit(f"ERROR: {name} uses a curve the firmware does not have")
+            return KEYTYPE_EC, CURVES[curve][1], subject, bits, b""
+    except (IndexError, ValueError) as e:
+        sys.exit(f"ERROR: {name} is not a DER certificate ({e})")
+    sys.exit(f"ERROR: {name} has a key that is neither RSA nor EC")
+
+
+def describe(kind, curve, key):
+    if kind == KEYTYPE_RSA:
+        return f"RSA-{len(key) * 8}"
+    return next(label for label, cid in CURVES.values() if cid == curve)
+
+
 def header(certs):
-    blob = b"".join(der for _, der in certs)
+    blob = b""
+    names = ""
+    for name, der in certs:
+        kind, curve, subject, key, exp = anchor(name, der)
+        for v, limit in ((len(subject), 0xFFFF), (len(key), 0xFFFF), (len(exp), 0xFF)):
+            if v > limit:
+                sys.exit(f"ERROR: {name} has a field too long for the anchor head")
+        blob += bytes([kind, curve]) + len(subject).to_bytes(2, "little") + len(key).to_bytes(2, "little")
+        blob += bytes([len(exp)]) + subject + key + exp
+        names += f"//   {name} ({describe(kind, curve, key)}, {7 + len(subject) + len(key) + len(exp)} bytes)\n"
     rows = ",\n    ".join(", ".join(f"0x{b:02x}" for b in blob[i:i + 16])
                            for i in range(0, len(blob), 16))
-    names = "".join(f"//   {name} ({len(der)} bytes)\n" for name, der in certs)
-    lens = ", ".join(str(len(der)) for _, der in certs)
     return (
         "// SPDX-License-Identifier: MIT\n"
         "// Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: "
@@ -56,15 +130,67 @@ def header(certs):
         "// ntfy.sh and the public IP services. The others survive a CA change.\n"
         "// OTA does not depend on these roots: firmware integrity comes from\n"
         "// the RSA signature checked by the Updater.\n"
+        "// Only what BearSSL uses from a root: its name and its public key. Each\n"
+        "// anchor: key type, curve, name length (16 bits LE), key length (16 bits\n"
+        "// LE), exponent length; then the name, the key and the RSA exponent.\n"
         + names +
-        f"static const uint8_t CLOUDFLARE_DER[] PROGMEM = {{\n    {rows}\n}};\n"
-        f"static const uint16_t CLOUDFLARE_LEN[] = {{{lens}}};\n\n"
-        "// One root per append: X509List reads a DER block as a single certificate\n"
+        f"static const uint8_t CLOUDFLARE_TA[] PROGMEM = {{\n    {rows}\n}};\n"
+        f"static constexpr size_t CLOUDFLARE_ROOTS = {len(certs)};\n\n"
+        "inline unsigned char* _caCopy(const uint8_t* src, size_t n) {\n"
+        "    unsigned char* d = (unsigned char*)malloc(n);\n"
+        "    if (d) memcpy_P(d, src, n);\n"
+        "    return d;\n"
+        "}\n\n"
+        "// The anchors go straight into the X509List, in the layout its destructor\n"
+        "// frees (the core's BearSSLHelpers.cpp: _count, _cert, _ta, each piece of\n"
+        "// an anchor in its own block). X509List has no way to add an anchor\n"
+        "// without the whole certificate. Out of memory, the list keeps only the\n"
+        "// complete anchors: a missing root fails the TLS validation, closed.\n"
         "inline void cloudflareRoots(BearSSL::X509List& list) {\n"
-        "    const uint8_t* der = CLOUDFLARE_DER;\n"
-        "    for (uint16_t len : CLOUDFLARE_LEN) {\n"
-        "        list.append(der, len);\n"
-        "        der += len;\n"
+        "    struct Layout {\n"
+        "        size_t count;\n"
+        "        br_x509_certificate* cert;\n"
+        "        br_x509_trust_anchor* ta;\n"
+        "    };\n"
+        "    static_assert(sizeof(Layout) == sizeof(BearSSL::X509List), \"X509List changed: review cloudflareRoots\");\n"
+        "    Layout& l = reinterpret_cast<Layout&>(list);\n"
+        "    l.cert = (br_x509_certificate*)malloc(CLOUDFLARE_ROOTS * sizeof(br_x509_certificate));\n"
+        "    l.ta = (br_x509_trust_anchor*)malloc(CLOUDFLARE_ROOTS * sizeof(br_x509_trust_anchor));\n"
+        "    if (!l.cert || !l.ta) return;\n"
+        "    memset(l.cert, 0, CLOUDFLARE_ROOTS * sizeof(br_x509_certificate));\n"
+        "    memset(l.ta, 0, CLOUDFLARE_ROOTS * sizeof(br_x509_trust_anchor));\n"
+        "    const uint8_t* p = CLOUDFLARE_TA;\n"
+        "    for (size_t i = 0; i < CLOUDFLARE_ROOTS; i++) {\n"
+        "        uint8_t h[7];\n"
+        "        memcpy_P(h, p, sizeof(h));\n"
+        "        p += sizeof(h);\n"
+        "        size_t dn = h[2] | h[3] << 8, kl = h[4] | h[5] << 8, el = h[6];\n"
+        "        unsigned char* name = _caCopy(p, dn);\n"
+        "        unsigned char* key = _caCopy(p + dn, kl);\n"
+        "        unsigned char* e = el ? _caCopy(p + dn + kl, el) : nullptr;\n"
+        "        if (!name || !key || (el && !e)) {\n"
+        "            free(name);\n"
+        "            free(key);\n"
+        "            free(e);\n"
+        "            return;\n"
+        "        }\n"
+        "        p += dn + kl + el;\n"
+        "        br_x509_trust_anchor& ta = l.ta[i];\n"
+        "        ta.dn.data = name;\n"
+        "        ta.dn.len = dn;\n"
+        "        ta.flags = BR_X509_TA_CA;\n"
+        "        ta.pkey.key_type = h[0];\n"
+        "        if (h[0] == BR_KEYTYPE_RSA) {\n"
+        "            ta.pkey.key.rsa.n = key;\n"
+        "            ta.pkey.key.rsa.nlen = kl;\n"
+        "            ta.pkey.key.rsa.e = e;\n"
+        "            ta.pkey.key.rsa.elen = el;\n"
+        "        } else {\n"
+        "            ta.pkey.key.ec.curve = h[1];\n"
+        "            ta.pkey.key.ec.q = key;\n"
+        "            ta.pkey.key.ec.qlen = kl;\n"
+        "        }\n"
+        "        l.count = i + 1;\n"
         "    }\n"
         "}\n"
     )

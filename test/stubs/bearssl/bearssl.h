@@ -10,6 +10,20 @@
 #include <cstdint>
 #include <cstring>
 
+// Trust anchors (bearssl_x509.h): the fields CloudflareCA.h fills
+#define BR_KEYTYPE_RSA 1
+#define BR_KEYTYPE_EC  2
+#define BR_X509_TA_CA  0x0001
+struct br_x509_certificate { unsigned char* data; size_t data_len; };
+struct br_x500_name { unsigned char* data; size_t len; };
+struct br_rsa_public_key { unsigned char* n; size_t nlen; unsigned char* e; size_t elen; };
+struct br_ec_public_key { int curve; unsigned char* q; size_t qlen; };
+struct br_x509_pkey {
+    unsigned char key_type;
+    union { br_rsa_public_key rsa; br_ec_public_key ec; } key;
+};
+struct br_x509_trust_anchor { br_x500_name dn; unsigned flags; br_x509_pkey pkey; };
+
 struct br_hash_class { int id; };
 static const br_hash_class br_sha1_vtable = {2};
 

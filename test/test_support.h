@@ -57,9 +57,8 @@ inline bool contains(const std::string& hay, const char* needle) {
     return hay.find(needle) != std::string::npos;
 }
 
-// The connection trusts exactly the roots in CloudflareCA.h, one per append
+// The connection trusts exactly the anchors in CloudflareCA.h, all complete
 inline bool cloudflareTrust(const MockTLS::Trust& t) {
-    return t.first == CLOUDFLARE_DER
-        && t.count == sizeof(CLOUDFLARE_LEN) / sizeof(CLOUDFLARE_LEN[0])
-        && t.bytes == sizeof(CLOUDFLARE_DER);
+    return t.complete && t.count == CLOUDFLARE_ROOTS
+        && t.bytes == sizeof(CLOUDFLARE_TA) - 7 * CLOUDFLARE_ROOTS;
 }
