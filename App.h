@@ -19,6 +19,7 @@
 #include "PowerService.h"
 #include "WebService.h"
 #include "RelayService.h"
+#include "NetArbiter.h"
 
 // Composition of every service. Members are declared in layers: each one
 // depends only on those declared before it.
@@ -28,6 +29,7 @@ public:
     Config config;
     Logger logger;
     Clock  clock;
+    NetArbiter net;   // who has the network (one TLS session)
 
     // Layer 1: depend on Config + Logger
     ConfigStore configStore{config, logger};
@@ -70,6 +72,7 @@ public:
             logger.log(PSTR("OTA: recovery mode"));
         } else {
             web.setRelay(&relay);
+            web.setNet(&net);
             web.begin();
             iot.begin();
             power.begin();
@@ -88,38 +91,62 @@ public:
         wifi.tickRestart(now);
         clock.tick(now);
 
-        // One TLS session at a time: the ntfy command stream and the relay
-        // release theirs before the IP check, DNS, OTA or an ntfy post use
-        // the network in this tick. While the relay is up or about to
-        // connect, it has the session; its Worker brings the ntfy commands
-        // until it has been down a while, and then the stream takes over.
-        // After an update with another relay protocol, the Worker goes up again
-        if (!ota.slim()) cfsetup.redeploy(now);
-        bool net = !ota.slim() && (ota.wantsNet(now) || resolver.due(now) || dns.due(now) || cfsetup.due());
-        relay.hold(ota.slim() || ota.busy() || net || ntfy.postDue(now));
-        // MQTT is plain TCP, no TLS, but its buffers are heap the GitHub
-        // session needs: it lets go while OTA checks or downloads
-        mqtt.hold(ota.slim() || ota.busy());
-        if (!ota.slim()) {
-            ntfy.hold(net || relay.up() || relay.due(now));
-            ntfy.relayed(relay.carries(now));
+        // One TLS session fits: whoever needs the network says so, the
+        // arbiter gives the turn by priority, and everyone else closes theirs
+        // before it runs. The relay's Worker brings the ntfy commands while it
+        // is up or was until moments ago; then the stream takes them over.
+        bool slim = ota.slim();
+        if (!slim) cfsetup.redeploy(now);   // after an update with another relay protocol
+        if (ota.wantsNet(now)) net.want(NetArbiter::OTA);
+        if (!slim) {
+            if (resolver.due(now)) net.want(NetArbiter::IP);
+            if (dns.due(now)) net.want(NetArbiter::DNS);
+            if (cfsetup.due()) net.want(NetArbiter::SETUP);
+            if (ntfy.postDue(now)) net.want(NetArbiter::POST);
+            if (relay.wantsNet(now)) net.want(NetArbiter::RELAY);
+            if (ntfy.wantsCommands() && !relay.carries(now)) net.want(NetArbiter::STREAM);
         }
+        NetArbiter::Who who = net.grant();
+        relay.hold(who != NetArbiter::RELAY);
+        ntfy.hold(who != NetArbiter::STREAM);   // a post closes the stream first anyway
+        ntfy.relayed(relay.carries(now));
+        bool go = who != NetArbiter::NONE && net.ready(now, _need(who), _running(who));
+        // MQTT is plain TCP, but its buffers are heap the GitHub session, or a
+        // turn waiting for memory, needs
+        mqtt.hold(slim || ota.busy() || net.starved());
 
-        // A new IP reaches DNS in the same tick
-        if (!ota.slim() && !ota.busy()) {
-            resolver.tick(now);
-            dns.tick(now);
-            cfsetup.tick(now);
-            if (cfsetup.takeDeployed()) relay.reconnect();
+        if (go) {
+            switch (who) {
+                case NetArbiter::IP:    resolver.tick(now); break;
+                case NetArbiter::DNS:   dns.tick(now); break;
+                case NetArbiter::SETUP:
+                    cfsetup.tick(now);
+                    if (cfsetup.takeDeployed()) relay.reconnect();
+                    break;
+                case NetArbiter::POST:
+                case NetArbiter::STREAM: ntfy.tick(now); break;
+                default: break;   // OTA and the relay, below
+            }
         }
-        ota.tick(now);
-        if (!ota.slim() && !ota.inProgress()) {
+        if (who != NetArbiter::OTA || go) ota.tick(now);
+        if (!slim && !ota.inProgress()) {
             iot.tick(now);
             power.tick(now);
         }
-        // ntfy opens another TLS session: waits for OTA to release its own (heap)
-        if (!ota.slim() && !ota.busy()) ntfy.tick(now);
-        relay.tick(now);
+        if (who != NetArbiter::RELAY || go) relay.tick(now);
         mqtt.tick(now);
+    }
+
+private:
+    // The heap a new session needs: GitHub's 16 KB buffer, or the others' 4 KB
+    static NetArbiter::Need _need(NetArbiter::Who who) {
+        if (who == NetArbiter::OTA) return {OTAService::GITHUB_HEAP, OTAService::GITHUB_BLOCK};
+        return {PublicIPResolver::MIN_TLS_HEAP, PublicIPResolver::MIN_TLS_BLOCK};
+    }
+
+    // Its session is open already: no wait for the heap it took
+    bool _running(NetArbiter::Who who) const {
+        return (who == NetArbiter::OTA && ota.online()) || (who == NetArbiter::RELAY && relay.up()) ||
+               (who == NetArbiter::STREAM && ntfy.streaming());
     }
 };

@@ -263,84 +263,85 @@
 #define L_OPTIONAL_KEEPS      "`45"   // (optional; blank keeps it)
 #define L_OTA_RESERVE         "`46"   // OTA reserve
 #define L_NETWORK             "`47"   // Network
-#define L_API_HELP            "`48"   // No internet, same network: GET /api/state and POST /api/cmd with the Authorization: Bearer header and the token.
-#define L_GAUGE_HINT          "`49"   // (SDA; SCL goes on the pair: GPIO0 with GPIO2, RX with TX)
-#define L_J_HINT_SHT3X        "`4A"   // I2C: SDA on this pin and SCL on its pair (GPIO0 with GPIO2, RX with TX); 4.7 kOhm pull-ups on both and address 0x44 (ADDR to GND).
-#define L_PIN                 "`4B"   // Pin
-#define L_CHOOSE_PIN          "`4C"   // Choose the pin
-#define L_CHOOSE              "`4D"   // Choose
-#define L_STATE               "`4E"   // State
-#define L_STATUS              "`4F"   // Status
-#define L_INSTALL_VERSION     "`4G"   // Install this version
-#define L_NO_NEW_VERSION      "`4H"   // No new version to install
-#define L_CURRENT_VERSION     "`4I"   // Current version
-#define L_VOLTAGE             "`4J"   // Voltage
-#define L_A_LED               "`4K"   // Dimmable LED
-#define L_AVAILABLE           "`4L"   // Available
-#define L_WINDOW_SAME         "`4M"   // The window needs different start and end times
-#define L_P_ORANGE            "`4N"   // Orange
-#define L_CHANGED             "`4O"   // Changed
-#define L_J_RULE_FLIP         "`4P"   // Each time the sensor becomes {0}, the {1} flips.
-#define L_WHEN_ACTIVE         "`4Q"   // When the sensor becomes active
-#define L_ROLE_SENSOR         "`4R"   // Sensor only: measures and reports
-#define L_G_TEMP_HUM          "`4S"   // Temperature and humidity
-#define L_S_DHT22             "`4T"   // Temperature and humidity (DHT22)
-#define L_S_DHT11             "`4U"   // Temperature and humidity (DHT11)
-#define L_S_SHT3X             "`4V"   // Temperature and humidity (SHT30/SHT31, I2C)
-#define L_HUMIDITY            "`4W"   // Humidity
-#define L_MENU                "`4X"   // Menu
-#define L_POWER               "`4Y"   // Power
-#define L_A_MOTOR             "`4Z"   // DC motor
-#define L_S_BUTTON            "`4a"   // Button or switch
-#define L_REVERSE             "`4b"   // Reverse
-#define L_TYPE_UNKNOWN        "`4c"   // Type unknown to this version: that part stays off
-#define L_TYPE                "`4d"   // Type
-#define L_TYPE_DEFAULT        "`4e"   // type default
-#define L_VALUE_TOO_LONG      "`4f"   // Value too long
-#define L_COLOR               "`4g"   // Color
-#define L_SIGN_IN             "`4h"   // Sign in
-#define L_SIGN_OUT            "`4i"   // Sign out
-#define L_NO_DST              "`4j"   // (no daylight saving)
-#define L_P_GREEN             "`4k"   // Green
-#define L_V_OPEN              "`4l"   // open
-#define L_OPEN_ANGLE          "`4m"   // Open angle
-#define L_ANGLE               "`4n"   // Angle
-#define L_CLOSED_ANGLE        "`4o"   // Closed angle
-#define L_V_CLOSED            "`4p"   // closed
-#define L_CLOSE_BTN           "`4q"   // Close
-#define L_A_LOCK              "`4r"   // Solenoid lock
-#define L_A_VALVE             "`4s"   // Solenoid valve
-#define L_V_RELEASED          "`4t"   // released
-#define L_A_RELAY             "`4u"   // Relay
-#define L_CLOCK_NOT_SYNC      "`4v"   // clock not synchronized
-#define L_LARGEST_BLOCK       "`4w"   // Largest block
-#define L_P_GRAY              "`4x"   // Gray
+#define L_NET_TURN            "`48"   // Network turn
+#define L_CHIP_ID             "`49"   // Chip ID
+#define L_TYPE_DEFAULT        "`4A"   // type default
+#define L_TYPE                "`4B"   // Type
+#define L_TYPE_UNKNOWN        "`4C"   // Type unknown to this version: that part stays off
+#define L_INSTALL_VERSION     "`4D"   // Install this version
+#define L_NO_NEW_VERSION      "`4E"   // No new version to install
+#define L_CURRENT_VERSION     "`4F"   // Current version
+#define L_VOLTAGE             "`4G"   // Voltage
+#define L_A_LED               "`4H"   // Dimmable LED
+#define L_AVAILABLE           "`4I"   // Available
+#define L_WINDOW_SAME         "`4J"   // The window needs different start and end times
+#define L_P_ORANGE            "`4K"   // Orange
+#define L_CHANGED             "`4L"   // Changed
+#define L_J_RULE_FLIP         "`4M"   // Each time the sensor becomes {0}, the {1} flips.
+#define L_WHEN_ACTIVE         "`4N"   // When the sensor becomes active
+#define L_ROLE_SENSOR         "`4O"   // Sensor only: measures and reports
+#define L_G_TEMP_HUM          "`4P"   // Temperature and humidity
+#define L_S_DHT22             "`4Q"   // Temperature and humidity (DHT22)
+#define L_S_DHT11             "`4R"   // Temperature and humidity (DHT11)
+#define L_S_SHT3X             "`4S"   // Temperature and humidity (SHT30/SHT31, I2C)
+#define L_HUMIDITY            "`4T"   // Humidity
+#define L_STATUS              "`4U"   // Status
+#define L_STATE               "`4V"   // State
+#define L_V_WAITING           "`4W"   // waiting
+#define L_OPEN_BTN            "`4X"   // Open
+#define L_V_OPEN              "`4Y"   // open
+#define L_OPEN_ANGLE          "`4Z"   // Open angle
+#define L_ANGLE               "`4a"   // Angle
+#define L_CLOSED_ANGLE        "`4b"   // Closed angle
+#define L_V_CLOSED            "`4c"   // closed
+#define L_CLOSE_BTN           "`4d"   // Close
+#define L_A_LOCK              "`4e"   // Solenoid lock
+#define L_A_VALVE             "`4f"   // Solenoid valve
+#define L_P_GREEN             "`4g"   // Green
+#define L_NO_DST              "`4h"   // (no daylight saving)
+#define L_INVALID_NAME        "`4i"   // Invalid name (up to 31 characters, no quotes)
+#define L_OTHER_NAMES_HINT    "`4j"   // (names of a tunnel or proxy, separated by commas)
+#define L_COLOR               "`4k"   // Color
+#define L_VALUE_TOO_LONG      "`4l"   // Value too long
+#define L_A_MOTOR             "`4m"   // DC motor
+#define L_S_BUTTON            "`4n"   // Button or switch
+#define L_API_HELP            "`4o"   // No internet, same network: GET /api/state and POST /api/cmd with the Authorization: Bearer header and the token.
+#define L_GAUGE_HINT          "`4p"   // (SDA; SCL goes on the pair: GPIO0 with GPIO2, RX with TX)
+#define L_J_HINT_SHT3X        "`4q"   // I2C: SDA on this pin and SCL on its pair (GPIO0 with GPIO2, RX with TX); 4.7 kOhm pull-ups on both and address 0x44 (ADDR to GND).
+#define L_PIN                 "`4r"   // Pin
+#define L_CHOOSE_PIN          "`4s"   // Choose the pin
+#define L_CHOOSE              "`4t"   // Choose
+#define L_MENU                "`4u"   // Menu
+#define L_POWER               "`4v"   // Power
+#define L_SIGN_IN             "`4w"   // Sign in
+#define L_SIGN_OUT            "`4x"   // Sign out
 #define L_LOCAL_IP            "`4y"   // Local IP
 #define L_LOCAL_API           "`4z"   // Local API
 #define L_PUBLIC_IP           "`50"   // Public IP
-#define L_CHIP_ID             "`51"   // Chip ID
-#define L_OTHER_NAMES_HINT    "`52"   // (names of a tunnel or proxy, separated by commas)
-#define L_INVALID_NAME        "`53"   // Invalid name (up to 31 characters, no quotes)
-#define L_FREE                "`54"   // Free
-#define L_V_CLEAR             "`55"   // clear
-#define L_FREE_HEAP           "`56"   // Free heap
-#define L_RATE                "`57"   // Rate
-#define L_PHOTO               "`58"   // Photo
-#define L_NONE                "`59"   // None
-#define L_MEMORY              "`5A"   // Memory
-#define L_FILES               "`5B"   // Files
-#define L_NETMASK             "`5C"   // Netmask
-#define L_AGO                 "`5D"   // {0} ago
-#define L_OPEN_BTN            "`5E"   // Open
-#define L_V_WAITING           "`5F"   // waiting
-#define L_TEMPERATURE         "`5G"   // Temperature
-#define L_S_DS18              "`5H"   // Temperature (DS18B20)
-#define L_BRIGHTNESS          "`5I"   // Brightness
-#define L_MODE                "`5J"   // Mode
-#define L_MANUAL              "`5K"   // manual
-#define L_LOW                 "`5L"   // Low
-#define L_A_PUMP              "`5M"   // Pump
-#define L_A_BUZZER            "`5N"   // Buzzer
-#define L_V_PRESSED           "`5O"   // pressed
-#define L_V_ERROR             "`5P"   // error
-#define L_P_BLUE              "`5Q"   // Blue
+#define L_PHOTO               "`51"   // Photo
+#define L_NONE                "`52"   // None
+#define L_MEMORY              "`53"   // Memory
+#define L_FREE_HEAP           "`54"   // Free heap
+#define L_FREE                "`55"   // Free
+#define L_V_CLEAR             "`56"   // clear
+#define L_LARGEST_BLOCK       "`57"   // Largest block
+#define L_P_GRAY              "`58"   // Gray
+#define L_FILES               "`59"   // Files
+#define L_NETMASK             "`5A"   // Netmask
+#define L_RATE                "`5B"   // Rate
+#define L_REVERSE             "`5C"   // Reverse
+#define L_CLOCK_NOT_SYNC      "`5D"   // clock not synchronized
+#define L_V_RELEASED          "`5E"   // released
+#define L_A_RELAY             "`5F"   // Relay
+#define L_AGO                 "`5G"   // {0} ago
+#define L_BRIGHTNESS          "`5H"   // Brightness
+#define L_MODE                "`5I"   // Mode
+#define L_MANUAL              "`5J"   // manual
+#define L_LOW                 "`5K"   // Low
+#define L_TEMPERATURE         "`5L"   // Temperature
+#define L_S_DS18              "`5M"   // Temperature (DS18B20)
+#define L_A_PUMP              "`5N"   // Pump
+#define L_A_BUZZER            "`5O"   // Buzzer
+#define L_V_PRESSED           "`5P"   // pressed
+#define L_V_ERROR             "`5Q"   // error
+#define L_P_BLUE              "`5R"   // Blue

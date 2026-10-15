@@ -95,6 +95,7 @@ public:
     void setAutomatic(bool on) { _automatic = on; }
     bool automatic() const { return _automatic; }
     bool slim()      const { return _slim; }
+    bool online()    const { return _active(); }   // a check or download on the network
     bool busy()      const {
         // _nextRetry is only != 0 together with _wantCheck/_wantInstall
         return _active() || _wantCheck || _wantInstall;

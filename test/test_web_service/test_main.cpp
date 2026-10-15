@@ -38,6 +38,7 @@ struct Fixture {
     MqttService      mqtt{cfg, logger, iot, mqttNet};
     PowerService     power{cfg, logger};
     CloudflareSetup  cf{cfg, logger, store, clock};
+    NetArbiter       net;
     WebService  web;
     RelayService relay{cfg, logger, clock, web.server()};
     MockBrowser srv{[this]() { web.tick(); }};
@@ -46,6 +47,7 @@ struct Fixture {
         : web(cfg, logger, store, wifi, ota, iot, withNtfy ? &ntfy : nullptr,
               withMqtt ? &mqtt : nullptr, withPower ? &power : nullptr, withCf ? &cf : nullptr) {
         web.setRelay(&relay);
+        web.setNet(&net);
         web.begin();
         // The sign-in stores the spent code in /config.json; the tests start
         // from the file system they set up
@@ -589,6 +591,20 @@ void test_status_public_ip() {
     TEST_ASSERT_TRUE(contains(f.out(), "Reverse</span><b>200-1-2-3.isp&lt;x&gt;.net</b>"));
     TEST_ASSERT_TRUE(contains(f.out(), "Changed</span><b>0h 05m 00s ago</b>"));
     TEST_ASSERT_TRUE(contains(f.out(), "Last check</span><b>0h 01m 00s ago</b>"));
+}
+
+// Who has the network
+void test_status_network_and_loops() {
+    Fixture f;
+    f.net.want(NetArbiter::DNS);
+    f.net.want(NetArbiter::RELAY);
+    f.net.grant();
+    f.get("/status");
+    TEST_ASSERT_TRUE(contains(f.out(), "Network turn</span><b>dns, waiting: relay</b>"));
+
+    f.web.setNet(nullptr);
+    f.get("/status");
+    TEST_ASSERT_FALSE(contains(f.out(), "Network turn"));
 }
 
 // ── /cloudflare ──────────────────────────────────────────────────────────────
@@ -3287,6 +3303,7 @@ int main() {
     RUN_TEST(test_power_in_header);
     RUN_TEST(test_settings_save_gauge);
     RUN_TEST(test_iot_respects_gauge);
+    RUN_TEST(test_status_network_and_loops);
     RUN_TEST(test_cloudflare_without_token);
     RUN_TEST(test_cloudflare_lists_the_zones);
     RUN_TEST(test_cloudflare_shows_the_last_job);

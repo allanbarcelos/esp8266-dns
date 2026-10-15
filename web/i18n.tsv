@@ -75,6 +75,7 @@ MEMORY	Memory	Memória	Memoria	Mémoire
 FREE_HEAP	Free heap	Heap livre	Heap libre	Tas libre
 LARGEST_BLOCK	Largest block	Maior bloco	Bloque más grande	Plus grand bloc
 FRAGMENTATION	Fragmentation	Fragmentação	Fragmentación
+NET_TURN	Network turn	Vez da rede	Turno de la red	Tour du réseau
 OTA_RESERVE	OTA reserve	Reserva OTA	Reserva OTA	Réserve OTA
 FREE	Free	Livre	Libre	Libre
 USED	Used	Usado	Usado	Utilisé

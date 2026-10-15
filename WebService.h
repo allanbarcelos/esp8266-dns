@@ -19,6 +19,7 @@
 #include "PowerService.h"
 #include "CloudflareSetup.h"
 #include "RelayService.h"
+#include "NetArbiter.h"
 #include "Assets.h"
 #include "WebAssets.h"
 #include "I18n.h"
@@ -146,6 +147,9 @@ public:
     // The relay, built after the panel (it uses server()): for its status
     void setRelay(RelayService* relay) { _relay = relay; }
 
+    // Who has the network and the slowest loop, for Status
+    void setNet(NetArbiter* net) { _net = net; }
+
     // Boot token (sign-in and first setup) and the token of the forms of
     // the current session (the boot one while there is none)
     const char* csrfToken() const { return _csrfToken; }
@@ -208,6 +212,7 @@ private:
     PowerService*    _power;
     CloudflareSetup* _cf;
     RelayService*    _relay = nullptr;
+    NetArbiter*      _net = nullptr;
     // Wrong password, code or token: the first mistakes pass; after that each
     // one doubles the wait (2 s up to 5 min), and nothing is tried meanwhile
     // (429). Getting it right resets the count.
@@ -1148,6 +1153,10 @@ private:
         _row(PSTR(L_FREE_HEAP),   formatBytes(ESP.getFreeHeap(), b));
         _row(PSTR(L_LARGEST_BLOCK),  formatBytes(ESP.getMaxFreeBlockSize(), b));
         _rowf(PSTR(L_FRAGMENTATION), PSTR("%u%%"), (unsigned)ESP.getHeapFragmentation());
+        if (_net) {
+            char q[NetArbiter::QUEUE_LEN];
+            _row(PSTR(L_NET_TURN), _net->queue(q));
+        }
         _boxEnd();
 
         _box(PSTR("Flash"));

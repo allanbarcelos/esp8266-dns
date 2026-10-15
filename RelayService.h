@@ -92,9 +92,9 @@ public:
 
     bool up() const       { return _open; }
 
-    // The next tick will open the connection (TLS)
-    bool due(unsigned long now) const {
-        return configured() && !_held && !_open && (long)(now - _next) >= 0 && WiFi.status() == WL_CONNECTED;
+    // Uses the network: connected, or due to connect
+    bool wantsNet(unsigned long now) const {
+        return configured() && WiFi.status() == WL_CONNECTED && (_open || (long)(now - _next) >= 0);
     }
 
     // The ntfy commands come through the relay: it is up, or was until moments ago

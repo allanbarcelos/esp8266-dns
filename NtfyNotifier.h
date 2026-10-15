@@ -77,6 +77,7 @@ public:
 
     // Commands wanted (an actuator and a command topic), and where they left off
     bool        wantsCommands() const { return _wantStream(); }
+    bool        streaming() const     { return _state != ST_IDLE; }
     const char* lastId() const        { return _lastId; }
 
     // Command stream state, for the panel

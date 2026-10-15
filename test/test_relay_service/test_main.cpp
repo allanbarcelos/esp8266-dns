@@ -537,24 +537,26 @@ void test_command_frame_reaches_the_actuator() {
 }
 
 // The next tick will connect: the ntfy stream lets go first
-void test_due_says_a_connection_is_next() {
+// It uses the network while connected and when due to connect, held or not:
+// the arbiter decides who gets the turn
+void test_wants_the_network() {
     Rig r;
-    TEST_ASSERT_TRUE(r.relay.due(0));
+    TEST_ASSERT_TRUE(r.relay.wantsNet(0));
     r.relay.hold(true);
-    TEST_ASSERT_FALSE(r.relay.due(0));
+    TEST_ASSERT_TRUE(r.relay.wantsNet(0));
     r.relay.hold(false);
     WiFi._status = WL_DISCONNECTED;
-    TEST_ASSERT_FALSE(r.relay.due(0));
+    TEST_ASSERT_FALSE(r.relay.wantsNet(0));
     WiFi._status = WL_CONNECTED;
     r.open();
-    TEST_ASSERT_FALSE(r.relay.due(1));                    // already open
+    TEST_ASSERT_TRUE(r.relay.wantsNet(1));                // open
     MockTLS::failConnect = true;
     r.relay.reconnect();
     r.relay.tick(10);                                     // fails: waits 5 s
-    TEST_ASSERT_FALSE(r.relay.due(10 + 4999));
-    TEST_ASSERT_TRUE(r.relay.due(10 + 5000));
-    cfg.relay_host[0] = '\0';
-    TEST_ASSERT_FALSE(r.relay.due(10 + 5000));
+    TEST_ASSERT_FALSE(r.relay.wantsNet(10 + 4999));
+    TEST_ASSERT_TRUE(r.relay.wantsNet(10 + 5000));
+    cfg.relay_host[0] = 0;
+    TEST_ASSERT_FALSE(r.relay.wantsNet(10 + 5000));
 }
 
 // The relay carries the ntfy commands while up, and for GRACE_MS after it drops
@@ -600,7 +602,7 @@ int main() {
     RUN_TEST(test_hello_carries_the_ntfy_commands);
     RUN_TEST(test_hello_without_commands);
     RUN_TEST(test_command_frame_reaches_the_actuator);
-    RUN_TEST(test_due_says_a_connection_is_next);
+    RUN_TEST(test_wants_the_network);
     RUN_TEST(test_carries_the_commands_until_down_a_while);
     return UNITY_END();
 }

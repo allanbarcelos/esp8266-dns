@@ -145,6 +145,9 @@ void test_tick_runs_the_relay() {
     app.tick();                                    // public IP first: the relay waits
     TEST_ASSERT_EQUAL_STRING("paused", app.relay.status());
     TEST_ASSERT_EQUAL_STRING("relay", app.ntfy.commandStatus());   // its Worker brings the commands
+    setMillis(1500);
+    app.tick();                                    // then the first ntfy post: it waits again
+    TEST_ASSERT_EQUAL_STRING("paused", app.relay.status());
 
     MockHTTP::rawHttp = "HTTP/1.1 101 Switching Protocols\r\n\r\n";
     setMillis(2000);
@@ -210,6 +213,8 @@ void test_tick_redeploys_an_outdated_relay() {
     MockHTTP::push(200, R"({"success":true,"result":{}})");     // upload
     MockHTTP::push(200, R"({"success":true,"result":{}})");     // address
     setMillis(1000);
+    app.tick();                                    // the public IP first, the deploy next
+    setMillis(1500);
     app.tick();
     TEST_ASSERT_EQUAL_STRING("", app.cfsetup.message());
     TEST_ASSERT_EQUAL(CloudflareSetup::DONE, app.cfsetup.state());
@@ -268,6 +273,84 @@ void test_tick_pauses_mqtt_for_the_version_check() {
     TEST_ASSERT_EQUAL_STRING("paused", app.mqtt.status());
 }
 
+// Short of heap, a turn waits instead of failing, with MQTT paused
+void test_tick_waits_for_memory_before_a_check() {
+    MockFS::put("/config.json", R"({"ssid":"Home","pass":"12345678","webpss":"strong-pass",
+        "ota_auto":false,"mqtt_host":"192.168.1.10"})");
+    App app;
+    app.begin();
+    app.ota.requestCheck();
+    ESP._heap = OTAService::GITHUB_HEAP - 1;
+    setMillis(1000);
+    app.tick();
+    TEST_ASSERT_TRUE(app.net.starved());
+    TEST_ASSERT_EQUAL_STRING("paused", app.mqtt.status());
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());   // the check waits
+    char q[NetArbiter::QUEUE_LEN];
+    TEST_ASSERT_EQUAL_STRING("ota (memory), waiting: ip", app.net.queue(q));
+
+    ESP._heap = 40000;                                      // the heap came back
+    MockHTTP::push(200, R"({"tag_name":"v1"})");
+    setMillis(2000);
+    app.tick();
+    TEST_ASSERT_FALSE(app.net.starved());
+    TEST_ASSERT_TRUE(contains(MockHTTP::calledURLs[0], "api.github.com"));
+
+    // Nobody wants the network: no turn
+    WiFi._status = WL_DISCONNECTED;
+    setMillis(3000);
+    app.tick();
+    TEST_ASSERT_EQUAL(NetArbiter::NONE, app.net.owner());
+}
+
+// The relay waits for the heap too
+void test_tick_relay_waits_for_memory() {
+    MockFS::put("/config.json", R"({"ssid":"Home","pass":"12345678","webpss":"strong-pass",
+        "ota_auto":false,"relay_host":"esp-pump.example.com","relay_ver":1,"relay_key":"00"})");
+    App app;
+    app.begin();
+    ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;
+    setMillis(1000);
+    app.tick();                                             // the IP check waits
+    setMillis(1000 + NetArbiter::WAIT_MS);
+    app.tick();                                             // then runs anyway, and fails
+    TEST_ASSERT_EQUAL(1, app.net.late());
+    setMillis(2000 + NetArbiter::WAIT_MS);
+    app.tick();                                             // the relay's turn: it waits
+    TEST_ASSERT_EQUAL(NetArbiter::RELAY, app.net.owner());
+    TEST_ASSERT_TRUE(app.net.starved());
+    TEST_ASSERT_EQUAL(0, MockTLS::connectCalls);
+
+    ESP._heap = 40000;                                      // the Worker never answers the upgrade
+    MockHTTP::keepOpen = true;
+    MockHTTP::push(-1);
+    setMillis(3000 + NetArbiter::WAIT_MS);
+    app.tick();
+    TEST_ASSERT_EQUAL(1, MockTLS::connectCalls);
+}
+
+// An open command stream keeps its turn when the heap runs short: it holds it already
+void test_tick_open_stream_goes_on() {
+    MockFS::put("/config.json", R"({"v":2,"ssid":"Home","pass":"12345678","webpss":"strong-pass",
+        "ota_auto":false,"ntfy_cmd":"cmd-x","actuator":"relay","actuator_pin":0})");
+    App app;
+    app.begin();
+    MockHTTP::keepOpen = true;
+    setMillis(1000);
+    app.tick();                                             // the public IP first
+    MockHTTP::rawHttp = "HTTP/1.1 200 OK\r\n\r\n";
+    setMillis(2000);
+    app.tick();
+    setMillis(2001);
+    app.tick();
+    TEST_ASSERT_EQUAL_STRING("connected", app.ntfy.commandStatus());
+    ESP._heap = 9000;
+    setMillis(2002);
+    app.tick();
+    TEST_ASSERT_FALSE(app.net.starved());
+    TEST_ASSERT_EQUAL_STRING("connected", app.ntfy.commandStatus());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_begin_starts_services);
@@ -284,5 +367,8 @@ int main() {
     RUN_TEST(test_tick_redeploys_an_outdated_relay);
     RUN_TEST(test_tick_falls_back_to_the_ntfy_stream);
     RUN_TEST(test_tick_pauses_mqtt_for_the_version_check);
+    RUN_TEST(test_tick_waits_for_memory_before_a_check);
+    RUN_TEST(test_tick_relay_waits_for_memory);
+    RUN_TEST(test_tick_open_stream_goes_on);
     return UNITY_END();
 }
