@@ -81,7 +81,7 @@ you own.
 - **Physical access.** Whoever can reach the serial pins can reflash the device and read its flash,
   including the stored credentials.
 - Volumetric denial of service against the device or the local network.
-- Vulnerabilities in third-party components (ESP8266 Arduino core, BearSSL, ArduinoJson) that are
+- Vulnerabilities in third-party components (ESP8266 Arduino core, BearSSL) that are
   not caused by how this firmware uses them — please report those upstream.
 - Reports from automated scanners without a demonstrated impact.
 
@@ -89,9 +89,14 @@ you own.
 
 - **Signed updates.** Every release is signed with RSA-2048/SHA-256 in CI. The device checks the
   signature before accepting the image; the public key is built into the firmware and the private
-  key exists only as a GitHub Actions secret.
-- **Panel**: a sign-in form with a user and a password of at least 8 characters, set on first use,
-  plus a mandatory authenticator (RFC 6238, HMAC-SHA1, 30 s, 6 digits, one step either side). The
+  key exists only as a GitHub Actions secret. The signature covers the image together with its
+  version tag (`firmware.tagged.bin`: SHA-256 of the image's SHA-256 and the tag), and the device
+  checks it against the tag it asked for, so an older release, genuinely signed, cannot be passed
+  off as a newer one. Each release also carries `firmware.signed.bin`, signed over the image
+  alone, for devices from before the tag.
+- **Panel**: a sign-in form with a user and a password of at least 8 characters, set on first use
+  and stored only as PBKDF2-HMAC-SHA1 with a random salt (4096 rounds; a password saved by an
+  older firmware is replaced by the hash on the first boot), plus a mandatory authenticator (RFC 6238, HMAC-SHA1, 30 s, 6 digits, one step either side). The
   secret is shown once, when it is enrolled, and stored in `/config.json`. Until a code is
   confirmed, only the sign-in and the authenticator page are open. There is no HTTP Basic
   authentication.
@@ -100,8 +105,10 @@ you own.
   (SNTP has no authentication). A code captured on the network cannot be replayed.
 - **Clock.** Codes are checked against the device clock once SNTP has set it. Until then (setup
   access point, no internet) the browser sends its own time with the form; it can only open a
-  step after the last one accepted, so it does not bring old codes back. Without either time the
-  attempt is refused and does not count as a mistake.
+  step after the last one accepted, so it does not bring old codes back. Steps accepted against the
+  browser's clock are kept apart: once the device has its own time, one from a browser clock that
+  ran ahead is ignored instead of locking the authenticator until that date. Without either time
+  the attempt is refused and does not count as a mistake.
 - **Sensitive changes** ask again for the current password and a current code: a new panel password
   and a new authenticator. Replacing the authenticator keeps the current key until a code from the
   new one is confirmed; giving up halfway (signing out, the session ending, a reboot) changes
@@ -117,9 +124,15 @@ you own.
   framed by another site.
 - **Wrong passwords**: after 5 wrong panel passwords, authenticator codes or API tokens in a row,
   each new mistake doubles a wait (2 s up to 5 min) during which nothing is checked and the device
-  answers 429. A correct sign-in clears the count. The count is per device, not per address (there
-  is no memory for a table), so someone on the network can delay the owner's login by a few minutes,
-  but not guess the password.
+  answers 429. A correct sign-in clears the count. There are three counts: the API token's, the
+  one for the address of the last sign-in, and the one for every other address. Someone guessing
+  elsewhere on the network waits alone; the owner and scripts using the API carry on.
+- **Requests**: the panel answers only to its own names (an IP address, a name without a dot, its
+  hostname with any domain, the Cloudflare host and the names listed under Settings, Other
+  addresses), so a page on another site cannot reach it through DNS rebinding. A request must
+  arrive whole within 3 s and with at most 32 header lines, so a slow client cannot hold the loop
+  where the actuator's safety timer runs. The Cloudflare IDs and token accept only the characters
+  they can have.
 - **Local API**: `/api/state` and `/api/cmd` exist only while a sensor or actuator is configured,
   and require a Bearer token separate from the panel password (32 hex characters from the hardware
   RNG, compared in constant time, regenerated from the IoT page).
@@ -130,13 +143,18 @@ you own.
   the configured actuator supports. A pulse is never stored as the state to restore, and an
   optional safety timer turns an actuator off after a set time.
 - **TLS to the internet**: Cloudflare, the public-IP services and ntfy (command stream and
-  publishing) are validated against pinned root certificates (`CloudflareCA.h`) with a clock
-  synchronized by SNTP. The OTA download from GitHub does not validate the certificate: the
-  image is installed only if its RSA signature checks out, so a forged download is rejected.
+  publishing) are validated against pinned roots (`CloudflareCA.h`) with a clock synchronized by
+  SNTP. The OTA download from GitHub does not validate the certificate: the image is installed only
+  if its signature, bound to the version asked for, checks out, so a forged or older download is
+  rejected. Someone in the middle can still delay updates.
   Every connection offers only TLS 1.2 ECDHE with AES-GCM (forward secrecy, no CBC or 3DES); the
   other ciphers are not even in the firmware (`TlsTrim.h`).
   Commands older than 10 minutes are ignored.
-- **Credentials** live only in `/config.json` on the device's LittleFS, written atomically.
+- **Credentials** live only in `/config.json` on the device's LittleFS, written atomically. The
+  panel password is a salted hash; the Wi-Fi password, tokens and the authenticator secret must be
+  usable by the device and are stored as they are (physical access reads them).
+- **Build**: the CI actions are pinned by commit, and Dependabot proposes updates; the job that
+  builds the firmware is the one whose output the release job signs.
 - **No restart loops**: the device does not reboot because the internet is down; a rejected update
   is remembered and not downloaded again.
 

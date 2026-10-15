@@ -1,6 +1,6 @@
 # Firmware status and next steps
 
-Status on 2026-10-14, at the merge of the translated pin drawing (after `5c5f7be`). What went in, and in which commit, is in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+Status on 2026-10-14, after the size and security round (`3346611` to `d4331c2`). What went in, and in which commit, is in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Where we are
 
@@ -8,13 +8,38 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 | | |
 | --- | --- |
-| Firmware | 499,680 of 500,000 bytes (320 to spare) |
-| Signed OTA package | ~363 KB of 400 KB |
-| Static RAM | 37,728 bytes |
-| Native tests | 452, with 100 % of lines, functions and branches |
-| In CI | no compiler warnings, ASan and UBSan, cppcheck, fuzzing of 5 inputs |
+| Firmware | 475,136 of 500,000 bytes (24,864 to spare) |
+| Signed OTA package | ~347 KB of 400 KB |
+| Static RAM | 37,512 bytes |
+| Native tests | 491, with 100 % of lines, functions and branches |
+| In CI | no compiler warnings, ASan and UBSan, cppcheck, fuzzing of 7 inputs |
 
-## Since the previous status (2026-10-13)
+## Size and security round (2026-10-14)
+
+From 499,248 to 475,136 bytes (−24 KB, a measured analysis first, every step with the native tests, the sanitizers and the fuzzers green), plus the fixes from a security review. Commits in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+
+### Space
+
+- **C runtime:** the libgcc unwinder (nothing unwinds with `-fno-exceptions`) and newlib's stdio `FILE` layer (printf now goes through `vsnprintf`) out of the link: −10.3 KB.
+- **TLS roots as trust anchors** (name and key only): −3.2 KB of flash, about 4 KB less heap during each TLS session, no certificate parsing before the handshake.
+- **One-shot HTTPS without `HTTPClient`** (`TlsClient.h`): −5.8 KB.
+- **Own JSON reader and writer** (`Json.h`), with config.json as a table of fields: −6.4 KB. ArduinoJson stays only in the tests, as an independent check.
+- **Web panel code:** routes in a table, escaping as the text goes out, status rows without `String` temporaries, shared strings: −1.9 KB, same pages.
+
+### Security
+
+- **OTA signature bound to the version tag.** Over the unvalidated GitHub connection, an older release, genuinely signed, could be served as a newer one; the signature now covers the tag the device asked for (`firmware.tagged.bin`).
+- **HTTP request deadline** (3 s) and a header cap: a slow client could hold the loop, and with it the actuator's safety timer.
+- **Three sign-in counts** (API, the owner's address, everyone else): one wrong request every 5 min could keep the owner and the API out for good.
+- **Panel password as a salted hash** (PBKDF2-HMAC-SHA1), converted on the first boot.
+- **Host check** against DNS rebinding, with Settings, Other addresses for a tunnel's name. A Cloudflare tunnel under its own name needs that name once (see [REMOTE-ACCESS.md](REMOTE-ACCESS.md)).
+- **Cloudflare IDs and token** checked before they are saved.
+- **Authenticator steps from the browser's clock kept apart**, so a browser clock running ahead cannot lock the authenticator.
+- **CI actions pinned by commit**, with Dependabot.
+
+**Not verified on a device yet:** everything in this round, like the previous one. HTTP/1.0 to the Cloudflare API and the tagged OTA signature in particular need the [on-device checklist](HARDWARE-TEST.md).
+
+## Before that (2026-10-13 to 2026-10-14)
 
 ### Space
 
@@ -48,12 +73,13 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 ## Decisions worth remembering
 
-- **500,000-byte limit.** A project rule, checked in CI. Every change fits inside it. **Only 320 bytes are left:** any new firmware feature first needs room taken from somewhere else.
+- **500,000-byte limit.** A project rule, checked in CI. Every change fits inside it. 24,864 bytes are left after the size round.
 - **The fast P-256 stays.** Dropping it frees about 10 KB, but ECDHE and ECDSA on P-256 (every handshake) would use the slower generic code. Not a trade worth making while other room exists.
 - **The ESP-01 photo stays.** If space runs out, it is not the first thing to go. Its size is set by `PHOTO_BYTES` in `tools/embed_assets.py` (3,250 today): a smaller photo is the quickest room.
 - **Images in formats the browser decodes.** A decoder of our own costs flash; AVIF and SVG cost none.
 - **Never open a port to the device.** The ESP-01 does not serve HTTPS; access from outside goes through a tunnel with its own login.
-- **Login failures counted per device, not per address.** Someone on the network can delay the owner's login for a few minutes, but not guess the password. A per-address table does not fit in memory.
+- **Three sign-in counts, not one per address.** The API token, the address of the last sign-in and everyone else each have their own. A full table per address does not fit in memory.
+- **HTTP/1.0 for the device's own requests.** No chunked encoding to decode, as the OTA and the ntfy stream already did.
 - **MQTT without TLS.** The only TLS session that fits is already shared by DNS, ntfy and OTA.
 
 ## Before renaming the repository

@@ -2,7 +2,7 @@
 
 Status on 2026-10-13. The list came from the documents of the same day: [Status and next steps](STATUS-AND-NEXT-STEPS.md), [What to port from Tasmota](PORTING-FROM-TASMOTA.md) and [Battery and solar panel](BATTERY-AND-SOLAR.md), plus the README's remote log. The round implemented items 5, 6, 7, 8, 10 and 11, one commit per item. Item 7 came first because it freed the room for the others.
 
-After the round and the adjustments at the end of this page (English, four languages, the authenticator, the photo), the firmware is **499,680 bytes**, under the 500,000 cap (320 to spare). Before the lean server it was 499,312. There are 452 native tests, with 100 % of lines, functions and branches. What is left, in order: [STATUS-AND-NEXT-STEPS.md](STATUS-AND-NEXT-STEPS.md).
+After the round and the adjustments at the end of this page (English, four languages, the authenticator, the photo), the firmware was **499,680 bytes**, under the 500,000 cap (320 to spare). The size and security round that closes this page took it to **475,136 bytes** (24,864 to spare), with 491 native tests at 100 % of lines, functions and branches. What is left, in order: [STATUS-AND-NEXT-STEPS.md](STATUS-AND-NEXT-STEPS.md).
 
 ## Do not change the firmware
 
@@ -68,3 +68,23 @@ After the round and the adjustments at the end of this page (English, four langu
 | Authenticator QR code | /mfa also shows the key as a QR code (otpauth://, named after the device), drawn by i18n.js: a QR encoder of its own for the one size needed (version 5-L, byte mode, mask 0), since the smallest libraries take several KB. Nothing changes in the C++ | 499,952 |
 | Menu and footer | The menu only where its pages open (signed in with the authenticator, or the first setup on the access point): not on the sign-in page; on the authenticator page only Sign out. Footer held at the bottom: version on the left, "Created by Barcelos.Dev", the GitHub mark linking to the repository on the right. The links, the credit and the mark come from the gzipped i18n.js and panel.css. Room from `Totp.h` taking HMAC-SHA1 from BearSSL, already in the firmware (−736 bytes) | 499,712 |
 | ESP-01 photo on white | The photo keeps its white background: transparent, it looked loose on the dark page. Without the alpha plane the same budget gives AVIF quality 48 instead of 44 (rms error 6.6 against 7.4) | 499,680 |
+
+## Size and security round (2026-10-14)
+
+A measured analysis of the firmware (map, symbols, prototypes built from the same commit) and a security review, then one commit per item. The native tests, ASan and UBSan, cppcheck and the fuzzers ran green on Linux at every step. The starting point, built as CI does, was 499,248 bytes.
+
+| Commit | What changed | Firmware |
+|---|---|---|
+| `3346611` | HTTP request deadline (3 s) and at most 32 header lines: a slow client could hold the loop and the actuator's safety timer | 499,312 |
+| `bb709c6` | libgcc unwinder and newlib's stdio `FILE` layer out of the link (`TlsTrim.h`) | 489,056 |
+| `195dda0` | TLS roots as precomputed trust anchors: no X.509 decoder, ~4 KB less heap per session | 485,856 |
+| `56b3098` | One-shot HTTPS requests (`TlsClient.h`) instead of `HTTPClient`; a fuzz target for the answers | 480,048 |
+| `78028e0` | Own JSON reader and writer (`Json.h`); config.json as a table of fields; ArduinoJson only in the tests | 473,600 |
+| `568c261` | OTA signature bound to the version tag (`firmware.tagged.bin`): no downgrade through a man in the middle | 473,872 |
+| `c08bc96` | Three sign-in counts (API, the owner's address, everyone else) | 474,064 |
+| `d29393f` | Panel password as PBKDF2-HMAC-SHA1 with a salt, converted on the first boot | 475,200 |
+| `950d44b` | Cloudflare IDs (32 hex digits) and token (letters, digits, _ and -) checked before they are saved | 475,600 |
+| `a13c414` | Host check against DNS rebinding; Settings, Other addresses for a tunnel or proxy | 476,816 |
+| `c89ddc3` | Authenticator steps from the browser's clock kept apart (`totp_bstep`) | 477,040 |
+| `9887b1e` | CI actions pinned by commit, Dependabot for updates | 477,040 |
+| `d4331c2` | Web panel code: route table, streaming escape, rows without `String` temporaries, shared strings | 475,136 |

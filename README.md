@@ -19,17 +19,20 @@ Each service is a header with dependencies injected by reference, composed in la
 | `App.h`              | Service composition, `setup()`/`loop()`, one TLS session at a time              |
 | `Config.h`           | Configuration and runtime state; AP credentials; `IoTConfig`                    |
 | `ConfigStore.h`      | `/config.json` (LittleFS) with **atomic writes**, a version number and migrations |
+| `Json.h`             | Small JSON reader and writer (config, state, Cloudflare and ntfy answers)        |
+| `Password.h`         | Panel password as PBKDF2-HMAC-SHA1 with a random salt                            |
 | `Logger.h`           | Ring buffer of log lines (Serial + panel)                                        |
 | `Clock.h`            | SNTP wall clock (required to validate TLS certificates)                          |
 | `Totp.h`             | Authenticator codes (RFC 6238): HMAC-SHA1 from BearSSL, 30 s, 6 digits           |
-| `TlsTrim.h`          | Leaves unused BearSSL ciphers and curves out of the firmware (sketch only)       |
+| `TlsTrim.h`          | Leaves unused BearSSL and C runtime code out of the firmware (sketch only)       |
+| `TlsClient.h`        | TLS client (small buffers, ECDHE + AES-GCM) and one-shot HTTPS requests          |
 | `WiFiService.h`      | Connection, configuration mode (AP), reconnection and watchdogs                  |
-| `PublicIPResolver.h` | Public IPv4 over HTTPS every 5 min (CA bundle in `CloudflareCA.h`)               |
+| `PublicIPResolver.h` | Public IPv4 over HTTPS every 5 min (trust anchors in `CloudflareCA.h`)           |
 | `ReverseDNS.h`       | Reverse name (PTR) of the public IP, asked to the network's DNS over UDP        |
 | `CloudflareDNS.h`    | PATCHes the record through the Cloudflare API                                    |
 | `NtfyNotifier.h`     | ntfy both ways: publishes IP and IoT events; subscribes to the command topic    |
 | `MqttService.h`      | MQTT on the local network: state, commands and availability                     |
-| `OTAService.h`       | Version check and signed firmware download                                       |
+| `OTAService.h`       | Version check and signed firmware download (signature bound to the tag)          |
 | `IoTCatalog.h`       | Sensor and actuator catalog, by stable identifier and capability                |
 | `IoTCommand.h`       | Text command parser shared by panel, API and ntfy                               |
 | `IoTService.h`       | Sensor reading, actuator output, rule, pulse, safety off, JSON state            |
@@ -271,11 +274,12 @@ With Cloudflare configured (token, zone and **one record ID**), a public IP diff
 
 ```text
 GitHub Releases ──(vN)──► ESP8266
-  firmware.signed.bin = gzip(firmware) + RSA-2048/SHA-256 signature
+  firmware.tagged.bin = gzip(firmware) + RSA-2048/SHA-256 signature
+                        over SHA-256(SHA-256(gzip) || tag)
 ```
 
-- Hourly (up to ~23 h of uptime) it queries `releases/latest`. It only installs `vN` tags **greater** than the current one, which prevents downgrades.
-- A build that embeds `public.key` makes the core `Updater` **verify the signature** in `Update.end()` and store only the gzip. Manual install downloads the same file as the hourly check: `firmware.signed.bin` when the key is in the build, `firmware.bin` when it is not. The bootloader reads the uncompressed size from the last 4 bytes; on the signed file those bytes are the signature length, and storing that trailer corrupts the sketch.
+- Hourly (up to ~23 h of uptime) it queries `releases/latest`. It only installs `vN` tags **greater** than the current one, and the signature names the tag: the device checks it against the version it asked for, so an older release cannot be served under a newer tag (the GitHub connection itself is not validated).
+- A build that embeds `public.key` makes the core `Updater` **verify the signature** in `Update.end()` and store only the gzip. Manual install downloads the same file as the hourly check: `firmware.tagged.bin` when the key is in the build, `firmware.bin` when it is not. Releases still carry `firmware.signed.bin` (signed over the image alone) for devices from before the tagged signature. The bootloader reads the uncompressed size from the last 4 bytes; on the signed file those bytes are the signature length, and storing that trailer corrupts the sketch.
 - The gzip is padded (FNAME field) to a multiple of 4 bytes: the core `Updater` hashes in 4-byte reads and silently fails on a tail of another size.
 - PlatformIO embeds `public.key` before compilation (`pre:tools/embed_pubkey.py`), the same way arduino-cli does in CI. The link fails if the ELF lacks the verifier and that key.
 - The linker script `ld/eagle.flash.1m64.ota.ld` shortens IROM by **400 KB**. That hole sits against the filesystem and the sketch can never occupy it; a firmware that grows past the cap fails at link time. `package_ota.py` also rejects a gzip/signature larger than the reserve.
@@ -301,13 +305,13 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 499,680 of 500,000 bytes (320 to spare) |
+| Firmware | 475,136 of 500,000 bytes (24,864 to spare) |
 | Panel text, 4 languages | 313 texts (the pin drawing included), 34 KB as text, 12 KB in flash |
-| Signed OTA package | ~358 KB of 400 KB (about 42 KB free) |
+| Signed OTA package | ~347 KB of 400 KB (about 53 KB free) |
 | Embedded images | 1.1 KB pinout (gzipped SVG), 3.2 KB ESP-01 photo (AVIF, white background) |
 | Configuration filesystem | 64 KB, unchanged |
 
-Kept small on purpose: page text in flash (`PSTR`) as 3-byte markers, with the text of the four languages in one gzipped table that the browser decodes (one column per language, rows ordered so similar texts sit together, an empty cell for text equal to English and one byte for text equal to the language before it, compressed with zopfli), no `scanf` (one `sscanf` pulled about 3 KB of the C library), TLS roots in DER, a single JSON reader (everything parsed in place, as `char*`), no float `printf`, LittleFS without its debug asserts (`LFS_NO_ASSERT`, 3.4 KB; errors are still return codes), one TLS session at a time, TLS limited to ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519, MD5, the TLS 1.0 PRF and client certificates are left out of the link by `TlsTrim.h`, about 29 KB; the fast P-256 stays, so the handshake is as fast as before; every server the device uses negotiates ECDHE + AES-128-GCM), lwIP without extras (`ip=lm2n`, about 10 KB: no NAT, IP fragmentation or AutoIP; SNTP keeps one server, so `Clock` alternates between `pool.ntp.org` and `time.google.com` until it syncs), an own HTTP server instead of `ESP8266WebServer` (about 12 KB: one client at a time, routes by `if` instead of a `std::function` table, no upload, Digest, keep-alive or chunked encoding; the page ends when the connection closes), a WS2812 driver without a library, the command word table in flash. **mDNS** was measured at about 21 KB and does not fit; use a DHCP reservation instead.
+Kept small on purpose: page text in flash (`PSTR`) as 3-byte markers, with the text of the four languages in one gzipped table that the browser decodes (one column per language, rows ordered so similar texts sit together, an empty cell for text equal to English and one byte for text equal to the language before it, compressed with zopfli), no `scanf` (one `sscanf` pulled about 3 KB of the C library), TLS roots as trust anchors (name and key only, 1.6 KB, no X.509 decoder), an own JSON reader and writer (`Json.h`, about 6 KB less than ArduinoJson; config.json is a table of fields), one-shot HTTPS requests without `HTTPClient` (about 6 KB), no libgcc unwinder or stdio `FILE` layer (`TlsTrim.h`, about 10 KB; printf output goes through `vsnprintf`), no float `printf`, LittleFS without its debug asserts (`LFS_NO_ASSERT`, 3.4 KB; errors are still return codes), one TLS session at a time, TLS limited to ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519, MD5, the TLS 1.0 PRF and client certificates are left out of the link by `TlsTrim.h`, about 29 KB; the fast P-256 stays, so the handshake is as fast as before; every server the device uses negotiates ECDHE + AES-128-GCM), lwIP without extras (`ip=lm2n`, about 10 KB: no NAT, IP fragmentation or AutoIP; SNTP keeps one server, so `Clock` alternates between `pool.ntp.org` and `time.google.com` until it syncs), an own HTTP server instead of `ESP8266WebServer` (about 12 KB: one client at a time, routes in a table in flash instead of `std::function`, no upload, Digest, keep-alive or chunked encoding; the page ends when the connection closes), a WS2812 driver without a library, the command word table in flash. **mDNS** was measured at about 21 KB and does not fit; use a DHCP reservation instead.
 
 ---
 
@@ -383,7 +387,6 @@ arduino-cli config init   # skip if you already have an arduino-cli config
 arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
 arduino-cli core update-index
 arduino-cli core install esp8266:esp8266@3.1.2
-arduino-cli lib install "ArduinoJson@6.21.6"
 python3 tools/ota_flash_ld.py
 arduino-cli compile --fqbn esp8266:esp8266:generic:eesz=1M64 \
   --build-property build.flash_ld=eagle.flash.1m64.ota.ld \

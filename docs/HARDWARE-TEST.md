@@ -107,7 +107,15 @@ curl -i -H 'Authorization: Bearer wrong' http://<ip>/api/state
 1. Under **Update**, click **Check now** with a new version published.
 2. Install it.
 
-**Expected:** the progress bar moves, the device reboots into the new version and keeps its configuration. During the download, MQTT drops and comes back on its own afterwards. If the heap cannot fit the download, the device reboots in recovery mode, finishes the OTA and goes back to normal.
+**Expected:** the progress bar moves, the device reboots into the new version and keeps its configuration. During the download, MQTT drops and comes back on its own afterwards. If the heap cannot fit the download, the device reboots in recovery mode, finishes the OTA and goes back to normal. The log shows `Firmware URL: .../firmware.tagged.bin`. A device on a firmware from before the tagged signature still updates, through `firmware.signed.bin`.
+
+## 10b. After the size and security round
+
+1. Update from a firmware older than the round and sign in: the log shows `Panel password: now stored as a hash`, and `/config.json` no longer holds the password as typed (read it back with the web installer's file dump, or check that sign-in still works after a reboot).
+2. With Cloudflare set up, change the public IP (or the record) and check the log: `DNS updated!` (the request now goes as HTTP/1.0).
+3. Open the panel as `http://<ip>`, as `http://<hostname>.local` and through the router's name for the device: all open. Point a name of your own at the device's IP (hosts file) and open it: `Unknown address`. Add that name under **Settings → Other addresses** and it opens.
+4. With a slow client (`telnet <ip> 80`, type a few characters and wait), the panel answers again in at most 3 s on another browser tab, and a running `pulse 5` ends on time.
+5. Without internet (setup access point), sign in with the browser clock set a day ahead; then give the device internet back, wait for the clock, and sign in with a current code: it works.
 
 ## 11. Memory after a day
 
@@ -129,4 +137,5 @@ Leave the device on for 24 h with ntfy, MQTT and DNS active and check **Status**
 | | | 8. API | | |
 | | | 9. MQTT and HA | | |
 | | | 10. OTA | | |
+| | | 10b. Round of 2026-10-14 | | |
 | | | 11. Memory | | |
