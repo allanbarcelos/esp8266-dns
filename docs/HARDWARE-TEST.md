@@ -146,6 +146,8 @@ Leave the device on for 24 h with ntfy, MQTT and DNS active and check **Status**
 
 **Expected:** free heap above 15 KB, fragmentation below 50 % and no reset other than the scheduled daily reboot. The reason for the last reset shows under **Status**.
 
+After a `Reset: Software Watchdog` or `Reset: Exception`, the next line in **Logs** says where: `Crashed in: <part> near 0x...`. Note the part, the address and the firmware version.
+
 ## Record
 
 | Date | Version | Item | Result | Note |

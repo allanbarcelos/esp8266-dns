@@ -18,11 +18,14 @@
 // heap too.
 //
 // It also keeps the slowest loop seen (a TLS handshake blocks for seconds),
-// for the panel and the log.
+// for the panel and the log, and where the loop is: if it crashes or the
+// software watchdog fires, the next boot logs the place.
 class NetArbiter {
 public:
     // In priority order
     enum Who : uint8_t { OTA, IP, DNS, SETUP, POST, RELAY, STREAM, COUNT, NONE = COUNT };
+    // Where the loop is: a Who while that service runs, or one of these
+    enum At : uint8_t { WEB = NONE + 1, WIFI, IOT, MQTT };
 
     static constexpr unsigned long WAIT_MS  = 30000UL;   // longest wait for the heap
     static constexpr unsigned long SLOW_MS  = 200UL;     // a loop this long is a stall
@@ -86,9 +89,34 @@ public:
     uint16_t      late() const     { return _late; }   // turns that ran without the heap
     Who           worstWho() const { return _worstWho; }
 
-    static const char* name(Who w) {
-        static const char* const NAMES[] = {"ota", "ip", "dns", "cloudflare", "ntfy post", "relay", "ntfy stream", "-"};
+    static const char* name(uint8_t w) {
+        static const char* const NAMES[] = {"ota", "ip", "dns", "cloudflare", "ntfy post", "relay",
+                                            "ntfy stream", "-", "web", "wifi", "iot", "mqtt"};
         return NAMES[w];
+    }
+
+    void at(uint8_t where) { _at = where; }
+
+    // From the crash handler (an exception or the software watchdog): where
+    // the loop was and the first code address on the stack go to RTC
+    // memory, which survives the reboot
+    void crashed(const uint32_t* sp, const uint32_t* end) const {
+        uint32_t c[3] = {CRUMB, _at, 0};
+        for (int i = 0; sp < end && i < 64 && !c[2]; sp++, i++)
+            if (*sp >= 0x40200000u && *sp < 0x40300000u) c[2] = *sp;
+        ESP.rtcUserMemoryWrite(RTC_SLOT, c, sizeof(c));
+    }
+
+    // "ip near 0x40212345" once, if the previous boot crashed (out: CRASH_LEN)
+    static constexpr size_t CRASH_LEN = 40;
+    bool lastCrash(char* out) {
+        uint32_t c[3] = {};
+        ESP.rtcUserMemoryRead(RTC_SLOT, c, sizeof(c));
+        if (c[0] != CRUMB || c[1] > MQTT) return false;
+        snprintf(out, CRASH_LEN, "%s near 0x%08x", name((uint8_t)c[1]), (unsigned)c[2]);
+        c[0] = 0;
+        ESP.rtcUserMemoryWrite(RTC_SLOT, c, sizeof(c));
+        return true;
     }
 
     // "dns, waiting: relay, ntfy stream" for the panel (out: QUEUE_LEN)
@@ -105,7 +133,10 @@ public:
     }
 
 private:
-    uint8_t       _wants = 0, _queue = 0;
+    static constexpr uint32_t CRUMB    = 0x4352554Du;   // "CRUM": the slot holds a crash
+    static constexpr uint32_t RTC_SLOT = 120;           // 4-byte blocks; the start is eboot's
+
+    uint8_t       _wants = 0, _queue = 0, _at = NONE;
     Who           _owner = NONE, _worstWho = NONE;
     bool          _starved = false;
     unsigned long _waitFrom = 0, _worst = 0;

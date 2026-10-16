@@ -8,10 +8,10 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 | | |
 | --- | --- |
-| Firmware | 496,320 of 500,000 bytes (3,680 to spare) |
+| Firmware | 496,704 of 500,000 bytes (3,296 to spare) |
 | Signed OTA package | ~354 KB of 400 KB |
-| Static RAM | 38,744 bytes |
-| Native tests | 582, with 100 % of lines, functions and branches |
+| Static RAM | 38,788 bytes |
+| Native tests | 584, with 100 % of lines, functions and branches |
 | Relay Worker tests | 23 on Node, 100 % of lines, functions and branches, on the source and on the embedded script |
 | In CI | no compiler warnings, ASan and UBSan, cppcheck, fuzzing of 9 inputs |
 
@@ -23,6 +23,7 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 - **Cost:** +20 KB of firmware, of which 4.2 KB is the Worker itself (byte-pair encoded) and 1.9 KB the new panel text in four languages. About 1.2 KB more static RAM.
 
 - **One arbiter for the network** (`NetArbiter.h`): the services that need the single TLS session queue by priority (OTA, public IP, DNS, Cloudflare setup, ntfy post, relay, ntfy stream), everyone else closes before the turn runs, and a new session waits up to 30 s for the heap it needs (MQTT paused meanwhile) instead of failing. Status shows who has the network and who waits, the slowest loop and how many passed 200 ms.
+- **Where a crash happened:** on an exception or the software watchdog, the core's crash callback writes the part of the loop that was running (a service of the network turn, or web, wifi, iot, mqtt) and the first code address on the stack to RTC memory; the next boot logs `Crashed in: ip near 0x4021...`. The address points into the ELF of that release.
 
 **Not verified on a device yet:** the whole round. The Cloudflare API calls (zone list, record creation, Worker upload with its Durable Object migration, custom domain, workers.dev) and the relay's heap with MQTT connected need the [on-device checklist](HARDWARE-TEST.md), section 10c, with a real Cloudflare account.
 
@@ -106,7 +107,7 @@ Safe order:
 
 ## Next steps
 
-In order, with an effort estimate. Items that change the firmware need room first: 3.7 KB are left.
+In order, with an effort estimate. Items that change the firmware need room first: 3.3 KB are left.
 
 1. **Run the on-device test** and fix what comes up, remote access included (section 10c, with a Cloudflare account). 3 to 5 hours of testing, plus whatever needs fixing.
 2. **Make room.** The long help texts of the Cloudflare, remote access and ntfy pages (four languages each) and the Worker's own size are the first candidates. Half a day.

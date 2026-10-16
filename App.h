@@ -80,13 +80,17 @@ public:
 
         // getResetReason survives the reboot and says why the previous boot died.
         logger.log(PSTR("Reset: %s"), ESP.getResetReason().c_str());
+        char crash[NetArbiter::CRASH_LEN];
+        if (net.lastCrash(crash)) logger.log(PSTR("Crashed in: %s"), crash);
         logger.log(PSTR("System started %s"), firmware_version);
     }
 
     void tick() {
         unsigned long now = millis();
 
+        net.at(NetArbiter::WEB);
         if (!ota.slim()) web.tick();
+        net.at(NetArbiter::WIFI);
         wifi.tick(now);
         wifi.tickRestart(now);
         clock.tick(now);
@@ -115,6 +119,7 @@ public:
         // turn waiting for memory, needs
         mqtt.hold(slim || ota.busy() || net.starved());
 
+        net.at(who);
         if (go) {
             switch (who) {
                 case NetArbiter::IP:    resolver.tick(now); break;
@@ -128,13 +133,18 @@ public:
                 default: break;   // OTA and the relay, below
             }
         }
+        net.at(NetArbiter::OTA);
         if (who != NetArbiter::OTA || go) ota.tick(now);
+        net.at(NetArbiter::IOT);
         if (!slim && !ota.inProgress()) {
             iot.tick(now);
             power.tick(now);
         }
+        net.at(NetArbiter::RELAY);
         if (who != NetArbiter::RELAY || go) relay.tick(now);
+        net.at(NetArbiter::MQTT);
         mqtt.tick(now);
+        net.at(NetArbiter::NONE);
 
         // A TLS handshake blocks the loop for seconds: the slowest one is logged
         unsigned long before = net.worst();

@@ -25,6 +25,23 @@ void test_begin_starts_services() {
     TEST_ASSERT_TRUE(logHas(app.logger, "Reset: Power On"));
     TEST_ASSERT_TRUE(logHas(app.logger, "OTA: reserve 400 KB"));
     TEST_ASSERT_TRUE(app.ota.automatic());
+    TEST_ASSERT_FALSE(logHas(app.logger, "Crashed in: "));
+}
+
+// The software watchdog fired during a tick: the next boot says where
+void test_begin_logs_where_the_last_boot_crashed() {
+    MockFS::put("/config.json", R"({"ssid":"Home","pass":"12345678","webpss":"strong-pass"})");
+    {
+        App app;
+        app.begin();
+        app.tick();
+        app.net.at(NetArbiter::WEB);
+        uint32_t stack[] = {0x40201000u};
+        app.net.crashed(stack, stack + 1);
+    }
+    App app;
+    app.begin();
+    TEST_ASSERT_TRUE(logHas(app.logger, "Crashed in: web near 0x40201000"));
 }
 
 // Battery gauge set up and not answering: tick reads and reports it
@@ -359,6 +376,7 @@ void test_tick_open_stream_goes_on() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_begin_starts_services);
+    RUN_TEST(test_begin_logs_where_the_last_boot_crashed);
     RUN_TEST(test_tick_reads_battery_gauge);
     RUN_TEST(test_begin_turns_automatic_ota_off);
     RUN_TEST(test_begin_without_config_enters_ap_mode);

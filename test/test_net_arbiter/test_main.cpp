@@ -105,9 +105,10 @@ void test_slowest_loop() {
 }
 
 void test_names() {
-    const char* want[] = {"ota", "ip", "dns", "cloudflare", "ntfy post", "relay", "ntfy stream", "-"};
-    for (int i = 0; i <= NetArbiter::COUNT; i++)
-        TEST_ASSERT_EQUAL_STRING(want[i], NetArbiter::name((NetArbiter::Who)i));
+    const char* want[] = {"ota", "ip", "dns", "cloudflare", "ntfy post", "relay", "ntfy stream", "-",
+                          "web", "wifi", "iot", "mqtt"};
+    for (int i = 0; i <= NetArbiter::MQTT; i++)
+        TEST_ASSERT_EQUAL_STRING(want[i], NetArbiter::name((uint8_t)i));
     // The longest queue fits
     NetArbiter n;
     ESP._heap = 0;
@@ -121,6 +122,33 @@ void test_names() {
     TEST_ASSERT_EQUAL_STRING("ota (memory), waiting: ip, dns, cloudflare, ntfy post, relay, ntfy stream", n.queue(q));
 }
 
+// A crash leaves where the loop was, and the first code address on the
+// stack, for the next boot; once
+void test_crash_is_kept_for_the_next_boot() {
+    char out[NetArbiter::CRASH_LEN];
+    NetArbiter n;
+    TEST_ASSERT_FALSE(n.lastCrash(out));                  // a clean boot
+
+    n.at(NetArbiter::IP);
+    uint32_t stack[70] = {0x3FFF0000u, 0x40100000u, 0x40300000u, 0x40212345u, 0x40234567u};
+    n.crashed(stack, stack + 70);
+    NetArbiter next;
+    TEST_ASSERT_TRUE(next.lastCrash(out));
+    TEST_ASSERT_EQUAL_STRING("ip near 0x40212345", out);
+    TEST_ASSERT_FALSE(next.lastCrash(out));               // read once
+
+    n.at(NetArbiter::MQTT);                               // nothing on the stack (64 words looked at)
+    for (auto& w : stack) w = 0;
+    stack[64] = 0x40212345u;
+    n.crashed(stack, stack + 70);
+    TEST_ASSERT_TRUE(next.lastCrash(out));
+    TEST_ASSERT_EQUAL_STRING("mqtt near 0x00000000", out);
+
+    n.crashed(stack, stack);                              // an empty stack
+    ESP._rtc[121] = NetArbiter::MQTT + 1;                 // a slot that makes no sense
+    TEST_ASSERT_FALSE(next.lastCrash(out));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_turn_by_priority);
@@ -129,5 +157,6 @@ int main() {
     RUN_TEST(test_new_owner_clears_the_wait);
     RUN_TEST(test_slowest_loop);
     RUN_TEST(test_names);
+    RUN_TEST(test_crash_is_kept_for_the_next_boot);
     return UNITY_END();
 }

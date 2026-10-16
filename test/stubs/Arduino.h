@@ -291,6 +291,14 @@ struct EspClass {
     String      getResetReason()        { return String("Power On"); }
     void        restart()               { _restarts++; }
     uint32_t    random()                { return _rand = _rand * 1103515245u + 12345u; }
+    bool rtcUserMemoryRead(uint32_t offset, uint32_t* data, size_t size) {
+        std::memcpy(data, (const uint8_t*)_rtc + offset * 4, size);
+        return true;
+    }
+    bool rtcUserMemoryWrite(uint32_t offset, uint32_t* data, size_t size) {
+        std::memcpy((uint8_t*)_rtc + offset * 4, data, size);
+        return true;
+    }
 
     // Controlled by the tests
     uint32_t _heap     = 50000;
@@ -300,6 +308,7 @@ struct EspClass {
     uint8_t  _frag     = 10;
     int      _restarts = 0;
     uint32_t _rand     = 1;
+    uint32_t _rtc[128] = {};   // RTC user memory: survives a reboot
 
     void reset() { *this = EspClass(); }
 };
