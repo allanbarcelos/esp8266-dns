@@ -1159,6 +1159,9 @@ private:
             _rowf(PSTR(L_SLOWEST_LOOP), PSTR("%lu ms (%s)"), _net->worst(), NetArbiter::name(_net->worstWho()));
             _rowf(PSTR(L_SLOW_LOOPS), PSTR("%u"), (unsigned)_net->slow());
         }
+        // The loop's stack is 4 KB: past it, the core cannot yield any more
+        // and the software watchdog resets the device
+        _row(PSTR(L_STACK_FREE), formatBytes(ESP.getFreeContStack(), b));
         _boxEnd();
 
         _box(PSTR("Flash"));

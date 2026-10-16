@@ -288,6 +288,7 @@ struct EspClass {
     uint32_t    getMaxFreeBlockSize()   { return _maxBlock; }
     String      getResetInfo()          { return _resetInfo; }
     rst_info*   getResetInfoPtr()       { return &_rst; }
+    uint32_t    getFreeContStack()      { return 1400; }
     uint32_t    getFlashChipSize()      { return 1048576; }
     uint32_t    getSketchSize()         { return 300000; }
     uint32_t    getFreeSketchSpace()    { return _freeSketch; }

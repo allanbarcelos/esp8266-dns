@@ -4,6 +4,7 @@
 #pragma once
 #include <ESP8266WiFi.h>
 #include <LittleFS.h>
+#include <new>
 #include "Config.h"
 #include "Clock.h"
 #include "CloudflareCA.h"
@@ -40,6 +41,9 @@ struct Answer {
     bool    relay = false;      // a Worker's settings bind the relay's Durable Object
     int     http = 0;           // the HTTP status
 };
+
+// Empty again, in place: a temporary Answer would take its own stack
+inline void reset(Answer& a) { new (&a) Answer(); }
 
 inline bool _isId(const char* v) { return strlen(v) == 32 && strspn(v, "0123456789abcdef") == 32; }
 

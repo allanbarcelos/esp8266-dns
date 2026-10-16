@@ -603,6 +603,7 @@ void test_status_network_and_loops() {
     f.get("/status");
     TEST_ASSERT_TRUE(contains(f.out(), "Network turn</span><b>dns, waiting: relay</b>"));
     TEST_ASSERT_TRUE(contains(f.out(), "Slowest loop</span><b>1234 ms (dns)</b>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Lowest free stack</span><b>1.4 KB</b>"));
     TEST_ASSERT_TRUE(contains(f.out(), "Loops over 200 ms</span><b>1</b>"));
 
     f.web.setNet(nullptr);

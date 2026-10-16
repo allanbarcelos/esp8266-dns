@@ -159,12 +159,12 @@ private:
         if (a.zones) {
             strlcpy(_cfg.cf_account, a.account, sizeof(_cfg.cf_account));
         } else {
-            cfapi::Answer b;
-            if (!cfapi::call(_cfg, _clock, "GET", "/client/v4/accounts?per_page=1", nullptr, b, _message)) return false;
-            strlcpy(_cfg.cf_account, b.id, sizeof(_cfg.cf_account));
+            cfapi::reset(a);
+            if (!cfapi::call(_cfg, _clock, "GET", "/client/v4/accounts?per_page=1", nullptr, a, _message)) return false;
+            strlcpy(_cfg.cf_account, a.id, sizeof(_cfg.cf_account));
         }
         _store.save();
-        _log.log(PSTR("Cloudflare: token reaches %u zone(s)"), (unsigned)a.zones);
+        _log.log(PSTR("Cloudflare: token reaches %u zone(s)"), (unsigned)_zones);
         return true;
     }
 
@@ -225,7 +225,7 @@ private:
 
     // The upload: metadata (the secret, the Durable Object and, on the first
     // upload, its migration) and the script, as multipart/form-data
-    bool _upload(const char* acc, bool first, const char* secret) {
+    bool _upload(const char* acc, bool first, const char* secret, cfapi::Answer& a) {
         static const char META_A[] PROGMEM =
             "--" RELAY_BOUNDARY "\r\nContent-Disposition: form-data; name=\"metadata\"\r\n"
             "Content-Type: application/json\r\n\r\n"
@@ -249,9 +249,46 @@ private:
         };
         char path[sizeof("/client/v4/accounts//workers/scripts/") + 32 + sizeof(_name)];
         snprintf_P(path, sizeof(path), PSTR("/client/v4/accounts/%s/workers/scripts/%s"), acc, _name);
-        cfapi::Answer a;
+        cfapi::reset(a);
         return cfapi::call(_cfg, _clock, "PUT", path, parts, sizeof(parts) / sizeof(parts[0]), a, _message,
                            "multipart/form-data; boundary=" RELAY_BOUNDARY);
+    }
+
+    static constexpr size_t HOST_LEN = sizeof(_name) + sizeof(Zone::name) + sizeof(".workers.dev");
+
+    // The helpers below keep their buffers off _deploy's frame, which is
+    // still on the stack during the upload, the deepest call
+
+    // The account's workers.dev name, created if it has none; host gets the
+    // relay's address there. path holds the account's prefix (n characters).
+    __attribute__((noinline)) bool _workersDev(char* path, int n, char* host, cfapi::Answer& a) {
+        strcpy_P(path + n, PSTR("subdomain"));
+        cfapi::reset(a);
+        if (!cfapi::call(_cfg, _clock, "GET", path, nullptr, a, _message) || !a.sub[0]) {
+            if (!_wd[0]) return _fail(PSTR("the account needs a workers.dev name"));
+            char body[sizeof("{\"subdomain\":\"\"}") + sizeof(_wd)];
+            snprintf_P(body, sizeof(body), PSTR("{\"subdomain\":\"%s\"}"), _wd);
+            cfapi::reset(a);
+            if (!cfapi::call(_cfg, _clock, "PUT", path, body, a, _message)) return false;
+            strlcpy(a.sub, _wd, sizeof(a.sub));
+        }
+        snprintf(host, HOST_LEN, "%s.%s.workers.dev", _name, a.sub);
+        return true;
+    }
+
+    // The address: the zone's name (zone: its id), or workers.dev (zone null)
+    __attribute__((noinline)) bool _route(char* path, size_t cap, int n, const char* host, const char* zone,
+                                          cfapi::Answer& a) {
+        cfapi::reset(a);
+        if (!zone) {
+            snprintf_P(path + n, cap - n, PSTR("scripts/%s/subdomain"), _name);
+            return cfapi::call(_cfg, _clock, "POST", path, "{\"enabled\":true,\"previews_enabled\":false}", a, _message);
+        }
+        strcpy_P(path + n, PSTR("domains"));
+        char body[sizeof("{\"hostname\":\"\",\"service\":\"\",\"zone_id\":\"\"}") + HOST_LEN + sizeof(_name) + 32];
+        snprintf_P(body, sizeof(body), PSTR("{\"hostname\":\"%s\",\"service\":\"%s\",\"zone_id\":\"%s\"}"),
+                   host, _name, zone);
+        return cfapi::call(_cfg, _clock, "PUT", path, body, a, _message);
     }
 
     bool _deploy() {
@@ -261,7 +298,9 @@ private:
         const char* acc = own ? z.account : _cfg.cf_account;
         if (!cfapi::_isId(acc)) return _fail(PSTR("no account: save and check the token"));
 
-        // A Worker by that name must be a relay already, or not exist
+        // A Worker by that name must be a relay already, or not exist. One
+        // Answer for every call: the loop's stack is 4 KB, and this chain
+        // (down to the TLS handshake and the interrupts on top) nearly fills it
         char path[sizeof("/client/v4/accounts//workers/scripts//settings") + 32 + sizeof(_name)];
         int n = snprintf_P(path, sizeof(path), PSTR("/client/v4/accounts/%s/workers/"), acc);
         snprintf_P(path + n, sizeof(path) - n, PSTR("scripts/%s/settings"), _name);
@@ -270,43 +309,17 @@ private:
         if (!exists && a.http != 404) return false;
         if (exists && !a.relay) return _fail(PSTR("another Worker has this name"));
 
-        char host[sizeof(_name) + sizeof(Zone::name) + sizeof(".workers.dev")];   // room for any, checked below
-        if (own) {
-            snprintf(host, sizeof(host), "%s.%s", _name, z.name);
-        } else {
-            // The account's workers.dev name, created if it has none
-            strcpy_P(path + n, PSTR("subdomain"));
-            cfapi::Answer s;
-            if (!cfapi::call(_cfg, _clock, "GET", path, nullptr, s, _message) || !s.sub[0]) {
-                if (!_wd[0]) return _fail(PSTR("the account needs a workers.dev name"));
-                char body[sizeof("{\"subdomain\":\"\"}") + sizeof(_wd)];
-                snprintf_P(body, sizeof(body), PSTR("{\"subdomain\":\"%s\"}"), _wd);
-                cfapi::Answer put;
-                if (!cfapi::call(_cfg, _clock, "PUT", path, body, put, _message)) return false;
-                strlcpy(s.sub, _wd, sizeof(s.sub));
-            }
-            snprintf(host, sizeof(host), "%s.%s.workers.dev", _name, s.sub);
-        }
+        char host[HOST_LEN];   // room for any, checked below
+        if (own) snprintf(host, sizeof(host), "%s.%s", _name, z.name);
+        else if (!_workersDev(path, n, host, a)) return false;
         if (strlen(host) >= sizeof(_cfg.relay_host)) return _fail(PSTR("address too long"));
 
         // A new secret on every upload: only this device and the Worker know it
         char secret[sizeof(_cfg.relay_secret)];
         for (int i = 0; i < 8; i++) snprintf(secret + 8 * i, 9, "%08lx", (unsigned long)ESP.random());
-        if (!_upload(acc, !exists, secret)) return false;
+        if (!_upload(acc, !exists, secret, a)) return false;
 
-        // The address: the zone's name, or workers.dev
-        cfapi::Answer r;
-        if (own) {
-            strcpy_P(path + n, PSTR("domains"));
-            char body[sizeof("{\"hostname\":\"\",\"service\":\"\",\"zone_id\":\"\"}") + sizeof(host) + sizeof(_name) + 32];
-            snprintf_P(body, sizeof(body), PSTR("{\"hostname\":\"%s\",\"service\":\"%s\",\"zone_id\":\"%s\"}"),
-                       host, _name, z.id);
-            if (!cfapi::call(_cfg, _clock, "PUT", path, body, r, _message)) return false;
-        } else {
-            snprintf_P(path + n, sizeof(path) - n, PSTR("scripts/%s/subdomain"), _name);
-            if (!cfapi::call(_cfg, _clock, "POST", path, "{\"enabled\":true,\"previews_enabled\":false}", r, _message))
-                return false;
-        }
+        if (!_route(path, sizeof(path), n, host, own ? z.id : nullptr, a)) return false;
         strlcpy(_cfg.relay_secret, secret, sizeof(_cfg.relay_secret));
         strlcpy(_cfg.relay_host, host, sizeof(_cfg.relay_host));
         strlcpy(_cfg.relay_name, _name, sizeof(_cfg.relay_name));

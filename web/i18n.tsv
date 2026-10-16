@@ -78,6 +78,7 @@ FRAGMENTATION	Fragmentation	Fragmentação	Fragmentación
 NET_TURN	Network turn	Vez da rede	Turno de la red	Tour du réseau
 SLOWEST_LOOP	Slowest loop	Ciclo mais lento	Ciclo más lento	Boucle la plus lente
 SLOW_LOOPS	Loops over 200 ms	Ciclos acima de 200 ms	Ciclos de más de 200 ms	Boucles de plus de 200 ms
+STACK_FREE	Lowest free stack	Menor pilha livre	Pila libre mínima	Pile libre minimale
 OTA_RESERVE	OTA reserve	Reserva OTA	Reserva OTA	Réserve OTA
 FREE	Free	Livre	Libre	Libre
 USED	Used	Usado	Usado	Utilisé

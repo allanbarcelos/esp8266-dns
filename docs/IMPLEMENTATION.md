@@ -108,4 +108,5 @@ The panel and the API from anywhere at the user's own HTTPS address, with no ope
 | `c1df65a` | One arbiter for the network turn (`NetArbiter.h`): priority, waiting for the heap instead of failing, the turn on Status | 496,016 |
 | `8d8ca03` | The slowest loop and the count over 200 ms on Status; each new worst in the log, with the service that held the turn | 496,320 |
 | `24b3b40` | Crash place, from the core's crash callback (it did not run on a real watchdog reset) | 496,704 |
-| Crash place | Each part of the loop records itself in RTC memory as it starts; after an exception or a watchdog reset the next boot logs it with the chip's recorded address | 496,656 |
+| `3fba386` | Each part of the loop records itself in RTC memory as it starts; after an exception or a watchdog reset the next boot logs it with the chip's recorded address | 496,656 |
+| Deploy stack | The relay deploy overflowed the loop's 4 KB stack (software watchdog during "turn on"): one Answer for every call and the request bodies in helpers, ~1 KB less at the deepest call; the lowest free stack on Status | 496,976 |

@@ -316,7 +316,7 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 496,656 of 500,000 bytes (3,344 to spare) |
+| Firmware | 496,976 of 500,000 bytes (3,024 to spare) |
 | Panel text, 4 languages | 337 texts (the pin drawing included), 45 KB as text, 16 KB in flash |
 | Relay Worker | 7.8 KB of script, 4.2 KB in flash (byte-pair encoded) |
 | Signed OTA package | ~354 KB of 400 KB (about 46 KB free) |

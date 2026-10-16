@@ -310,40 +310,41 @@
 #define L_S_SHT3X             "`4q"   // Temperature and humidity (SHT30/SHT31, I2C)
 #define L_HUMIDITY            "`4r"   // Humidity
 #define L_MENU                "`4s"   // Menu
-#define L_POWER               "`4t"   // Power
-#define L_A_MOTOR             "`4u"   // DC motor
-#define L_S_BUTTON            "`4v"   // Button or switch
-#define L_A_BUZZER            "`4w"   // Buzzer
-#define L_LOCAL_IP            "`4x"   // Local IP
-#define L_LOCAL_API           "`4y"   // Local API
-#define L_PUBLIC_IP           "`4z"   // Public IP
-#define L_PHOTO               "`50"   // Photo
-#define L_NO_DST              "`51"   // (no daylight saving)
-#define L_P_GREEN             "`52"   // Green
-#define L_NONE                "`53"   // None
-#define L_MEMORY              "`54"   // Memory
-#define L_FREE_HEAP           "`55"   // Free heap
-#define L_FREE                "`56"   // Free
-#define L_V_CLEAR             "`57"   // clear
-#define L_FILES               "`58"   // Files
-#define L_NETMASK             "`59"   // Netmask
-#define L_RATE                "`5A"   // Rate
-#define L_CLOCK_NOT_SYNC      "`5B"   // clock not synchronized
-#define L_V_RELEASED          "`5C"   // released
-#define L_A_RELAY             "`5D"   // Relay
-#define L_AGO                 "`5E"   // {0} ago
-#define L_CHOOSE              "`5F"   // Choose
-#define L_CHOOSE_PIN          "`5G"   // Choose the pin
-#define L_PIN                 "`5H"   // Pin
-#define L_CLOSE_BTN           "`5I"   // Close
-#define L_SIGN_IN             "`5J"   // Sign in
-#define L_SIGN_OUT            "`5K"   // Sign out
-#define L_BRIGHTNESS          "`5L"   // Brightness
-#define L_MODE                "`5M"   // Mode
-#define L_MANUAL              "`5N"   // manual
-#define L_LOW                 "`5O"   // Low
-#define L_A_PUMP              "`5P"   // Pump
-#define L_V_PRESSED           "`5Q"   // pressed
-#define L_V_ERROR             "`5R"   // error
-#define L_P_BLUE              "`5S"   // Blue
-#define L_P_GRAY              "`5T"   // Gray
+#define L_STACK_FREE          "`4t"   // Lowest free stack
+#define L_FREE                "`4u"   // Free
+#define L_V_CLEAR             "`4v"   // clear
+#define L_FREE_HEAP           "`4w"   // Free heap
+#define L_RATE                "`4x"   // Rate
+#define L_POWER               "`4y"   // Power
+#define L_A_MOTOR             "`4z"   // DC motor
+#define L_S_BUTTON            "`50"   // Button or switch
+#define L_A_BUZZER            "`51"   // Buzzer
+#define L_LOCAL_IP            "`52"   // Local IP
+#define L_LOCAL_API           "`53"   // Local API
+#define L_PUBLIC_IP           "`54"   // Public IP
+#define L_PHOTO               "`55"   // Photo
+#define L_NO_DST              "`56"   // (no daylight saving)
+#define L_P_GREEN             "`57"   // Green
+#define L_NONE                "`58"   // None
+#define L_MEMORY              "`59"   // Memory
+#define L_FILES               "`5A"   // Files
+#define L_NETMASK             "`5B"   // Netmask
+#define L_CLOCK_NOT_SYNC      "`5C"   // clock not synchronized
+#define L_V_RELEASED          "`5D"   // released
+#define L_A_RELAY             "`5E"   // Relay
+#define L_AGO                 "`5F"   // {0} ago
+#define L_CHOOSE              "`5G"   // Choose
+#define L_CHOOSE_PIN          "`5H"   // Choose the pin
+#define L_PIN                 "`5I"   // Pin
+#define L_CLOSE_BTN           "`5J"   // Close
+#define L_SIGN_IN             "`5K"   // Sign in
+#define L_SIGN_OUT            "`5L"   // Sign out
+#define L_BRIGHTNESS          "`5M"   // Brightness
+#define L_MODE                "`5N"   // Mode
+#define L_MANUAL              "`5O"   // manual
+#define L_LOW                 "`5P"   // Low
+#define L_A_PUMP              "`5Q"   // Pump
+#define L_V_PRESSED           "`5R"   // pressed
+#define L_V_ERROR             "`5S"   // error
+#define L_P_BLUE              "`5T"   // Blue
+#define L_P_GRAY              "`5U"   // Gray
