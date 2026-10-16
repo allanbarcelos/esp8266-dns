@@ -161,13 +161,16 @@ void test_tick_runs_the_relay() {
     App app;
     app.begin();
     MockHTTP::keepOpen = true;
+    MockHTTP::push(200, "1.2.3.4");
     setMillis(1000);
     app.tick();                                    // public IP first: the relay waits
     TEST_ASSERT_EQUAL_STRING("paused", app.relay.status());
     TEST_ASSERT_EQUAL_STRING("relay", app.ntfy.commandStatus());   // its Worker brings the commands
+    MockHTTP::push(200);
     setMillis(1500);
-    app.tick();                                    // then the first ntfy post: it waits again
+    app.tick();                                    // then the new IP goes to ntfy: it waits again
     TEST_ASSERT_EQUAL_STRING("paused", app.relay.status());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests.back().payload, "[ip] 1.2.3.4"));
 
     MockHTTP::rawHttp = "HTTP/1.1 101 Switching Protocols\r\n\r\n";
     setMillis(2000);
@@ -197,6 +200,13 @@ void test_tick_runs_the_relay() {
     setMillis(2200 + NtfyNotifier::POST_GAP);
     app.tick();
     TEST_ASSERT_EQUAL_STRING("connected", app.relay.status());
+
+    // A minute on with nothing to post: no ntfy turn, the relay stays up
+    size_t sent = MockHTTP::requests.size();
+    setMillis(2200 + NtfyNotifier::POST_GAP + NtfyNotifier::RETRY_INTERVAL);
+    app.tick();
+    TEST_ASSERT_EQUAL_STRING("connected", app.relay.status());
+    TEST_ASSERT_EQUAL((int)sent, (int)MockHTTP::requests.size());
 }
 
 // A Cloudflare job takes the TLS session for its tick, like DNS

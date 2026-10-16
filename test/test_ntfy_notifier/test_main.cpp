@@ -67,6 +67,8 @@ void test_does_not_repost_same_ip() {
     Fix f;
     MockHTTP::push(200);
     f.ntfy.tick(0);
+    // Nothing new: no turn asked, so the relay and the command stream stay up
+    TEST_ASSERT_FALSE(f.ntfy.postDue(NtfyNotifier::RETRY_INTERVAL));
     f.ntfy.tick(NtfyNotifier::RETRY_INTERVAL);
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
 }
@@ -145,6 +147,11 @@ void test_iot_without_reading_still_posts_ip() {
     ntfy.tick(0);
     TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
     TEST_ASSERT_TRUE(contains(MockHTTP::requests[0].payload, "[ip] 1.2.3.4"));
+
+    // A new IP is no event: it waits the minute, with the IoT idle
+    strlcpy(cfg.publicIP, "5.6.7.8", sizeof(cfg.publicIP));
+    TEST_ASSERT_FALSE(ntfy.postDue(NtfyNotifier::POST_GAP));
+    TEST_ASSERT_TRUE(ntfy.postDue(NtfyNotifier::RETRY_INTERVAL));
 }
 
 void test_sensor_on_the_same_topic() {

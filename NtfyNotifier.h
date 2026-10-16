@@ -141,14 +141,21 @@ private:
     // ── Posts ────────────────────────────────────────────────────────────────
 
     // An event (command reply, state change) goes out in seconds; the IP and
-    // periodic readings, every minute
+    // periodic readings, every minute. Only with something to post: the turn
+    // closes the relay and the command stream, which then reconnect (TLS)
     bool _postDue(unsigned long now) const {
-        if (_cfg.ntfy_topic[0] == '\0') return false;
+        if (_cfg.ntfy_topic[0] == '\0' || !_hasPost()) return false;
         if (!_attempted) return true;
         unsigned long gap = now - _lastAttempt;
         bool urgent = _reply[0] || (_iot && _iot->pending() && _iot->urgent());
         if (urgent && gap >= POST_GAP) return true;
         return gap >= RETRY_INTERVAL;
+    }
+
+    // What _publish would send: a command reply, an IoT event or reading, a new IP
+    bool _hasPost() const {
+        return _reply[0] || (_iot && _iot->pending()) ||
+               (_cfg.publicIP[0] && strcmp(_cfg.publicIP, _lastSent) != 0);
     }
 
     void _publish(unsigned long now) {
@@ -164,10 +171,9 @@ private:
             return;
         }
 
-        // IP from PublicIPResolver: goes to the topic at boot and when it changes
+        // Otherwise the IP from PublicIPResolver is new (_hasPost): it goes to
+        // the topic at boot and when it changes
         const char* ip = _cfg.publicIP;
-        if (!ip[0] || strcmp(ip, _lastSent) == 0) return;
-
         char body[24];
         snprintf(body, sizeof(body), "[ip] %s", ip);
         if (_post(body))
