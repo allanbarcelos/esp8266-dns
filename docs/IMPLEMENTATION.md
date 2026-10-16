@@ -107,4 +107,5 @@ The panel and the API from anywhere at the user's own HTTPS address, with no ope
 | `9fb5361` | More heap for the OTA check: the relay and the ntfy stream allocate their TLS client only while connected; MQTT pauses during the check too | 495,168 |
 | `c1df65a` | One arbiter for the network turn (`NetArbiter.h`): priority, waiting for the heap instead of failing, the turn on Status | 496,016 |
 | `8d8ca03` | The slowest loop and the count over 200 ms on Status; each new worst in the log, with the service that held the turn | 496,320 |
-| Crash place | On an exception or the software watchdog, the part of the loop and the first code address on the stack go to RTC memory; the next boot logs them | 496,704 |
+| `24b3b40` | Crash place, from the core's crash callback (it did not run on a real watchdog reset) | 496,704 |
+| Crash place | Each part of the loop records itself in RTC memory as it starts; after an exception or a watchdog reset the next boot logs it with the chip's recorded address | 496,656 |

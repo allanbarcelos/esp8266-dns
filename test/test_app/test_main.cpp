@@ -35,13 +35,16 @@ void test_begin_logs_where_the_last_boot_crashed() {
         App app;
         app.begin();
         app.tick();
-        app.net.at(NetArbiter::WEB);
-        uint32_t stack[] = {0x40201000u};
-        app.net.crashed(stack, stack + 1);
+        app.net.at(NetArbiter::WEB);                        // stuck in a request
     }
+    ESP._rst.reason = REASON_SOFT_WDT_RST;
+    ESP._rst.epc1 = 0x40201000u;
     App app;
     app.begin();
     TEST_ASSERT_TRUE(logHas(app.logger, "Crashed in: web near 0x40201000"));
+    App again;                                              // this boot is recorded as booting
+    again.begin();
+    TEST_ASSERT_TRUE(logHas(again.logger, "Crashed in: - near 0x40201000"));
 }
 
 // Battery gauge set up and not answering: tick reads and reports it

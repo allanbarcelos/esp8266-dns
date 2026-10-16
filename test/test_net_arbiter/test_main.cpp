@@ -122,31 +122,34 @@ void test_names() {
     TEST_ASSERT_EQUAL_STRING("ota (memory), waiting: ip, dns, cloudflare, ntfy post, relay, ntfy stream", n.queue(q));
 }
 
-// A crash leaves where the loop was, and the first code address on the
-// stack, for the next boot; once
+// Where the loop is stays in RTC memory; after a crash or a watchdog
+// reset the next boot reads it, with the address the chip recorded
 void test_crash_is_kept_for_the_next_boot() {
     char out[NetArbiter::CRASH_LEN];
+    TEST_ASSERT_FALSE(NetArbiter::lastCrash(out));        // nothing recorded
+
     NetArbiter n;
-    TEST_ASSERT_FALSE(n.lastCrash(out));                  // a clean boot
-
     n.at(NetArbiter::IP);
-    uint32_t stack[70] = {0x3FFF0000u, 0x40100000u, 0x40300000u, 0x40212345u, 0x40234567u};
-    n.crashed(stack, stack + 70);
-    NetArbiter next;
-    TEST_ASSERT_TRUE(next.lastCrash(out));
-    TEST_ASSERT_EQUAL_STRING("ip near 0x40212345", out);
-    TEST_ASSERT_FALSE(next.lastCrash(out));               // read once
+    n.at(NetArbiter::IP);                                 // the same part: no write
+    TEST_ASSERT_FALSE(NetArbiter::lastCrash(out));        // power on
+    ESP._rst.epc1 = 0x40212345u;
+    const uint32_t crashes[] = {REASON_WDT_RST, REASON_EXCEPTION_RST, REASON_SOFT_WDT_RST};
+    for (uint32_t reason : crashes) {
+        ESP._rst.reason = reason;
+        TEST_ASSERT_TRUE(NetArbiter::lastCrash(out));
+        TEST_ASSERT_EQUAL_STRING("ip near 0x40212345", out);
+    }
+    n.at(NetArbiter::MQTT);
+    TEST_ASSERT_TRUE(NetArbiter::lastCrash(out));
+    TEST_ASSERT_EQUAL_STRING("mqtt near 0x40212345", out);
 
-    n.at(NetArbiter::MQTT);                               // nothing on the stack (64 words looked at)
-    for (auto& w : stack) w = 0;
-    stack[64] = 0x40212345u;
-    n.crashed(stack, stack + 70);
-    TEST_ASSERT_TRUE(next.lastCrash(out));
-    TEST_ASSERT_EQUAL_STRING("mqtt near 0x00000000", out);
-
-    n.crashed(stack, stack);                              // an empty stack
-    ESP._rtc[121] = NetArbiter::MQTT + 1;                 // a slot that makes no sense
-    TEST_ASSERT_FALSE(next.lastCrash(out));
+    ESP._rst.reason = REASON_SOFT_RESTART;                // a restart asked for
+    TEST_ASSERT_FALSE(NetArbiter::lastCrash(out));
+    ESP._rst.reason = REASON_SOFT_WDT_RST;
+    ESP._rtc[40] += 1;                                    // a part that does not exist
+    TEST_ASSERT_FALSE(NetArbiter::lastCrash(out));
+    ESP._rtc[40] = 0x12345601u;                           // not ours
+    TEST_ASSERT_FALSE(NetArbiter::lastCrash(out));
 }
 
 int main() {

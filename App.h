@@ -82,6 +82,7 @@ public:
         logger.log(PSTR("Reset: %s"), ESP.getResetReason().c_str());
         char crash[NetArbiter::CRASH_LEN];
         if (net.lastCrash(crash)) logger.log(PSTR("Crashed in: %s"), crash);
+        net.at(NetArbiter::NONE);
         logger.log(PSTR("System started %s"), firmware_version);
     }
 

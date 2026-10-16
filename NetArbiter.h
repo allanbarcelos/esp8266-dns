@@ -18,8 +18,8 @@
 // heap too.
 //
 // It also keeps the slowest loop seen (a TLS handshake blocks for seconds),
-// for the panel and the log, and where the loop is: if it crashes or the
-// software watchdog fires, the next boot logs the place.
+// for the panel and the log, and where the loop is: if it crashes or a
+// watchdog fires, the next boot logs the place.
 class NetArbiter {
 public:
     // In priority order
@@ -95,27 +95,28 @@ public:
         return NAMES[w];
     }
 
-    void at(uint8_t where) { _at = where; }
-
-    // From the crash handler (an exception or the software watchdog): where
-    // the loop was and the first code address on the stack go to RTC
-    // memory, which survives the reboot
-    void crashed(const uint32_t* sp, const uint32_t* end) const {
-        uint32_t c[3] = {CRUMB, _at, 0};
-        for (int i = 0; sp < end && i < 64 && !c[2]; sp++, i++)
-            if (*sp >= 0x40200000u && *sp < 0x40300000u) c[2] = *sp;
-        ESP.rtcUserMemoryWrite(RTC_SLOT, c, sizeof(c));
+    // Each part of the loop says so as it starts; RTC memory keeps it
+    // through a reset, so after a crash or a watchdog the next boot knows
+    // where the loop was. (The core's crash callback does not run on every
+    // watchdog reset.)
+    void at(uint8_t where) {
+        if (where == _at) return;
+        _at = where;
+        uint32_t v = CRUMB | where;
+        ESP.rtcUserMemoryWrite(RTC_SLOT, &v, sizeof(v));
     }
 
-    // "ip near 0x40212345" once, if the previous boot crashed (out: CRASH_LEN)
+    // "ip near 0x40212345" if the last reset was a crash or a watchdog: the
+    // part of the loop, and the address the chip recorded (out: CRASH_LEN)
     static constexpr size_t CRASH_LEN = 40;
-    bool lastCrash(char* out) {
-        uint32_t c[3] = {};
-        ESP.rtcUserMemoryRead(RTC_SLOT, c, sizeof(c));
-        if (c[0] != CRUMB || c[1] > MQTT) return false;
-        snprintf(out, CRASH_LEN, "%s near 0x%08x", name((uint8_t)c[1]), (unsigned)c[2]);
-        c[0] = 0;
-        ESP.rtcUserMemoryWrite(RTC_SLOT, c, sizeof(c));
+    static bool lastCrash(char* out) {
+        const rst_info* r = ESP.getResetInfoPtr();
+        uint32_t v = 0;
+        ESP.rtcUserMemoryRead(RTC_SLOT, &v, sizeof(v));
+        if (r->reason < REASON_WDT_RST || r->reason > REASON_SOFT_WDT_RST ||
+            (v & ~0xFFu) != CRUMB || (v & 0xFFu) > MQTT)
+            return false;
+        snprintf(out, CRASH_LEN, "%s near 0x%08x", name((uint8_t)v), (unsigned)r->epc1);
         return true;
     }
 
@@ -133,10 +134,10 @@ public:
     }
 
 private:
-    static constexpr uint32_t CRUMB    = 0x4352554Du;   // "CRUM": the slot holds a crash
-    static constexpr uint32_t RTC_SLOT = 120;           // 4-byte blocks; the start is eboot's
+    static constexpr uint32_t CRUMB    = 0x43525500u;   // "CRU" and the part of the loop
+    static constexpr uint32_t RTC_SLOT = 40;            // 4-byte blocks; eboot's command takes 0-31
 
-    uint8_t       _wants = 0, _queue = 0, _at = NONE;
+    uint8_t       _wants = 0, _queue = 0, _at = 0xFF;   // nothing recorded yet
     Who           _owner = NONE, _worstWho = NONE;
     bool          _starved = false;
     unsigned long _waitFrom = 0, _worst = 0;

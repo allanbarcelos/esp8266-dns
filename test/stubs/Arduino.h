@@ -277,11 +277,17 @@ struct SerialClass {
 };
 
 // ── ESP ───────────────────────────────────────────────────────────────────────
+enum { REASON_DEFAULT_RST, REASON_WDT_RST, REASON_EXCEPTION_RST, REASON_SOFT_WDT_RST, REASON_SOFT_RESTART };
+struct rst_info {
+    uint32_t reason, exccause, epc1, epc2, epc3, excvaddr, depc;
+};
+
 struct EspClass {
     uint32_t    getFreeHeap()           { return _heap; }
     uint8_t     getHeapFragmentation()  { return _frag; }
     uint32_t    getMaxFreeBlockSize()   { return _maxBlock; }
     String      getResetInfo()          { return _resetInfo; }
+    rst_info*   getResetInfoPtr()       { return &_rst; }
     uint32_t    getFlashChipSize()      { return 1048576; }
     uint32_t    getSketchSize()         { return 300000; }
     uint32_t    getFreeSketchSpace()    { return _freeSketch; }
@@ -309,6 +315,7 @@ struct EspClass {
     int      _restarts = 0;
     uint32_t _rand     = 1;
     uint32_t _rtc[128] = {};   // RTC user memory: survives a reboot
+    rst_info _rst = {};
 
     void reset() { *this = EspClass(); }
 };
