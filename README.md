@@ -185,19 +185,19 @@ curl -H 'Authorization: Bearer <token>' -d 'cmd=pulse 5' http://192.168.1.50/api
 
 ### Server
 
-[ntfy.sh](https://ntfy.sh) by default, or **your own ntfy server**: put its name in **ntfy server** on the ntfy page (`ntfy.example.com`, no `https://`, port or path). Everything goes there: publishing, the action buttons, the command stream and, with remote access on, the Worker's checks of the command topic. The server must answer HTTPS on port 443 with a certificate the device trusts: Let's Encrypt (ISRG Root X1/X2) or Google Trust Services (GTS Root R1/R4), the roots already in the firmware. That covers the usual reverse proxies (Caddy, Traefik, nginx with certbot). A self-signed certificate or plain HTTP is refused, because a forged command would switch real equipment.
+[ntfy.sh](https://ntfy.sh) by default, or **your own ntfy server**: put its name in **ntfy server** on the ntfy page (`ntfy.example.com`, no `https://`, port or path; capitals are turned into lower case). Everything goes there: publishing, the action buttons, the command stream and, with remote access on, the Worker's checks of the command topic. The server must answer HTTPS on port 443 with a certificate the device trusts: Let's Encrypt (ISRG Root X1/X2) or Google Trust Services (GTS Root R1/R4), the roots already in the firmware. That covers the usual reverse proxies (Caddy, Traefik, nginx with certbot). A self-signed certificate or plain HTTP is refused, because a forged command would switch real equipment.
 
 ### Data topic (outgoing)
 
 - `[ip] 1.2.3.4` at boot and whenever the public IP changes. It does not depend on Cloudflare.
-- `[sensor] …` and `[actuator] …` when **Send readings and changes to ntfy** is on. Changes and command replies go out within seconds; periodic numeric readings at most once a minute (the ntfy.sh rate limit).
+- `[sensor] …` and `[actuator] …` when **Send readings and changes to ntfy** is on. Changes and command replies go out within seconds; periodic numeric readings at most once a minute (the ntfy.sh rate limit). With nothing to post, the device does not touch the network for ntfy: each post closes the relay and the command stream, which then reconnect.
 - When a command topic is set, each IoT notification carries up to **three action buttons** that publish a command back: On/Off/Pulse, Off/50 %/100 %, or Open/Close/Pulse, depending on the actuator. With the rule on, the third button is **Auto**. You operate the device from the phone notification without typing.
 
 ### Command topic (incoming)
 
 Set a **command topic** on the ntfy page (the button generates a random name). The device subscribes to it with a long-lived connection (`GET /<topic>/json`) and every message becomes a command, delivered in about a second. Replies to invalid commands go to the data topic as `[error] …`.
 
-- **One TLS session at a time.** The ESP-01 has memory for a single TLS session. Before publishing, or when Cloudflare or the OTA is about to use the network, the stream closes. On reopening it asks for `since=<last id>`, and ntfy (which keeps messages for 12 hours) delivers whatever arrived in between. Nothing is lost; at worst a command waits a few seconds.
+- **One TLS session at a time.** The ESP-01 has memory for a single TLS session. Before publishing, or when Cloudflare or the OTA is about to use the network, the stream closes. On reopening it asks for `since=<last id>`, and ntfy (which keeps messages for 12 hours) delivers whatever arrived in between. Nothing is lost; at worst a command waits a few seconds. Saving another server or command topic closes the stream at once and reopens it there, from that moment on (an ID from the old topic means nothing on the new one); the relay Worker does the same.
 - **With remote access on**, the relay holds that session, so its Worker checks the command topic for the device (every 2, 5, 10 or 30 s, chosen on the ntfy page; 5 s by default) and sends each command down the relay. The page shows `relay` as the command state. If the relay stays down for more than a minute, the device's own stream takes over again, from the last message.
 - **The server's certificate is validated** (the roots above, already embedded), on the command stream and when publishing: a command forged on the path would switch real equipment, and a publish carries the token and, in the action buttons, the command topic. Until the clock syncs nothing is published; the message waits for the next attempt.
 - Commands older than 10 minutes are ignored. Failed connections retry from 5 s up to 5 min. A stream silent for 2 minutes is reopened (ntfy sends a keepalive every 45 s).
@@ -324,7 +324,7 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 498,896 of 500,000 bytes (1,104 to spare) |
+| Firmware | 499,696 of 500,000 bytes (304 to spare) |
 | Panel text, 4 languages | 337 texts (the pin drawing included), 45 KB as text, 16 KB in flash |
 | Relay Worker | 7.8 KB of script, 4.2 KB in flash (byte-pair encoded) |
 | Signed OTA package | ~354 KB of 400 KB (about 46 KB free) |

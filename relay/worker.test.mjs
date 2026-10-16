@@ -190,10 +190,10 @@ test('toResponse refuses a broken answer', () => {
 // ── the Worker in front ──────────────────────────────────────────────────────
 
 test('relay connection needs WebSocket, version and secret', async () => {
-  const h = (extra) => ({ headers: { Upgrade: 'websocket', 'X-Relay-Version': '3', Authorization: `Bearer ${SECRET}`, ...extra } });
+  const h = (extra) => ({ headers: { Upgrade: 'websocket', 'X-Relay-Version': '4', Authorization: `Bearer ${SECRET}`, ...extra } });
   const go = (init) => worker.default.fetch(new Request('https://r.example/.relay', init), env);
   assert.equal((await go({})).status, 426);
-  assert.equal((await go(h({ 'X-Relay-Version': '2' }))).status, 426);
+  assert.equal((await go(h({ 'X-Relay-Version': '3' }))).status, 426);
   assert.equal((await go(h({ Authorization: 'Bearer nope' }))).status, 401);
   const noAuth = h();
   delete noAuth.headers.Authorization;
@@ -414,14 +414,21 @@ test('state and hello are kept; hello sets where ntfy resumes', async () => {
   await device.webSocketMessage(ws, msg('S', '{"api":1}'));
   assert.deepEqual(ctx.store.get('state'), { json: '{"api":1}', at: 1_700_000_000_000 });
 
-  await device.webSocketMessage(ws, msg('H', '{"v":3,"topic":"cmd-x","poll":5}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":4,"topic":"cmd-x","poll":5}'));
   assert.equal(ctx.store.get('since'), '1700000000');           // from now on
   assert.equal(ctx.alarm, 1_700_000_001_000);
-  await device.webSocketMessage(ws, msg('H', '{"v":3,"topic":"cmd-x"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":4,"topic":"cmd-x"}'));
   assert.equal(ctx.store.get('since'), '1700000000');           // kept
-  await device.webSocketMessage(ws, msg('H', '{"v":3,"topic":"cmd-x","since":"abc123"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":4,"topic":"cmd-x","since":"abc123"}'));
   assert.equal(ctx.store.get('since'), 'abc123');               // the device knows best
-  await device.webSocketMessage(ws, msg('H', '{"v":3}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":4,"topic":"cmd-x"}'));
+  assert.equal(ctx.store.get('since'), 'abc123');               // same server and topic: kept
+  await device.webSocketMessage(ws, msg('H', '{"v":4,"topic":"cmd-y"}'));
+  assert.equal(ctx.store.get('since'), '1700000000');           // another topic: from now on
+  ctx.store.set('since', 'abc123');
+  await device.webSocketMessage(ws, msg('H', '{"v":4,"host":"ntfy.example.com","topic":"cmd-y"}'));
+  assert.equal(ctx.store.get('since'), '1700000000');           // another server: from now on
+  await device.webSocketMessage(ws, msg('H', '{"v":4}'));
   assert.equal(ctx.alarm, null);
 });
 

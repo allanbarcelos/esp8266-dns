@@ -229,6 +229,11 @@ public:
         _s = _s.substr(b, _s.find_last_not_of(" \t\r\n") - b + 1);
     }
 
+    void toLowerCase() {
+        for (char& c : _s) c = (char)std::tolower((unsigned char)c);
+    }
+    bool equals(const char* o) const { return _s == o; }
+
     bool operator==(const String& o) const { return _s == o._s; }
     bool operator!=(const String& o) const { return _s != o._s; }
     bool operator==(const char*   o) const { return _s == o; }

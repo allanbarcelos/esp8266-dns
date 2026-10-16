@@ -42,7 +42,7 @@
 // relay stays down longer than GRACE_MS, the ntfy stream takes over.
 class RelayService {
 public:
-    static constexpr uint8_t       PROTOCOL      = 3;
+    static constexpr uint8_t       PROTOCOL      = 4;
     static constexpr unsigned long CONNECT_MS    = 5000UL;
     static constexpr unsigned long RECONNECT_MS  = 2000UL;
     static constexpr unsigned long PING_MS       = 30000UL;

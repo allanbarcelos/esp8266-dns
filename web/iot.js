@@ -148,4 +148,6 @@ function q() {
         .then(function (s) { if (s) u(s); })
         .catch(function () {});
 }
-if ($('ns') || $('na')) { q(); setInterval(q, 5000); }
+// A tab out of sight does not ask: each reading is a request (and, through
+// the remote access relay, one in its queue)
+if ($('ns') || $('na')) { q(); setInterval(function () { if (!document.hidden) q(); }, 5000); }

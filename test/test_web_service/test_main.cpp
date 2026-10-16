@@ -1477,6 +1477,41 @@ void test_ntfy_save() {
     TEST_ASSERT_EQUAL_STRING("t", cfg.ntfy_topic);
     f.post("/ntfy/save", {{"host", ""}});
     TEST_ASSERT_EQUAL_STRING("", cfg.ntfy_host);
+
+    // Capitals (pasted) are a name all the same
+    f.post("/ntfy/save", {{"host", "Ntfy.Example.COM"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("ntfy.example.com", cfg.ntfy_host);
+}
+
+// Another server or command topic: the stream starts over there, without
+// the last ID from the old one; other changes keep it
+void test_ntfy_save_restarts_the_stream() {
+    strlcpy(cfg.iot.actuator, "relay", sizeof(cfg.iot.actuator));
+    cfg.iot.actuatorPin = 0;
+    strlcpy(cfg.ntfy_cmd, "cmd-0123456789abcdefghij", sizeof(cfg.ntfy_cmd));
+    Fixture f;
+    f.iot.begin();
+    const char* line = R"({"id":"m7","event":"message","message":"on"})";
+    f.ntfy.deliver(line, 0);
+    TEST_ASSERT_EQUAL_STRING("m7", f.ntfy.lastId());
+
+    f.post("/ntfy/save", {{"cmd", "cmd-0123456789abcdefghij"}, {"topic", "data"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("m7", f.ntfy.lastId());
+
+    f.post("/ntfy/save", {{"cmd", "cmd-0123456789abcdefghiy"}});
+    TEST_ASSERT_EQUAL_STRING("", f.ntfy.lastId());
+
+    f.ntfy.deliver(line, 0);
+    f.post("/ntfy/save", {{"cmd", "cmd-0123456789abcdefghiy"}, {"host", "ntfy.example.com"}});
+    TEST_ASSERT_EQUAL_STRING("", f.ntfy.lastId());
+
+    // Without the command service: saved all the same
+    Fixture g(false);
+    g.post("/ntfy/save", {{"cmd", "cmd-0123456789abcdefghiz"}});
+    TEST_ASSERT_EQUAL(200, g.srv.code);
+    TEST_ASSERT_EQUAL_STRING("cmd-0123456789abcdefghiz", cfg.ntfy_cmd);
 }
 
 // How often the relay Worker checks the command topic: one of the offered values
@@ -3507,6 +3542,7 @@ int main() {
     RUN_TEST(test_remote_off);
     RUN_TEST(test_ntfy_page);
     RUN_TEST(test_ntfy_save);
+    RUN_TEST(test_ntfy_save_restarts_the_stream);
     RUN_TEST(test_ntfy_poll_interval);
     RUN_TEST(test_ntfy_save_write_fails);
     RUN_TEST(test_password_page_first_access_without_auth);

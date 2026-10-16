@@ -14,7 +14,7 @@
 // While the device is connected, the Worker also polls the ntfy command
 // topic for it ('C' frames): the device has room for one TLS session only.
 
-const VERSION = 3;
+const VERSION = 4;
 const WAIT_MS = 8000;        // a request waits this long for the device to (re)connect
 const REPLY_MS = 20000;      // and this long for its answer
 const MAX_BODY = 2048;       // HttpServer::MAX_BODY
@@ -228,9 +228,11 @@ export class Device {
 
   // The device's settings for the ntfy commands, and where it left off
   async hello(h) {
+    const was = await this.ctx.storage.get('hello');
     await this.ctx.storage.put('hello', h);
     if (h.since) await this.ctx.storage.put('since', h.since);
-    else if (!(await this.ctx.storage.get('since'))) await this.ctx.storage.put('since', String(Math.floor(Date.now() / 1000)));
+    // Another server or topic: an ID from the old one means nothing there
+    else if (!(await this.ctx.storage.get('since')) || (was && (was.host !== h.host || was.topic !== h.topic))) await this.ctx.storage.put('since', String(Math.floor(Date.now() / 1000)));
     if (h.topic) await this.ctx.storage.setAlarm(Date.now() + 1000);
     else await this.ctx.storage.deleteAlarm();
   }

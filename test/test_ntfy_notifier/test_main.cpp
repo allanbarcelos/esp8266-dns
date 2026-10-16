@@ -308,6 +308,21 @@ void test_commands_reconnect_asking_for_missed() {
     TEST_ASSERT_TRUE(logHas(logger, "command stream stalled"));
 }
 
+// Another server or topic (panel): closes now and reopens without since=
+void test_commands_restart() {
+    Cmd c;
+    c.open();
+    c.send(message("m7", "on"));
+    c.ntfy.tick(10);
+    TEST_ASSERT_EQUAL_STRING("m7", c.ntfy.lastId());
+    c.ntfy.restart();
+    TEST_ASSERT_EQUAL_STRING("", c.ntfy.lastId());
+    TEST_ASSERT_FALSE(c.ntfy.streaming());
+    MockHTTP::rawHttp = OK_HDR;
+    c.ntfy.tick(20);
+    TEST_ASSERT_TRUE(contains(MockHTTP::lastRaw, "GET /cmd-abc/json HTTP/1.0"));
+}
+
 void test_commands_with_token_and_error_reply() {
     strlcpy(cfg.ntfy_token, "tk_secret", sizeof(cfg.ntfy_token));
     Cmd c;
@@ -859,6 +874,7 @@ int main() {
     RUN_TEST(test_own_server);
     RUN_TEST(test_commands_connect_validating_certificate);
     RUN_TEST(test_commands_reconnect_asking_for_missed);
+    RUN_TEST(test_commands_restart);
     RUN_TEST(test_commands_with_token_and_error_reply);
     RUN_TEST(test_invalid_commands_reply_on_data_topic);
     RUN_TEST(test_commands_ignored_when_old_or_long);

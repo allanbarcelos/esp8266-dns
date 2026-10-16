@@ -1488,6 +1488,7 @@ private:
         String cmd = _server.arg("cmd");
         String token = _server.arg("token");
         host.trim();
+        host.toLowerCase();
         topic.trim();
         cmd.trim();
         token.trim();
@@ -1545,6 +1546,7 @@ private:
             }
         }
         _cfg.ntfy_poll = every;
+        bool moved = !host.equals(_cfg.ntfy_host) || !cmd.equals(_cfg.ntfy_cmd);
         strlcpy(_cfg.ntfy_host, host.c_str(), sizeof(_cfg.ntfy_host));
         strlcpy(_cfg.ntfy_topic, topic.c_str(), sizeof(_cfg.ntfy_topic));
         strlcpy(_cfg.ntfy_cmd, cmd.c_str(), sizeof(_cfg.ntfy_cmd));
@@ -1554,6 +1556,7 @@ private:
             _errorPage(S_SAVE_FAILED, P_NTFY);
             return;
         }
+        if (moved && _ntfy) _ntfy->restart();
         _savedPage(PSTR(L_NTFY_SAVED), P_NTFY);
     }
 

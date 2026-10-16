@@ -75,6 +75,12 @@ public:
         if (on) _closeStream();
     }
 
+    // Another server or command topic: the stream reopens there, from now on
+    void restart() {
+        _closeStream();
+        _lastId[0] = '\0';
+    }
+
     // The relay's Worker brings the commands: the stream stays closed
     void relayed(bool on) {
         _relayed = on;
