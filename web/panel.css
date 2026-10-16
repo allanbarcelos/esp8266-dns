@@ -45,19 +45,12 @@ header {
 header b { color: var(--ok); }
 .pw { margin-left: auto; font-size: 13px; color: var(--mu); white-space: nowrap; }
 .pw.lo { color: var(--wa); }
-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; flex-basis: 100%; }
-nav a {
-    color: var(--fg);
-    text-decoration: none;
-    padding: 3px 10px;
-    border: 1px solid var(--ln);
-    border-radius: 6px;
-    font-size: 14px;
-}
-nav a:hover { border-color: var(--ok); }
-nav form.out { display: contents; }
+/* Sign-out alone (authenticator setup): at the top right */
+nav { margin-left: 12px; }
 nav form.out button {
-    display: inline;
+    display: flex;
+    align-items: center;
+    gap: 10px;
     width: auto;
     margin: 0;
     padding: 3px 10px;
@@ -67,6 +60,67 @@ nav form.out button {
     color: var(--fg);
     font-weight: 400;
     font-size: 14px;
+}
+/* Side menu (#mn, links from i18n.js): a drawer on narrow screens, opened
+   by the button at the top (.hb, html.o); always open on wide ones (html.m) */
+#mn {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 9;
+    width: 232px;
+    margin: 0;
+    padding: 12px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow-y: auto;
+    background: var(--cd);
+    border-right: 1px solid var(--ln);
+    transform: translateX(-100%);
+}
+@media (max-width: 899px) { html.m #mn { transition: transform .2s; } }
+html.o #mn { transform: none; }
+html.o body::after { content: ''; position: fixed; inset: 0; z-index: 8; background: #0009; }
+#mn a, #mn form.out button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 6px;
+    color: var(--mu);
+    text-decoration: none;
+    font-size: 14px;
+}
+#mn a:hover, #mn form.out button:hover { background: var(--bg); color: var(--fg); }
+#mn a[aria-current] { background: var(--bg); color: var(--fg); box-shadow: inset 3px 0 var(--ok); }
+#mn hr { width: 100%; margin: 6px 0; border: 0; border-top: 1px solid var(--ln); }
+#mn form.out { margin-top: auto; }
+nav svg, .hb svg {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.hb {
+    display: flex;
+    width: auto;
+    margin: 0 10px 0 -6px;
+    padding: 6px;
+    background: none;
+    color: var(--fg);
+}
+@media (min-width: 900px) {
+    html.m body { padding-left: 232px; }
+    html.m #mn { transform: none; }
+    html.m .hb, html.o body::after { display: none; }
 }
 .k {
     font-family: ui-monospace, monospace;
@@ -118,6 +172,9 @@ h2 { font-size: 16px; margin: 20px 0 0; }
 .r:last-child { border: 0; }
 .r span { color: var(--mu); }
 .r b { text-align: right; overflow-wrap: anywhere; }
+/* Forms, text and alerts inside a card (Settings, Cloudflare) */
+.c > form { padding: 0 16px 16px; }
+.c > p, .c > .a { margin: 12px 16px; }
 
 /* Forms */
 label { display: block; margin-top: 12px; font-size: 14px; }

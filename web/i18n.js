@@ -139,13 +139,42 @@ function QR(s) {
         k.insertAdjacentHTML('afterend', QR('otpauth://totp/' + (l.length > 40 ? 'ESP8266' : l) +
             '?secret=' + k.textContent.split(' ').join('')));
     });
-    // The menu, where the device sends <nav id='mn'>, and the footer's
-    // credit and repository link (the version is already there)
-    var mn = document.getElementById('mn'), ft = document.querySelector('footer'), h = '', i,
-        ln = ['/', 'Home', '/status', 'Status', '/log', 'Logs', '/cloudflare', 'Cloudflare', '/remote', 'Remote access', '/ntfy', 'Ntfy',
-              '/mqtt', 'MQTT', '/iot', 'IoT', '/config', 'Settings', '/update', 'Update', '/password', 'Password'];
-    for (i = 0; i < ln.length; i += 2) h += '<a href=' + ln[i] + '>' + L(ln[i + 1]) + '</a>';
-    if (mn) { mn.setAttribute('aria-label', L('Menu')); mn.insertAdjacentHTML('afterbegin', h); }
+    // The side menu, where the device sends <nav id='mn'>: a link and an
+    // icon (24x24 stroke path) per page, in groups; open from the button at
+    // the top on narrow screens, always open on wide ones. Then the footer's
+    // credit and repository link (the version is already there).
+    var mn = document.getElementById('mn'), ft = document.querySelector('footer'), h = '', i, p = location.pathname,
+        hd = document.querySelector('header'), de = document.documentElement,
+        ic = function (d) { return '<svg viewBox="0 0 24 24" aria-hidden=true><path d="' + d + '"/></svg>'; },
+        ln = ['/', 'Home', 'M3 11l9-8 9 8M5 9v12h14V9',
+              '/iot', 'IoT', 'M7 7h10v10H7zM10 2v5M14 2v5M10 17v5M14 17v5M2 10h5M2 14h5M17 10h5M17 14h5', 0,
+              '/cloudflare', 'Cloudflare', 'M7 19h10a4 4 0 0 0 0-8a6 6 0 0 0-11.6 1.5A3.5 3.5 0 0 0 7 19z',
+              '/ntfy', 'Ntfy', 'M6 9a6 6 0 0 1 12 0c0 6 3 8 3 8H3s3-2 3-8M10 21h4',
+              '/mqtt', 'MQTT', 'M4 12a8 8 0 0 1 16 0M8 12a4 4 0 0 1 8 0M12 12v9', 0,
+              '/config', 'Settings', 'M4 6h16M4 12h16M4 18h16M9 4v4M15 10v4M8 16v4',
+              '/update', 'Update', 'M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5',
+              '/status', 'Status', 'M3 12h4l3-8 4 16 3-8h4',
+              '/log', 'Logs', 'M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1'];
+    for (i = 0; i < ln.length; i += 3) {
+        if (!ln[i]) { h += '<hr>'; i -= 2; continue; }
+        h += '<a href=' + ln[i] + (p == ln[i] || ln[i] != '/' && !p.indexOf(ln[i] + '/') ? ' aria-current=page>' : '>') +
+            ic(ln[i + 2]) + L(ln[i + 1]) + '</a>';
+    }
+    if (mn) {
+        mn.setAttribute('aria-label', L('Menu'));
+        mn.insertAdjacentHTML('afterbegin', h);
+        mn.querySelectorAll('form.out button').forEach(function (b) { b.insertAdjacentHTML('afterbegin', ic('M9 21H4V3h5M16 17l5-5-5-5M21 12H9')); });
+        hd.insertAdjacentHTML('afterbegin', '<button type=button class=hb aria-controls=mn aria-expanded=false aria-label="' +
+            L('Menu') + '">' + ic('M3 6h18M3 12h18M3 18h18') + '</button>');
+        de.classList.add('m');
+        // The button opens and closes it; a click outside it or Esc closes it
+        var mb = hd.firstChild, sh = function (o) { de.classList.toggle('o', o); mb.setAttribute('aria-expanded', o); };
+        document.addEventListener('click', function (e) {
+            if (mb.contains(e.target)) sh(!de.classList.contains('o'));
+            else if (!mn.contains(e.target)) sh(false);
+        });
+        document.addEventListener('keydown', function (e) { if (e.key == 'Escape') sh(false); });
+    }
     if (ft) ft.insertAdjacentHTML('beforeend', '<span>Created by Barcelos.Dev</span>' +
         '<a class=gh href=https://github.com/allanbarcelos/esp8266-dns aria-label=GitHub></a>');
     // Values in the rows (states and statuses from the device)
@@ -153,12 +182,14 @@ function QR(s) {
         b.textContent = b.id == 'ns' || b.id == 'na' ? LV(b.textContent) : L(b.textContent);
     });
     document.documentElement.lang = IG[IL];
-    document.documentElement.className = 'i';
+    de.classList.add('i');
 })();
 
 // A form with an authenticator code sends the browser's clock (seconds) in
-// t. The device uses it only while its own clock is not synchronized.
+// t. The device uses it only while its own clock is not synchronized. A
+// form with data-q (a marker) asks that question before it goes.
 document.addEventListener('submit', function (e) {
-    var t = e.target.querySelector('input[name=t]');
+    var t = e.target.querySelector('input[name=t]'), q = e.target.getAttribute('data-q');
+    if (q && !confirm(IX(q))) return e.preventDefault();
     if (t) t.value = String(Date.now()).slice(0, -3);
 }, true);

@@ -43,11 +43,11 @@ In Cloudflare, **My Profile → API Tokens → Create Token → Create Custom To
 | Zone | **DNS: Edit** | the DDNS record |
 | Zone | **Workers Routes: Edit** | putting the Worker on your own domain |
 
-Without a domain on Cloudflare, the two account permissions are enough. Paste the token on the panel's **Cloudflare** page and press **Save and check**: the page lists the domains the token reaches (and the DDNS record is picked there by name, created if it does not exist).
+Without a domain on Cloudflare, the two account permissions are enough. Paste the token on the panel's **Settings** page (**Cloudflare** card) and press **Save and check**: the **Cloudflare** page then lists the domains the token reaches (and the DDNS record is picked there by name, created if it does not exist). **Unregister**, on the same card, removes the token and every Cloudflare setting from the device; the Worker and the record stay in the account.
 
 ### 2. Turn it on
 
-On the panel, **Remote access**:
+On the panel, **Cloudflare**, card **Worker - remote access**:
 
 - **Address**: one of your domains, or **workers.dev** (free, no domain needed).
 - **Name**: the first part of the address and the Worker's name, such as `esp-pump`. The address becomes `esp-pump.example.com`, or `esp-pump.<account>.workers.dev`. Each device gets its own name. A Worker of yours that already has that name, and is not a relay, is left alone (the panel says so).

@@ -287,9 +287,9 @@ private:
     static constexpr char P_CONFIG_SAVE[] PROGMEM = "/config/save";
     static constexpr char P_CLOUDFLARE_SAVE[] PROGMEM = "/cloudflare/save";
     static constexpr char P_CLOUDFLARE_DDNS[] PROGMEM = "/cloudflare/ddns";
+    static constexpr char P_CLOUDFLARE_CLEAR[] PROGMEM = "/cloudflare/clear";
     static constexpr char P_NTFY_SAVE[] PROGMEM = "/ntfy/save";
     static constexpr char P_MQTT_SAVE[] PROGMEM = "/mqtt/save";
-    static constexpr char P_REMOTE[] PROGMEM = "/remote";
     static constexpr char P_REMOTE_SAVE[] PROGMEM = "/remote/save";
     static constexpr char P_REMOTE_OFF[] PROGMEM = "/remote/off";
     static constexpr char P_PASSWORD_SAVE[] PROGMEM = "/password/save";
@@ -584,7 +584,7 @@ private:
     bool _confirmed() {
         CodeTime t = _codeTime();
         if (!t.now) {
-            _errorPage(S_CLOCK, P_PASSWORD);
+            _errorPage(S_CLOCK, P_CONFIG);
             return false;
         }
         uint32_t step = _floor(t);
@@ -592,7 +592,7 @@ private:
         bool codeOk = _codeOk(_cfg.totp, t.now, step);
         if (!passOk || !codeOk) {
             _loginFailed(_tries());
-            _errorPage(S_SIGN_IN_FAILED, P_PASSWORD);
+            _errorPage(S_SIGN_IN_FAILED, P_CONFIG);
             return false;
         }
         _spend(t, step);
@@ -976,11 +976,22 @@ private:
             _rowf(PSTR("RSSI"),      PSTR("%d dBm"), (int)WiFi.RSSI());
             _boxEnd();
 
-            char b[DURATION_LEN];
-            _box(PSTR("DNS Cloudflare"));
-            _row(PSTR("Host"), _cfg.cf_host[0] ? _cfg.cf_host : "-");
-            _row(PSTR(L_LAST_UPDATE), _ago(_cfg.lastDnsUpdate != 0, _cfg.lastDnsUpdate, b));
-            _boxEnd();
+            // The parts in use: sensor and actuator, then Cloudflare once it has a token
+            if (_iot.hasSensor() || _iot.hasActuator()) {
+                _box(PSTR("IoT"));
+                if (_iot.hasSensor()) _row(PSTR(L_SENSOR), _iot.sensorText(), PSTR("ns"));
+                if (_iot.hasActuator()) _row(PSTR(L_ACTUATOR), _iot.actuatorText(), PSTR("na"));
+                _boxEnd();
+            }
+            if (_cfg.cf_token[0]) {
+                char b[DURATION_LEN];
+                _box(PSTR("Cloudflare"));
+                _row(PSTR(L_REMOTE), _cfg.relay_host[0] ? _cfg.relay_host : "-");
+                if (_cfg.relay_host[0] && _relay) _row(PSTR(L_CONNECTION), _relay->status());
+                _row(PSTR("DDNS"), _cfg.cf_host[0] ? _cfg.cf_host : "-");
+                _row(PSTR(L_LAST_UPDATE), _ago(_cfg.lastDnsUpdate != 0, _cfg.lastDnsUpdate, b));
+                _boxEnd();
+            }
         }
 
         _pageEnd();
@@ -991,6 +1002,7 @@ private:
         if (!_guard()) return;
         _pageBegin();
         _title(PSTR(L_SETTINGS));
+        _box(PSTR(L_GENERAL));
         _p(PSTR("<form action='/config/save' method='POST'>"));
         _csrfField();
         _input(PSTR(L_NAME " <span class='m'>" L_NAME_HINT "</span>"), PSTR("name"),
@@ -1009,6 +1021,38 @@ private:
             _option(_LANG_CODES[i], _LANG_NAMES[i], strcmp(_cfg.lang, _LANG_CODES[i]) == 0);
         _selectEnd();
         _button(S_SAVE);
+        _boxEnd();
+
+        // The Cloudflare token: the device finds the domains it reaches with
+        // it; the Cloudflare page then sets up DDNS and the remote access
+        _box(PSTR("Cloudflare"));
+        if (_cfg.cf_token[0])
+            _alert(S_SUCCESS, L_TOKEN_SET " " + maskSecret(_cfg.cf_token));
+        else
+            _alertP(S_WARNING, PSTR(L_TOKEN_NOT_SET));
+        _p(PSTR("<form action='/cloudflare/save' method='POST'>"));
+        _csrfField();
+        // An empty field keeps the current token and checks it again
+        _passwordInput(PSTR(L_API_TOKEN " <span class='m'>" L_KEEP_BLANK "</span>"),
+                       PSTR("token"), PSTR("placeholder='" L_NEW_TOKEN "' maxlength='79' pattern='[A-Za-z0-9_\\-]*'"));
+        _p(PSTR("<p class='m'>" L_CF_TOKEN_HELP "</p>"));
+        _button(PSTR(L_CF_CHECK));
+        if (_cfg.cf_token[0]) {
+            // i18n.js asks for confirmation (data-q) before it goes
+            _p(PSTR("<form action='/cloudflare/clear' method='POST' data-q='" L_CF_CLEAR_ASK "'>"));
+            _csrfField();
+            _p(PSTR("<button class='bx'>" L_CF_CLEAR "</button></form>"));
+        }
+        _boxEnd();
+
+        _box(PSTR(L_PANEL_PASSWORD));
+        _passwordForm();
+        _boxEnd();
+        if (_cfg.webpss.length()) {
+            _box(PSTR(L_MFA_REPLACE));
+            _mfaResetForm();
+            _boxEnd();
+        }
         _pageEnd();
     }
 
@@ -1223,40 +1267,62 @@ private:
         _pageEnd();
     }
 
-    // Only the token: the device finds the domains it reaches and the DDNS
-    // record by name (CloudflareSetup). The page refreshes while it works.
+    // Everything the token sets up: the remote access Worker and the DDNS
+    // record. The token itself is on Settings. The page refreshes while the
+    // device works with Cloudflare.
     void _handleCloudflare() {
         if (!_guard()) return;
         uint8_t st = _cf ? _cf->state() : CloudflareSetup::IDLE;
         _pageBegin(st == CloudflareSetup::WORKING ? 3 : 0);
         _title(PSTR("Cloudflare"));
-
-        if (_cfg.cf_token[0])
-            _alert(S_SUCCESS, L_TOKEN_SET " " + maskSecret(_cfg.cf_token));
-        else
-            _alertP(S_WARNING, PSTR(L_TOKEN_NOT_SET));
+        if (!_cf || !_cfg.cf_token[0]) {
+            _alertP(S_WARNING, PSTR(L_CF_NEEDS_TOKEN));
+            _p(PSTR("<a class='b' href='/config'>" L_SETTINGS "</a>"));
+            _pageEnd();
+            return;
+        }
         if (st == CloudflareSetup::WORKING) {
             _alertP(S_WARNING, PSTR(L_CF_WORKING));
         } else if (st == CloudflareSetup::FAILED) {
             _alert(S_DANGER, String(L_CF_FAILED ": ") + _cf->message());
-        } else if (st == CloudflareSetup::DONE) {
+        } else if (st == CloudflareSetup::DONE && _cf->last() != CloudflareSetup::DEPLOY) {
             char b[24 + sizeof(_cfg.cf_host)];
             if (_cf->last() == CloudflareSetup::SCAN) snprintf_P(b, sizeof(b), PSTR(L_CF_ZONES " %u"), (unsigned)_cf->zones());
             else snprintf_P(b, sizeof(b), PSTR(L_CF_RECORD_READY " %s"), _cfg.cf_host);
             _alert(S_SUCCESS, b);
         }
 
-        _p(PSTR("<form action='/cloudflare/save' method='POST'>"));
-        _csrfField();
-        // Token: an empty field keeps the current one and checks it again
-        _passwordInput(PSTR(L_API_TOKEN " <span class='m'>" L_KEEP_BLANK "</span>"),
-                       PSTR("token"), PSTR("placeholder='" L_NEW_TOKEN "' maxlength='79' pattern='[A-Za-z0-9_\\-]*'"));
-        _p(PSTR("<p class='m'>" L_CF_TOKEN_HELP "</p>"));
-        _button(PSTR(L_CF_CHECK));
-        if (!_cf || !_cfg.cf_token[0]) {
-            _pageEnd();
-            return;
+        // The relay: the device sets up its Worker with the token and keeps a
+        // connection to it (RelayService)
+        _box(PSTR(L_WORKER));
+        _p(PSTR("<p class='m'>" L_REMOTE_HELP "</p>"));
+        if (_cfg.relay_host[0]) {
+            _row(S_STATE, _relay ? _relay->status() : "-");
+            _p(PSTR("<p><a href='https://"));
+            _e(_cfg.relay_host);
+            _p(PSTR("'>https://"));
+            _e(_cfg.relay_host);
+            _p(PSTR("</a></p>"));
         }
+        _p(PSTR("<form action='/remote/save' method='POST'>"));
+        _csrfField();
+        _selectOpen(PSTR(L_ADDRESS), PSTR("zone"));
+        CloudflareSetup::Zone z;
+        File f = LittleFS.open(CloudflareSetup::ZONES_PATH, "r");
+        while (f && CloudflareSetup::next(f, z)) _zoneOption(z.id, z.name, strcmp(z.id, _cfg.relay_zone) == 0);
+        if (f) f.close();
+        _option("", PSTR("workers.dev"), !_cfg.relay_zone[0]);
+        _selectEnd();
+        _input(PSTR(L_REMOTE_NAME), PSTR("name"), _cfg.relay_name,
+               PSTR("required maxlength='32' placeholder='esp-pump' pattern='[a-z0-9\\-]+'"));
+        _input(PSTR(L_WD_NAME), PSTR("wd"), "", PSTR("maxlength='63' pattern='[a-z0-9\\-]*'"));
+        _button(PSTR(L_REMOTE_ON));
+        if (_cfg.relay_host[0]) {
+            _p(PSTR("<form action='/remote/off' method='POST'>"));
+            _csrfField();
+            _p(PSTR("<button class='b2'>" L_REMOTE_OFF "</button></form>"));
+        }
+        _boxEnd();
 
         _box(PSTR("DDNS"));
         _p(PSTR("<form action='/cloudflare/ddns' method='POST'>"));
@@ -1264,8 +1330,7 @@ private:
         _selectOpen(PSTR(L_DOMAIN), PSTR("zone"));
         _option("", PSTR(L_OFF_CAP), !_cfg.cf_zone[0]);
         bool listed = false;
-        CloudflareSetup::Zone z;
-        File f = LittleFS.open(CloudflareSetup::ZONES_PATH, "r");
+        f = LittleFS.open(CloudflareSetup::ZONES_PATH, "r");
         while (f && CloudflareSetup::next(f, z)) {
             bool on = strcmp(z.id, _cfg.cf_zone) == 0;
             listed = listed || on;
@@ -1294,21 +1359,21 @@ private:
         if (!_guard()) return;
         if (!_checkCSRF()) return;
         char token[sizeof(_cfg.cf_token)];
-        if (!_argInto("token", token, sizeof(token), P_CLOUDFLARE)) return;
+        if (!_argInto("token", token, sizeof(token), P_CONFIG)) return;
         // It goes into a request header: a line break would add another
         if (!_tokenText(token)) {
-            _errorPage(PSTR(L_INVALID_CF_TOKEN), P_CLOUDFLARE);
+            _errorPage(PSTR(L_INVALID_CF_TOKEN), P_CONFIG);
             return;
         }
         if (token[0]) {
             strlcpy(_cfg.cf_token, token, sizeof(_cfg.cf_token));
             if (!_store.save()) {
-                _errorPage(S_SAVE_FAILED, P_CLOUDFLARE);
+                _errorPage(S_SAVE_FAILED, P_CONFIG);
                 return;
             }
         }
         if (_cf && _cfg.cf_token[0]) _cf->scan();
-        _go("/cloudflare");
+        _go(_cfg.cf_token[0] ? "/cloudflare" : "/config");
     }
 
     // The DDNS record: a domain from the list and a name in it ("home" or
@@ -1485,52 +1550,6 @@ private:
 
     // ── Remote access ────────────────────────────────────────────────────────
 
-    // The relay: the device sets up its Worker with the Cloudflare token and
-    // keeps a connection to it (RelayService). The page follows the deploy.
-    void _handleRemote() {
-        if (!_guard()) return;
-        uint8_t st = _cf && _cf->last() == CloudflareSetup::DEPLOY ? _cf->state() : CloudflareSetup::IDLE;
-        _pageBegin(st == CloudflareSetup::WORKING ? 3 : 0);
-        _title(PSTR(L_REMOTE));
-        _p(PSTR("<p class='m'>" L_REMOTE_HELP "</p>"));
-        if (st == CloudflareSetup::WORKING) _alertP(S_WARNING, PSTR(L_CF_WORKING));
-        else if (st == CloudflareSetup::FAILED) _alert(S_DANGER, String(L_CF_FAILED ": ") + _cf->message());
-        if (_cfg.relay_host[0]) {
-            _box(PSTR(L_CONNECTION));
-            _row(S_STATE, _relay ? _relay->status() : "-");
-            _p(PSTR("<p><a href='https://"));
-            _e(_cfg.relay_host);
-            _p(PSTR("'>https://"));
-            _e(_cfg.relay_host);
-            _p(PSTR("</a></p>"));
-            _boxEnd();
-        }
-        if (!_cf || !_cfg.cf_token[0]) {
-            _alertP(S_WARNING, PSTR(L_REMOTE_NEEDS_TOKEN));
-            _pageEnd();
-            return;
-        }
-        _p(PSTR("<form action='/remote/save' method='POST'>"));
-        _csrfField();
-        _selectOpen(PSTR(L_ADDRESS), PSTR("zone"));
-        CloudflareSetup::Zone z;
-        File f = LittleFS.open(CloudflareSetup::ZONES_PATH, "r");
-        while (f && CloudflareSetup::next(f, z)) _zoneOption(z.id, z.name, strcmp(z.id, _cfg.relay_zone) == 0);
-        if (f) f.close();
-        _option("", PSTR("workers.dev"), !_cfg.relay_zone[0]);
-        _selectEnd();
-        _input(PSTR(L_REMOTE_NAME), PSTR("name"), _cfg.relay_name,
-               PSTR("required maxlength='32' placeholder='esp-pump' pattern='[a-z0-9\\-]+'"));
-        _input(PSTR(L_WD_NAME), PSTR("wd"), "", PSTR("maxlength='63' pattern='[a-z0-9\\-]*'"));
-        _button(PSTR(L_REMOTE_ON));
-        if (_cfg.relay_host[0]) {
-            _p(PSTR("<form action='/remote/off' method='POST'>"));
-            _csrfField();
-            _button(PSTR(L_REMOTE_OFF));
-        }
-        _pageEnd();
-    }
-
     // A DNS label: lowercase letters, digits and dashes, not at the ends
     static bool _label(const char* s, size_t max) {
         size_t n = strlen(s);
@@ -1547,16 +1566,16 @@ private:
         name.trim();
         wd.trim();
         if (!_label(name.c_str(), sizeof(_cfg.relay_name) - 1) || (wd.length() && !_label(wd.c_str(), 63))) {
-            _errorPage(PSTR(L_INVALID_REMOTE_NAME), P_REMOTE);
+            _errorPage(PSTR(L_INVALID_REMOTE_NAME), P_CLOUDFLARE);
             return;
         }
         CloudflareSetup::Zone z;
         if (!_cf || (zone.length() && (zone.length() != 32 || !CloudflareSetup::find(zone.c_str(), z)))) {
-            _errorPage(PSTR(L_UNKNOWN_ZONE), P_REMOTE);
+            _errorPage(PSTR(L_UNKNOWN_ZONE), P_CLOUDFLARE);
             return;
         }
         _cf->deploy(name.c_str(), zone.c_str(), wd.c_str());
-        _go("/remote");
+        _go("/cloudflare");
     }
 
     // Off: the device stops connecting; the Worker stays in the account
@@ -1564,14 +1583,41 @@ private:
     void _handleRemoteOff() {
         if (!_guard()) return;
         if (!_checkCSRF()) return;
+        _relayOff();
+        if (!_store.save()) {
+            _errorPage(S_SAVE_FAILED, P_CLOUDFLARE);
+            return;
+        }
+        _savedPage(PSTR(L_REMOTE_OFF_DONE), P_CLOUDFLARE);
+    }
+
+    void _relayOff() {
         _cfg.relay_host[0] = '\0';
         _cfg.relay_secret[0] = '\0';
         _cfg.relay_ver = 0;
+    }
+
+    // Unregister: the token and everything it set up leave the device (DDNS
+    // and the relay stop); the Worker and the record stay in the account.
+    // i18n.js has asked for confirmation.
+    void _handleCloudflareClear() {
+        if (!_guard()) return;
+        if (!_checkCSRF()) return;
+        _relayOff();
+        _cfg.relay_name[0] = '\0';
+        _cfg.relay_zone[0] = '\0';
+        _cfg.cf_token[0] = '\0';
+        _cfg.cf_zone[0] = '\0';
+        _cfg.cf_record[0] = '\0';
+        _cfg.cf_host[0] = '\0';
+        _cfg.cf_account[0] = '\0';
         if (!_store.save()) {
-            _errorPage(S_SAVE_FAILED, P_REMOTE);
+            _errorPage(S_SAVE_FAILED, P_CONFIG);
             return;
         }
-        _savedPage(PSTR(L_REMOTE_OFF_DONE), P_REMOTE);
+        LittleFS.remove(CloudflareSetup::ZONES_PATH);
+        _log.log(PSTR("Cloudflare: token and settings removed"));
+        _savedPage(PSTR(L_CF_CLEARED), P_CONFIG);
     }
 
     // ── MQTT ─────────────────────────────────────────────────────────────────
@@ -1637,6 +1683,16 @@ private:
         _title(PSTR(L_PANEL_PASSWORD));
         if (_cfg.webpss.length() == 0)
             _alertP(S_WARNING, PSTR(L_SET_PASSWORD));
+        _passwordForm();
+        if (_cfg.webpss.length()) {
+            _p(PSTR("<h2>" L_MFA_REPLACE "</h2>"));
+            _mfaResetForm();
+        }
+        _pageEnd();
+    }
+
+    // The password forms: on their own page for the first setup, and on Settings
+    void _passwordForm() {
         _p(PSTR("<form action='/password/save' method='POST'>"));
         _csrfField();
         _input(S_USER, S_F_USER, _cfg.webusr.length() ? _cfg.webusr.c_str() : "admin",
@@ -1649,16 +1705,15 @@ private:
             _codeInput();
         }
         _button(S_SAVE);
-        if (_cfg.webpss.length()) {
-            _p(PSTR("<h2>" L_MFA_REPLACE "</h2><p class='m'>" L_MFA_REPLACE_HELP "</p>"));
-            _p(PSTR("<form action='/mfa/reset' method='POST'>"));
-            _csrfField();
-            _passwordInput(PSTR(L_CURRENT_PASS), S_F_PASS, S_REQ64,
-                           S_CURRENT_PASS_AC);
-            _codeInput();
-            _button(PSTR(L_MFA_REPLACE));
-        }
-        _pageEnd();
+    }
+
+    void _mfaResetForm() {
+        _p(PSTR("<form action='/mfa/reset' method='POST'><p class='m'>" L_MFA_REPLACE_HELP "</p>"));
+        _csrfField();
+        _passwordInput(PSTR(L_CURRENT_PASS), S_F_PASS, S_REQ64,
+                       S_CURRENT_PASS_AC);
+        _codeInput();
+        _button(PSTR(L_MFA_REPLACE));
     }
 
     // Changing a password that exists asks for it and for a code (_confirmed)
@@ -2628,9 +2683,9 @@ inline const WebService::Route WebService::ROUTES[] PROGMEM = {
     {HttpServer::POST, P_CONFIG_SAVE, [](WebService& w) { w._handleConfigSave(); }},
     {HttpServer::POST, P_CLOUDFLARE_SAVE, [](WebService& w) { w._handleCloudflareSave(); }},
     {HttpServer::POST, P_CLOUDFLARE_DDNS, [](WebService& w) { w._handleCloudflareDdns(); }},
+    {HttpServer::POST, P_CLOUDFLARE_CLEAR, [](WebService& w) { w._handleCloudflareClear(); }},
     {HttpServer::POST, P_NTFY_SAVE, [](WebService& w) { w._handleNtfySave(); }},
     {HttpServer::POST, P_MQTT_SAVE, [](WebService& w) { w._handleMqttSave(); }},
-    {HttpServer::GET, P_REMOTE, [](WebService& w) { w._handleRemote(); }},
     {HttpServer::POST, P_REMOTE_SAVE, [](WebService& w) { w._handleRemoteSave(); }},
     {HttpServer::POST, P_REMOTE_OFF, [](WebService& w) { w._handleRemoteOff(); }},
     {HttpServer::POST, P_PASSWORD_SAVE, [](WebService& w) { w._handlePasswordSave(); }},

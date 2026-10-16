@@ -56,10 +56,12 @@ Flash again **without** erasing: the AP password must stay the same. Then flash 
 
 1. With neither Cloudflare nor ntfy configured, wait for the clock to sync and open **Status**.
 2. Leave the device on for 15 minutes and look at the log.
-3. If you use Cloudflare: paste the token on the **Cloudflare** page and press **Save and check**; pick the domain and a record name (try one that does not exist yet).
+3. If you use Cloudflare: paste the token on **Settings** (card **Cloudflare**) and press **Save and check**; on the **Cloudflare** page, pick the domain and a record name (try one that does not exist yet).
 4. Change that record's IP to `1.1.1.1` in the Cloudflare dashboard and reboot the device. It compares the public IP with the last one it sent, not with the record, but every boot sends once.
 
 **Expected:** the Cloudflare page lists the token's domains within a few seconds; saving the record shows `DDNS record ready`, and the record exists in the dashboard pointing at the home IP. A wrong token shows Cloudflare's own message. The **Public IP** card under Status shows the home IP, the provider's reverse name (or `-` if the provider has none) and the last check, which moves every 5 minutes. The log has one `Public IP: ...` line at boot and nothing more while the IP does not change. With Cloudflare, the log shows `Updating DNS to ...` and then `DNS updated!`, and the record goes back to the home IP. With the clock still in 1970 (right after power-up), the device waits instead of failing.
+
+**Panel layout:** on a computer the side menu stays open, with the current page marked; on a phone it opens from the button at the top and closes on a tap outside it or Esc. **Home** shows the Cloudflare card only with a token. **Unregister** (Settings) asks first; after it, Home has no Cloudflare card, the Cloudflare page points to Settings, and DDNS and the relay stop.
 
 ## 6. ntfy (if used)
 
@@ -121,7 +123,7 @@ curl -i -H 'Authorization: Bearer wrong' http://<ip>/api/state
 
 Needs a Cloudflare account; a domain on it is optional. The token carries the permissions in [REMOTE-ACCESS.md](REMOTE-ACCESS.md).
 
-1. On **Remote access**, pick a domain, name it `esp-test` and press **Turn on**. Repeat later with **workers.dev** (on an account that never had a workers.dev name, fill it in).
+1. On **Cloudflare**, card **Worker - remote access**, pick a domain, name it `esp-test` and press **Turn on**. Repeat later with **workers.dev** (on an account that never had a workers.dev name, fill it in).
 2. On the phone, off the home Wi-Fi, open the link the page shows. Sign in.
 3. From a computer outside the home network: `curl -H 'Authorization: Bearer <token>' https://<address>/api/state` and `-d on .../api/cmd`.
 4. Send `on` to the ntfy command topic; press a notification button.
