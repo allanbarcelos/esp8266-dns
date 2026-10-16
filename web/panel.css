@@ -238,13 +238,27 @@ fieldset { border: 1px solid var(--ln); border-radius: 8px; margin: 0 0 16px; pa
 legend { padding: 0 6px; font-weight: 600; }
 [hidden] { display: none !important; }
 
-/* Controls on the "Now" card of the IoT page */
+/* Controls on the live IoT card (Home and the IoT page) */
+.ci { padding: 12px 16px 4px; }
+.ci .m { margin: 8px 0; }
 .ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-bottom: 8px; }
 .ctl button, .ctl input { width: auto; margin: 0; }
 .ctl label { margin: 0; }
 button[aria-checked=false] { background: none; border: 1px solid var(--ln); color: var(--fg); }
 input[type=range] { padding: 0; }
 input[type=color] { height: 40px; padding: 2px; }
+/* Sensor on the "Now" card (#gg, drawn by iot.js): gauges, a lamp or a count */
+#gg { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; padding: 8px 16px 12px; text-align: center; color: var(--mu); }
+#gg:empty { display: none; }
+#gg div { flex: 1 1 140px; max-width: 220px; }
+#gg path { fill: none; stroke-width: 8; stroke-linecap: round; stroke: var(--ln); }
+#gg .gv { stroke: var(--in); }
+#gg line { stroke: var(--wa); stroke-width: 2; }
+#gg text { fill: var(--mu); font-size: 7px; text-anchor: middle; }
+#gg .gn { fill: var(--fg); font-size: 14px; font-weight: 600; }
+#gg b { font-size: 28px; color: var(--fg); }
+#lp { padding: 6px 20px; border: 1px solid var(--ln); border-radius: 99px; color: var(--fg); }
+#lp.on { background: var(--ok); border-color: var(--ok); color: #000; }
 
 /* Until i18n.js writes the text (html.i), the page stays hidden: no marker
    shows up. If the script fails, it shows after 2 s anyway. */

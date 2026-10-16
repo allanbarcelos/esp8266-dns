@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Allan Barcelos. ESP8266 IoT: https://github.com/allanbarcelos/esp8266-iot
 
-// IoT page. Embedded in the firmware, gzipped (tools/embed_web.py →
-// WebAssets.h). The page defines beforehand, in its own <script>, SK and AC
-// (type → Kind/Cap, generated from the catalog) and T (CSRF), and loads
+// IoT page and the IoT card on Home. Embedded in the firmware, gzipped
+// (tools/embed_web.py → WebAssets.h). The page defines beforehand, in its own
+// <script>, SK and AC (type → Kind/Cap, generated from the catalog), T (CSRF)
+// and R (the saved rule: limit and the value it watches), and loads
 // i18n.js: L() with the English text gives it in the panel language (the
 // build swaps the English for its row in web/i18n.tsv).
 //
@@ -77,17 +78,53 @@ function f() {
         s += ' ' + L('Only between {0} and {1} (local time); off outside it.', V('win_start').value, V('win_end').value);
     $('rs').textContent = s;
 }
-document.querySelectorAll('form input,form select').forEach(function (e) {
-    e.addEventListener('input', f);
-});
-f();
+// Only the IoT page has the form
+if (V('role')) {
+    document.querySelectorAll('form input,form select').forEach(function (e) {
+        e.addEventListener('input', f);
+    });
+    f();
+}
+
+// ── Sensor drawing on the "Now" card (#gg): a gauge per value on the scale
+// of the sensor's datasheet, with the saved rule's limit marked; a lamp
+// for a digital sensor and the count for pulses ────────────────────────────
+
+// Kind → scale: [temperature from, to, humidity from, to]; distance in cm
+var GR = { 2: [0, 50, 20, 90], 3: [-40, 80, 0, 100], 4: [-55, 125], 5: [0, 400], 7: [-40, 125, 0, 100] };
+
+// Gauge: n label, v value, lo–hi scale, un unit, t threshold to mark (NaN: none)
+function g(n, v, lo, hi, un, t) {
+    var A = " d='M10 50A40 40 0 0 1 90 50'/>",
+        Q = function (x) { return Math.max(0, Math.min(1, (x - lo) * Math.pow(hi - lo, -1))); };
+    return "<div><svg viewBox='0 0 100 62'><path" + A + "<path class='gv' pathLength='1' stroke-dasharray='" + Q(v) + " 2'" + A +
+        (t == t ? "<line x1='3' y1='50' x2='17' y2='50' transform='rotate(" + 180 * Q(t) + " 50 50)'/>" : '') +
+        "<text class='gn' x='50' y='46'>" + v + ' ' + un + "</text><text x='10' y='61'>" + lo +
+        "</text><text x='90' y='61'>" + hi + '</text></svg>' + n + '</div>';
+}
+
+// Values come only with a good reading; until then the row's text says why
+function z(e) {
+    var G = $('gg'), k = SK[e.type], r = GR[k], t = R[0], h = '';
+    if (k == 1) {
+        G.innerHTML = "<p id='lp'></p>";
+        $('lp').textContent = LV(e.text);
+        $('lp').className = e.active ? 'on' : '';
+        return;
+    }
+    if (e.pulses != null) h = '<p><b>' + e.pulses + '</b> ' + L('pulses') + '</p>';
+    if (e.distance != null) h = g(L('Distance (HC-SR04)'), e.distance, r[0], r[1], 'cm', t);
+    if (e.temperature != null) h = g(L('Temperature'), e.temperature, r[0], r[1], '°C', k == 4 || R[1] ? t : NaN);
+    if (e.humidity != null) h += g(L('Humidity'), e.humidity, r[2], r[3], '%', R[1] ? NaN : t);
+    G.innerHTML = h;
+}
 
 // ── "Now" card (only with a sensor or actuator in use): commands without
 // reloading and a reading every 5 s ────────────────────────────────────────
 
 function u(s) {
     var a = s.actuator, e = s.sensor, w;
-    if (e) $('ns').textContent = LV(e.text);
+    if (e) { $('ns').textContent = LV(e.text); z(e); }
     if (a) {
         $('na').textContent = LV(a.text);
         if (w = $('sw')) w.setAttribute('aria-checked', a.on);
@@ -105,9 +142,10 @@ function c(x) {
         .then(function (s) { if (s.error) $('msg').textContent = L(s.error); else u(s); })
         .catch(function () { $('msg').textContent = L('No answer from the device'); });
 }
-if ($('ns') || $('na')) setInterval(function () {
+function q() {
     fetch('/iot/now')
         .then(function (r) { if (r.ok) return r.json(); })
         .then(function (s) { if (s) u(s); })
         .catch(function () {});
-}, 5000);
+}
+if ($('ns') || $('na')) { q(); setInterval(q, 5000); }

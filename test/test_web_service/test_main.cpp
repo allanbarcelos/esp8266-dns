@@ -1867,7 +1867,8 @@ static void actuatorCfg(const char* slug, int pin) {
     cfg.iot.actuatorPin = (int8_t)pin;
 }
 
-// Home: the sensor and the actuator in use, each on its own
+// Home: the sensor and the actuator in use, each on its own, with the
+// sensor's drawing and the actuator's control (iot.js)
 void test_root_iot_card() {
     sensorCfg("pir", 2);
     Fixture f;
@@ -1875,14 +1876,43 @@ void test_root_iot_card() {
     f.get("/");
     TEST_ASSERT_TRUE(contains(f.out(), "<h2>IoT</h2>"));
     TEST_ASSERT_TRUE(contains(f.out(), "Sensor</span><b id='ns'>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<div id='gg'></div></section>"));
     TEST_ASSERT_FALSE(contains(f.out(), "id='na'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "id='sw'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "var SK={dht22:3"));
+    TEST_ASSERT_TRUE(contains(f.out(), f.web.sessionCsrfToken()));
+    TEST_ASSERT_TRUE(contains(f.out(),
+        "',R=[NaN,0];</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
 
     cfg.iot = IoTConfig();
     actuatorCfg("relay", 0);
     f.iot.begin();
     f.get("/");
     TEST_ASSERT_TRUE(contains(f.out(), "Actuator</span><b id='na'>off</b>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<div class='ci'><div class='ctl'>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "role='switch' id='sw' aria-checked='false'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "role='status' aria-live='polite'></p></div></section>"));
     TEST_ASSERT_FALSE(contains(f.out(), "id='ns'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "id='gg'"));
+
+    // A dimmer gets its slider; the rule's limit goes to the gauge
+    sensorCfg("ds18b20", 2);
+    actuatorCfg("fan", 0);
+    cfg.iot.rule = true;
+    cfg.iot.threshold = 28;
+    cfg.iot.metric = 1;
+    f.iot.begin();
+    f.get("/");
+    TEST_ASSERT_TRUE(contains(f.out(), "<input type='range' id='lv'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<b id='nm'>automatic</b>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "',R=[28,1];</script>"));
+
+    // Nothing in use: no card and no script
+    cfg.iot = IoTConfig();
+    f.iot.begin();
+    f.get("/");
+    TEST_ASSERT_FALSE(contains(f.out(), "<h2>IoT</h2>"));
+    TEST_ASSERT_FALSE(contains(f.out(), "/iot.js"));
 }
 
 void test_iot_page_with_nothing_set() {
@@ -1901,7 +1931,9 @@ void test_iot_page_with_nothing_set() {
     // Signed in: the session's token, not the one the sign-in page shows
     TEST_ASSERT_TRUE(contains(f.out(), f.web.sessionCsrfToken()));
     TEST_ASSERT_FALSE(contains(f.out(), f.web.csrfToken()));
-    TEST_ASSERT_TRUE(contains(f.out(), "';</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "',R=[NaN,0];</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
+    // Nothing set up: nothing to reconfigure
+    TEST_ASSERT_FALSE(contains(f.out(), "/iot/clear"));
     // i18n.js before iot.js: the form script uses L() and the translated names
     TEST_ASSERT_TRUE(f.out().find("/i18n.js?v=") < f.out().find("var SK={"));
     // With nothing in use: no "Now" card (iot.js only reads live with ns/na)
@@ -1957,6 +1989,8 @@ void test_iot_page_sensor_only_and_actuator_only() {
     f.get("/iot");
     TEST_ASSERT_TRUE(contains(f.out(), "name='role' value='s' checked>"));
     TEST_ASSERT_TRUE(contains(f.out(), "<b id='ns'>"));
+    // The sensor's drawing (iot.js) goes inside the "Now" card
+    TEST_ASSERT_TRUE(contains(f.out(), "<div id='gg'></div></section>"));
     TEST_ASSERT_FALSE(contains(f.out(), "id='na'"));
     TEST_ASSERT_FALSE(contains(f.out(), "id='sw'"));
 
@@ -1969,6 +2003,7 @@ void test_iot_page_sensor_only_and_actuator_only() {
     f.get("/iot");
     TEST_ASSERT_TRUE(contains(f.out(), "name='role' value='a' checked>"));
     TEST_ASSERT_FALSE(contains(f.out(), "id='ns'"));
+    TEST_ASSERT_FALSE(contains(f.out(), "id='gg'"));
     TEST_ASSERT_FALSE(contains(f.out(), "id='nm'"));
     TEST_ASSERT_FALSE(contains(f.out(), "c('auto')"));
     TEST_ASSERT_TRUE(contains(f.out(),
@@ -2457,15 +2492,18 @@ void test_iot_remove_asks_for_confirmation() {
     f.get("/iot");
     TEST_ASSERT_TRUE(contains(f.out(),
         "<form action='/iot/clear' method='POST'>"));
-    TEST_ASSERT_TRUE(contains(f.out(), ">Remove sensor and actuator</button>"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">Reconfigure</button>"));
+    // At the top: after the live card, before the setup form
+    TEST_ASSERT_TRUE(f.out().find(">Reconfigure</button>") > f.out().find("id='msg'"));
+    TEST_ASSERT_TRUE(f.out().find(">Reconfigure</button>") < f.out().find("action='/iot/save'"));
 
     // The first step only shows the warning; nothing changes
     f.post("/iot/clear");
     TEST_ASSERT_EQUAL(200, f.srv.code);
-    TEST_ASSERT_TRUE(contains(f.out(), "<h1>Remove</h1>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<h1>Reconfigure</h1>"));
     TEST_ASSERT_TRUE(contains(f.out(), "will be deleted"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='confirm' value='1'"));
-    TEST_ASSERT_TRUE(contains(f.out(), ">Yes, remove</button>"));
+    TEST_ASSERT_TRUE(contains(f.out(), ">Yes, clear everything</button>"));
     TEST_ASSERT_TRUE(contains(f.out(), "href='/iot'>Back</a>"));
     TEST_ASSERT_EQUAL_STRING("pir", cfg.iot.sensor);
     TEST_ASSERT_TRUE(f.iot.actuatorOn());
@@ -2473,7 +2511,7 @@ void test_iot_remove_asks_for_confirmation() {
     // Confirmed: deletes everything, turns the actuator off and the API goes away
     std::string token = cfg.api_token;
     f.post("/iot/clear", {{"confirm", "1"}});
-    TEST_ASSERT_TRUE(contains(f.out(), "Sensor and actuator removed"));
+    TEST_ASSERT_TRUE(contains(f.out(), "IoT settings cleared"));
     TEST_ASSERT_EQUAL_STRING("", cfg.iot.sensor);
     TEST_ASSERT_EQUAL_STRING("", cfg.iot.actuator);
     TEST_ASSERT_EQUAL(-1, cfg.iot.sensorPin);

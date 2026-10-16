@@ -238,7 +238,7 @@ FROM	From	De	Desde	De
 TO	To	Até	Hasta	À
 WINDOW_HELP	Outside the window, automatic mode keeps the actuator off; a manual command holds until auto. The time zone is in Settings.	Fora da janela, o modo automático mantém o atuador desligado; um comando manual vale até auto. O fuso horário fica em Configurações.	Fuera de la franja, el modo automático mantiene el actuador apagado; un comando manual vale hasta auto. La zona horaria está en Configuración.	Hors de la plage, le mode automatique garde l'actionneur éteint ; une commande manuelle tient jusqu'à auto. Le fuseau horaire est dans Paramètres.
 NOTIFY	Send readings and changes to ntfy	Enviar leituras e mudanças ao ntfy	Enviar lecturas y cambios a ntfy	Envoyer les mesures et changements à ntfy
-REMOVE_BOTH	Remove sensor and actuator	Remover sensor e atuador	Quitar sensor y actuador	Retirer le capteur et l'actionneur
+RECONFIGURE	Reconfigure	Reconfigurar	Reconfigurar	Reconfigurer
 INVALID_VALUE	Invalid value	Valor inválido	Valor no válido	Valeur invalide
 INVALID_STATE_NAME	Invalid state name	Nome de estado inválido	Nombre de estado no válido	Nom d'état invalide
 CHOOSE_PIN	Choose the pin	Escolha o pino	Elija el pin	Choisissez la broche
@@ -252,10 +252,9 @@ WINDOW_SAME	The window needs different start and end times	A janela precisa de i
 PIN_GAUGE	Pin used by the battery gauge	Pino usado pelo medidor de bateria	Pin usado por el medidor de batería	Broche utilisée par la jauge de batterie
 IOT_SET	IoT set	IoT configurado	IoT configurado	IoT configuré
 NEW_TOKEN_DONE	New token generated; the old one no longer works	Novo token gerado; o antigo não vale mais	Nuevo token generado; el anterior ya no funciona	Nouveau jeton généré ; l'ancien ne fonctionne plus
-REMOVE	Remove	Remover	Quitar	Retirer
 REMOVE_WARNING	The sensor and the actuator will be deleted with all settings and the rule. The actuator turns off, the local API stops answering and the token stops working.	O sensor e o atuador serão apagados com todas as configurações e a regra. O atuador desliga, a API local para de responder e o token deixa de valer.	El sensor y el actuador se borrarán con toda la configuración y la regla. El actuador se apaga, la API local deja de responder y el token deja de funcionar.	Le capteur et l'actionneur seront supprimés avec tous les paramètres et la règle. L'actionneur s'éteint, l'API locale ne répond plus et le jeton cesse de fonctionner.
-YES_REMOVE	Yes, remove	Sim, remover	Sí, quitar	Oui, retirer
-REMOVED	Sensor and actuator removed	Sensor e atuador removidos	Sensor y actuador quitados	Capteur et actionneur retirés
+YES_CLEAR	Yes, clear everything	Sim, apagar tudo	Sí, borrar todo	Oui, tout effacer
+IOT_CLEARED	IoT settings cleared	Configuração de IoT apagada	Configuración de IoT borrada	Paramètres IoT effacés
 LOCAL_API	Local API	API local	API local	API locale
 API_HELP	No internet, same network: GET /api/state and POST /api/cmd with the Authorization: Bearer header and the token.	Sem internet, na mesma rede: GET /api/state e POST /api/cmd com o cabeçalho Authorization: Bearer e o token.	Sin internet, en la misma red: GET /api/state y POST /api/cmd con la cabecera Authorization: Bearer y el token.	Sans internet, sur le même réseau : GET /api/state et POST /api/cmd avec l'en-tête Authorization: Bearer et le jeton.
 TOKEN	Token			Jeton

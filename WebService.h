@@ -977,12 +977,7 @@ private:
             _boxEnd();
 
             // The parts in use: sensor and actuator, then Cloudflare once it has a token
-            if (_iot.hasSensor() || _iot.hasActuator()) {
-                _box(PSTR("IoT"));
-                if (_iot.hasSensor()) _row(PSTR(L_SENSOR), _iot.sensorText(), PSTR("ns"));
-                if (_iot.hasActuator()) _row(PSTR(L_ACTUATOR), _iot.actuatorText(), PSTR("na"));
-                _boxEnd();
-            }
+            if (_iot.hasSensor() || _iot.hasActuator()) _liveCard(PSTR("IoT"));
             if (_cfg.cf_token[0]) {
                 char b[DURATION_LEN];
                 _box(PSTR("Cloudflare"));
@@ -994,7 +989,12 @@ private:
             }
         }
 
-        _pageEnd();
+        if (!_wifi.inConfigMode() && (_iot.hasSensor() || _iot.hasActuator())) {
+            _pageFoot();
+            _iotScript();
+        } else {
+            _pageEnd();
+        }
     }
 
     // Device settings: name, hostname, time zone and battery gauge
@@ -2232,28 +2232,21 @@ private:
             _alertP(S_WARNING, PSTR(L_SET_NTFY_TOPIC));
 
         bool live = _iot.hasSensor() || _iot.hasActuator();
-        if (live) {
-            _box(PSTR(L_NOW));
-            if (_iot.hasSensor()) _row(PSTR(L_SENSOR), _iot.sensorText(), PSTR("ns"));
-            if (_iot.hasActuator()) {
-                _row(PSTR(L_ACTUATOR), _iot.actuatorText(), PSTR("na"));
-                if (_iot.hasRule())
-                    _row(PSTR(L_MODE), String(_iot.manual() ? L_MANUAL
-                                              : _iot.inHours() ? L_AUTOMATIC
-                                              : L_AUTO_OUTSIDE),
-                         PSTR("nm"));
-            }
-            _boxEnd();
-            if (_iot.hasActuator()) _controls();
-            _p(PSTR("<p id='msg' class='m' role='status' aria-live='polite'></p>"));
+        if (live) _liveCard(PSTR(L_NOW));
+
+        // Something set up: Reconfigure clears it all (asks first) for a new setup
+        bool hs = t.sensor[0] && t.sensorPin >= 0;
+        bool ha = t.actuator[0] && t.actuatorPin >= 0;
+        if (hs || ha) {
+            _p(PSTR("<form action='/iot/clear' method='POST'>"));
+            _csrfField();
+            _p(PSTR("<button class='b2'>" L_RECONFIGURE "</button></form>"));
         }
 
         // Drawing in English; i18n.js redraws it in the panel language
         _p(PSTR("<figure><img src='/pinout.svg?v=" ASSET_PINOUT_TAG "' width='1040' height='700' "
                 "alt='" L_PINOUT_ALT "'></figure>"));
 
-        bool hs = t.sensor[0] && t.sensorPin >= 0;
-        bool ha = t.actuator[0] && t.actuatorPin >= 0;
         _p(PSTR("<form action='/iot/save' method='POST'>"));
         _csrfField();
         _fieldsetOpen(PSTR("fp"), PSTR(L_ROLE_QUESTION));
@@ -2330,13 +2323,37 @@ private:
         _switch(PSTR("notify"), PSTR(L_NOTIFY), t.notify);
         _button(S_SAVE);
         if (live) _apiBox();
-        if (hs || ha) {
-            _p(PSTR("<form action='/iot/clear' method='POST'>"));
-            _csrfField();
-            _p(PSTR("<button class='b2'>" L_REMOVE_BOTH "</button></form>"));
-        }
 
         _pageFoot();
+        _iotScript();
+    }
+
+    // Sensor and actuator in use (Home and IoT): the reading, drawn by iot.js
+    // in #gg, and the actuator's control, which works without reloading
+    void _liveCard(PGM_P title) {
+        _box(title);
+        if (_iot.hasSensor()) _row(PSTR(L_SENSOR), _iot.sensorText(), PSTR("ns"));
+        if (_iot.hasActuator()) {
+            _row(PSTR(L_ACTUATOR), _iot.actuatorText(), PSTR("na"));
+            if (_iot.hasRule())
+                _row(PSTR(L_MODE), String(_iot.manual() ? L_MANUAL
+                                          : _iot.inHours() ? L_AUTOMATIC
+                                          : L_AUTO_OUTSIDE),
+                     PSTR("nm"));
+        }
+        if (_iot.hasSensor()) _p(PSTR("<div id='gg'></div>"));
+        if (_iot.hasActuator()) {
+            _p(PSTR("<div class='ci'>"));
+            _controls();
+            _p(PSTR("<p id='msg' class='m' role='status' aria-live='polite'></p></div>"));
+        }
+        _boxEnd();
+    }
+
+    // iot.js and what it reads: type → Kind/Cap from the catalog, the CSRF
+    // token and the saved rule [limit, value it watches] (NaN: no rule).
+    // Ends the page.
+    void _iotScript() {
         _p(PSTR("<script>var SK={"));
         for (uint8_t i = 0; i < iot::SENSOR_COUNT; i++) {
             char buf[24];
@@ -2353,7 +2370,11 @@ private:
         }
         _p(PSTR("},T='"));
         _s(_formToken());
-        _p(PSTR("';</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
+        char buf[24];
+        if (_iot.hasRule()) snprintf(buf, sizeof(buf), "',R=[%d,%u", _cfg.iot.threshold, _cfg.iot.metric);
+        else strcpy(buf, "',R=[NaN,0");
+        _s(buf);
+        _p(PSTR("];</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
     }
 
     // Reads an integer from the form within the range; otherwise answers 400
@@ -2614,13 +2635,13 @@ private:
         if (!_checkCSRF()) return;
         if (!_flag("confirm")) {
             _pageBegin();
-            _title(PSTR(L_REMOVE));
+            _title(PSTR(L_RECONFIGURE));
             _alertP(S_WARNING,
                     PSTR(L_REMOVE_WARNING));
             _p(PSTR("<form action='/iot/clear' method='POST'>"));
             _csrfField();
             _p(PSTR("<input type='hidden' name='confirm' value='1'>"
-                    "<button class='bx'>" L_YES_REMOVE "</button></form>"));
+                    "<button class='bx'>" L_YES_CLEAR "</button></form>"));
             _backButton(P_IOT);
             _pageEnd();
             return;
@@ -2634,7 +2655,7 @@ private:
         LittleFS.remove(IoTState::PATH);
         _iot.begin();
         _log.log(PSTR("IoT: sensor and actuator removed"));
-        _savedPage(PSTR(L_REMOVED), P_IOT);
+        _savedPage(PSTR(L_IOT_CLEARED), P_IOT);
     }
 
     // Token and examples to integrate without internet (scripts, Home Assistant)

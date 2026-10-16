@@ -142,13 +142,17 @@ Per actuator:
 
 The form writes the rule back as a sentence ("Turns the fan on when the value goes above 28 °C and off when it drops below 26 °C") before you save.
 
-### The "Now" card
+### The "Now" card and the IoT card on Home
 
-Shows the reading and the actuator state, with the real control for its capability. Commands go out without reloading the page and the values refresh every 5 s (`/iot/now`), so nothing being edited in the form is lost. Values are announced to screen readers (`aria-live`); state is always written, never colour only.
+On the IoT page and on **Home** (its **IoT** card), each only while a sensor or actuator is set up and in use. Shows the reading and the actuator state, with the real control for its capability: a switch for on/off (relay, pump, valve, lock, buzzer), a 0–100 % slider for a level (LED, fan, motor), open, close and an angle for a servo, brightness and colour for a strip.
 
-### Removing the modules
+The sensor is drawn by what it measures: a gauge per value on the scale of its datasheet (DHT11 0–50 °C and 20–90 %, DHT22 −40–80 °C, DS18B20 −55–125 °C, SHT3x −40–125 °C, humidity 0–100 %, HC-SR04 0–400 cm), with the saved rule's limit marked on the value it watches; a lamp with the state's name for a digital sensor; the count for pulses. The drawing is made by the browser (`web/iot.js`), so it costs only the script in the flash.
 
-**Remove sensor and actuator**, at the end of the IoT page, opens a confirmation page of its own before acting. Once confirmed it deletes the sensor, the actuator, the rule, the saved state (`/iot.state`) and the API token: the actuator turns off and the local API stops answering until a new setup, which creates a new token.
+Commands go out without reloading the page and the values refresh every 5 s (`/iot/now`), so nothing being edited in the form is lost. Values are announced to screen readers (`aria-live`); state is always written, never colour only.
+
+### Reconfiguring
+
+**Reconfigure**, at the top of the IoT page once a sensor or an actuator is set up, opens a confirmation page of its own before acting. Once confirmed it deletes the sensor, the actuator, the rule, the saved state (`/iot.state`) and the API token: the actuator turns off and the local API stops answering until a new setup, which creates a new token. The form is then empty, for a new setup.
 
 ---
 
