@@ -931,7 +931,7 @@ void test_pulses_in_window_with_hysteresis() {
     iot.tick(IoTService::PULSE_WINDOW_MS);
     TEST_ASSERT_EQUAL_STRING("3 pulses/10 s", iot.sensorText());
     TEST_ASSERT_TRUE(iot.actuatorOn());
-    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"pulses\":3}"));
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"pulses\":3,\"total\":3}"));
 
     IoTService::onPulse();
     IoTService::onPulse();
@@ -961,6 +961,163 @@ void test_pulses_in_window_with_hysteresis() {
 }
 
 // ── Time window ──────────────────────────────────────────────────────────────
+
+// ── Units set on the IoT page: text, rule and ntfy use them; the API keeps
+// °C, cm and pulses ──────────────────────────────────────────────────────
+
+static const uint8_t DS_25C[] = {0x90, 0x01, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10, 0x33};
+
+static void dsRead(IoTService& iot, unsigned long t) {
+    feedDs(2, true, true, DS_25C, 9);
+    iot.tick(t);
+    iot.tick(t + IoTService::DS_CONVERT_MS);
+}
+
+void test_units_temperature_in_fahrenheit() {
+    sensor("ds18b20", 2);
+    actuator("relay", 0);
+    cfg.iot.unit = 1;
+    cfg.iot.above = true;
+    cfg.iot.threshold = 77;                            // °F: 25.0 °C is 77.0 °F
+    cfg.iot.notify = true;
+    IoTService iot{cfg, logger};
+    iot.begin();
+    dsRead(iot, 0);
+    TEST_ASSERT_EQUAL_STRING("77.0 F", iot.sensorText());
+    TEST_ASSERT_TRUE(iot.actuatorOn());
+    TEST_ASSERT_EQUAL_STRING("[sensor] 77.0 F | on", iot.message());
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"temperature\":25.0}"));
+    cfg.iot.threshold = 78;
+    iot.begin();
+    dsRead(iot, 0);
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+
+    // DHT watching the humidity: only the text changes unit
+    sensor("dht22", 2);
+    cfg.iot.metric = 0;
+    cfg.iot.threshold = 40;
+    iot.begin();
+    uint8_t d[5];
+    frame(0x01, 0xE7, 0x01, 0x09, d);                  // 48.7% and 26.5 C
+    feedDht(2, d);
+    dhtRead(iot, 0);
+    TEST_ASSERT_EQUAL_STRING("79.7 F, 48.7%", iot.sensorText());
+    TEST_ASSERT_TRUE(iot.actuatorOn());
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"temperature\":26.5,\"humidity\":48.7"));
+
+    // Watching the temperature: the limit is in °F
+    cfg.iot.metric = 1;
+    cfg.iot.threshold = 80;
+    iot.begin();
+    feedDht(2, d);
+    dhtRead(iot, 0);
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+    cfg.iot.threshold = 79;
+    iot.begin();
+    feedDht(2, d);
+    dhtRead(iot, 0);
+    TEST_ASSERT_TRUE(iot.actuatorOn());
+
+    // A unit this version does not know reads as the first
+    sensor("ds18b20", 2);
+    cfg.iot.unit = 7;
+    iot.begin();
+    dsRead(iot, 0);
+    TEST_ASSERT_EQUAL_STRING("25.0 C", iot.sensorText());
+}
+
+// A tank from the distance: level in % or volume in L, between the
+// distances with the tank empty and full
+void test_units_tank_level_and_volume() {
+    sensor("distance", 2);
+    actuator("pump", 0);
+    cfg.iot.unit = 1;
+    cfg.iot.tankEmpty = 110;
+    cfg.iot.tankFull = 10;
+    cfg.iot.threshold = 20;                            // on below 20 %
+    IoTService iot{cfg, logger};
+    iot.begin();
+    echo(2, 60 * 58);
+    iot.tick(0);
+    TEST_ASSERT_EQUAL_STRING("50%", iot.sensorText());
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"distance\":60}"));
+    echo(2, 95 * 58);
+    iot.tick(IoTService::READ_GAP_MS);
+    TEST_ASSERT_EQUAL_STRING("15%", iot.sensorText());
+    TEST_ASSERT_TRUE(iot.actuatorOn());
+    echo(2, 5 * 58);                                   // above the full mark
+    iot.tick(IoTService::READ_GAP_MS * 2);
+    TEST_ASSERT_EQUAL_STRING("100%", iot.sensorText());
+    echo(2, 200 * 58);                                 // below the empty mark
+    iot.tick(IoTService::READ_GAP_MS * 3);
+    TEST_ASSERT_EQUAL_STRING("0%", iot.sensorText());
+
+    cfg.iot.unit = 2;
+    cfg.iot.tankL = 2000;
+    cfg.iot.threshold = 500;                           // litres
+    iot.begin();
+    echo(2, 60 * 58);
+    iot.tick(0);
+    TEST_ASSERT_EQUAL_STRING("1000 L", iot.sensorText());
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+
+    // A tank with no height (a hand-edited file) reads 0
+    cfg.iot.tankFull = 110;
+    iot.begin();
+    echo(2, 60 * 58);
+    iot.tick(0);
+    TEST_ASSERT_EQUAL_STRING("0 L", iot.sensorText());
+}
+
+// A flow meter: L/min (tenths) or mL/min, and the pulses since boot
+void test_units_flow_and_total() {
+    sensor("pulses", 2);
+    actuator("valve", 0);
+    cfg.iot.unit = 1;
+    cfg.iot.ppl = 450;
+    cfg.iot.above = true;
+    cfg.iot.threshold = 1;                             // on from 1.0 L/min
+    IoTService iot{cfg, logger};
+    iot.begin();
+    iot.tick(0);
+    for (int i = 0; i < 75; i++) IoTService::onPulse();
+    iot.tick(IoTService::PULSE_WINDOW_MS);
+    TEST_ASSERT_EQUAL_STRING("1.0 L/min", iot.sensorText());
+    TEST_ASSERT_TRUE(iot.actuatorOn());
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"pulses\":75,\"total\":75}"));
+    for (int i = 0; i < 45; i++) IoTService::onPulse();
+    iot.tick(IoTService::PULSE_WINDOW_MS * 2);
+    TEST_ASSERT_EQUAL_STRING("0.6 L/min", iot.sensorText());
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"pulses\":45,\"total\":120}"));
+
+    cfg.iot.unit = 2;
+    iot.begin();
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"status\":\"waiting\""));
+    iot.tick(0);
+    for (int i = 0; i < 75; i++) IoTService::onPulse();
+    iot.tick(IoTService::PULSE_WINDOW_MS);
+    TEST_ASSERT_EQUAL_STRING("1000 mL/min", iot.sensorText());
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"total\":75}"));     // a new setup starts over
+
+    // A flow beyond what the text holds stops at 3276.7 L/min
+    cfg.iot.unit = 1;
+    cfg.iot.ppl = 1;
+    iot.begin();
+    iot.tick(0);
+    for (int i = 0; i < 600; i++) IoTService::onPulse();
+    iot.tick(IoTService::PULSE_WINDOW_MS);
+    TEST_ASSERT_EQUAL_STRING("3276.7 L/min", iot.sensorText());
+
+    // No pulses per litre (a hand-edited file): 0
+    cfg.iot.ppl = 0;
+    iot.begin();
+    iot.tick(0);
+    IoTService::onPulse();
+    iot.tick(IoTService::PULSE_WINDOW_MS);
+    TEST_ASSERT_EQUAL_STRING("0.0 L/min", iot.sensorText());
+}
 
 static time_t clockNow = 0;
 static time_t fakeClock() { return clockNow; }
@@ -1476,6 +1633,9 @@ int main() {
     RUN_TEST(test_dht_start_pulse_without_delay);
     RUN_TEST(test_ds18b20_conversion_and_errors);
     RUN_TEST(test_pulses_in_window_with_hysteresis);
+    RUN_TEST(test_units_temperature_in_fahrenheit);
+    RUN_TEST(test_units_tank_level_and_volume);
+    RUN_TEST(test_units_flow_and_total);
     RUN_TEST(test_local_time_and_window);
     RUN_TEST(test_rule_only_inside_window);
     RUN_TEST(test_outside_window_without_reading);

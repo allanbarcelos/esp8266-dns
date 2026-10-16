@@ -95,6 +95,7 @@ public:
         if (_r.dutyOn > 100) _r.dutyOn = 100;
         if (_r.dutyOff > 100) _r.dutyOff = 100;
         if (_r.leds == 0 || _r.leds > MAX_LEDS) _r.leds = MAX_LEDS;
+        if (_r.unit > 2) _r.unit = 0;
 
         if (allowedPin(_r.sensorPin)) {
             _sensor = iot::sensorIndex(_r.sensor);
@@ -313,6 +314,7 @@ private:
     int     _hum;
     int     _temp;
     int     _value;         // distance (cm) or pulses
+    uint32_t _total;        // pulses since boot
     unsigned long _since;
     unsigned long _lastRead;
     unsigned long _owSince;
@@ -363,6 +365,7 @@ private:
         _hum = 0;
         _temp = 0;
         _value = 0;
+        _total = 0;
         _since = 0;
         _lastRead = 0;
         _owSince = 0;
@@ -644,32 +647,62 @@ private:
         return (uint8_t)((int)_r.dutyOff + delta * (value - lo) / (hi - lo));
     }
 
+    // Temperature (tenths) in the unit set: °C or °F
+    int _deg(int c) const { return _r.unit == 1 ? c * 9 / 5 + 320 : c; }
+
+    // The reading in the unit set on the IoT page, for the rule and the text:
+    // a tank's level (%) or volume (L) from the distance, a flow from the
+    // pulses (L/min in tenths, mL/min, up to 32767), a temperature in °F. A tank with no
+    // height (or a meter with no pulses per litre) from a hand-edited file
+    // reads 0.
+    int _inUnit(int v, bool& tenths) const {
+        uint8_t k = sensorKind();
+        if (k == iot::K_RANGE && _r.unit) {
+            int span = (int)_r.tankEmpty - (int)_r.tankFull;
+            int full = _r.unit == 1 ? 100 : (int)_r.tankL;
+            if (span <= 0) return 0;
+            int x = ((int)_r.tankEmpty - v) * full / span;
+            return x < 0 ? 0 : x > full ? full : x;
+        }
+        if (k == iot::K_PULSE && _r.unit) {
+            if (!_r.ppl) return 0;
+            tenths = _r.unit == 1;
+            long f = (long)v * (tenths ? 60 : 6000) / _r.ppl;
+            return f > 32767 ? 32767 : (int)f;   // the text takes tenths in int16_t
+        }
+        return tenths && (k == iot::K_DS18 || _r.metric == 1) ? _deg(v) : v;
+    }
+
     // New numeric reading: text, rule and notice
     void _accept(int value, bool tenths) {
         _failing = false;
         uint8_t kind = sensorKind();
         char a[12];
-        if (kind == iot::K_PULSE) {
-            snprintf(_sensorLine, sizeof(_sensorLine), "%d pulses/10 s", value);
-        } else if (kind == iot::K_RANGE) {
-            snprintf(_sensorLine, sizeof(_sensorLine), "%d cm", value);
+        int shown = _inUnit(value, tenths);
+        char deg = _r.unit == 1 ? 'F' : 'C';
+        if (kind == iot::K_PULSE && _r.unit == 1) {
+            _fmtTenths(a, sizeof(a), shown);
+            snprintf(_sensorLine, sizeof(_sensorLine), "%s L/min", a);
+        } else if (kind == iot::K_PULSE || kind == iot::K_RANGE) {
+            static const char* const FMT[] = {"%d cm", "%d%%", "%d L", "%d pulses/10 s", "", "%d mL/min"};
+            snprintf(_sensorLine, sizeof(_sensorLine), FMT[(kind == iot::K_PULSE) * 3 + _r.unit], shown);
         } else if (kind == iot::K_DS18) {
-            _fmtTenths(a, sizeof(a), value);
-            snprintf(_sensorLine, sizeof(_sensorLine), "%s C", a);
+            _fmtTenths(a, sizeof(a), shown);
+            snprintf(_sensorLine, sizeof(_sensorLine), "%s %c", a, deg);
         } else {
             char b[12];
-            _fmtTenths(a, sizeof(a), _temp);
+            _fmtTenths(a, sizeof(a), _deg(_temp));
             _fmtTenths(b, sizeof(b), _hum);
-            snprintf(_sensorLine, sizeof(_sensorLine), "%s C, %s%%", a, b);
+            snprintf(_sensorLine, sizeof(_sensorLine), "%s %c, %s%%", a, deg, b);
         }
         bool log = !_haveLevel;
         _haveLevel = true;
         if (hasRule()) {
             if (_proportional()) {
-                _ruleLevel = _mapDuty(value, tenths);
+                _ruleLevel = _mapDuty(shown, tenths);
                 _ruleOn = _ruleLevel != _r.dutyOff;
             } else {
-                _ruleOn = _rule(value, tenths);
+                _ruleOn = _rule(shown, tenths);
             }
             _haveRule = true;
             if (!_manual && _takeRule()) {
@@ -946,6 +979,7 @@ private:
         interrupts();
         _windowStart = now;
         _value = (int)n;
+        _total += n;
         _accept((int)n, false);
     }
 
@@ -981,7 +1015,8 @@ private:
                     k += (size_t)snprintf(out + k, _left(n, k), ",\"distance\":%d", _value);
                     break;
                 default: // K_PULSE
-                    k += (size_t)snprintf(out + k, _left(n, k), ",\"pulses\":%d", _value);
+                    k += (size_t)snprintf(out + k, _left(n, k), ",\"pulses\":%d,\"total\":%lu", _value,
+                                          (unsigned long)_total);
                     break;
             }
         }

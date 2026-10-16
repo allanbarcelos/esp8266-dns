@@ -167,6 +167,8 @@ private:
     CS_KEY(K_SENSOR, "sensor") CS_KEY(K_SENSOR_PIN, "sensor_pin")
     CS_KEY(K_SENSOR_HIGH, "sensor_high") CS_KEY(K_SENSOR_ON, "sensor_on") CS_KEY(K_SENSOR_OFF, "sensor_off")
     CS_KEY(K_METRIC, "metric") CS_KEY(K_NOTIFY, "notify") CS_KEY(K_ACTUATOR, "actuator")
+    CS_KEY(K_UNIT, "unit") CS_KEY(K_TANK_EMPTY, "tank_empty") CS_KEY(K_TANK_FULL, "tank_full")
+    CS_KEY(K_TANK_L, "tank_l") CS_KEY(K_PPL, "ppl") CS_KEY(K_PULSE, "pulse")
     CS_KEY(K_ACTUATOR_PIN, "actuator_pin") CS_KEY(K_ACTUATOR_HIGH, "actuator_high")
     CS_KEY(K_ANGLE_ON, "angle_on") CS_KEY(K_ANGLE_OFF, "angle_off") CS_KEY(K_DUTY_ON, "duty_on")
     CS_KEY(K_DUTY_OFF, "duty_off") CS_KEY(K_LEDS, "leds") CS_KEY(K_MAX_ON, "max_on")
@@ -220,6 +222,9 @@ private:
         CS_IOT(K_SENSOR, sensor, T_CHARS, 0), CS_IOT(K_SENSOR_PIN, sensorPin, T_I8, -1),
         CS_IOT(K_SENSOR_HIGH, sensorHigh, T_BOOL, 1), CS_IOT(K_SENSOR_ON, onText, T_CHARS, 0),
         CS_IOT(K_SENSOR_OFF, offText, T_CHARS, 0), CS_IOT(K_METRIC, metric, T_U8, 0),
+        CS_IOT(K_UNIT, unit, T_U8, 0), CS_IOT(K_TANK_EMPTY, tankEmpty, T_U16, 100),
+        CS_IOT(K_TANK_FULL, tankFull, T_U16, 20), CS_IOT(K_TANK_L, tankL, T_U16, 1000),
+        CS_IOT(K_PPL, ppl, T_U16, 450), CS_IOT(K_PULSE, pulse, T_U16, 0),
         CS_IOT(K_NOTIFY, notify, T_BOOL, 0), CS_IOT(K_ACTUATOR, actuator, T_CHARS, 0),
         CS_IOT(K_ACTUATOR_PIN, actuatorPin, T_I8, -1), CS_IOT(K_ACTUATOR_HIGH, actuatorHigh, T_BOOL, 0),
         CS_IOT(K_ANGLE_ON, angleOn, T_U8, 90), CS_IOT(K_ANGLE_OFF, angleOff, T_U8, 0),

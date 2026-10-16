@@ -31,7 +31,7 @@ except ImportError:  # optional: only makes the gzip smaller
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 PHOTO_WIDTH = 220
-PHOTO_BYTES = 3250
+PHOTO_BYTES = 1500   # a decoration on Home: the flash went to the IoT card
 
 
 def pinout():

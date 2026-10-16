@@ -104,15 +104,17 @@ Each choice shows only the fields it needs. Every sensor and actuator type shows
 
 | Identifier | Sensor | Reading |
 | --- | --- | --- |
-| `dht22`, `dht11` | Temperature and humidity | °C and % (the rule uses the one you pick) |
-| `ds18b20` | Temperature (1-Wire) | °C |
+| `dht22`, `dht11` | Temperature and humidity | °C or °F and % (the rule uses the one you pick) |
+| `ds18b20` | Temperature (1-Wire) | °C or °F |
 | `sht3x` | Temperature and humidity (SHT30/SHT31, I2C at address 0x44): SDA on the chosen pin and SCL on its pair (GPIO0 with GPIO2, RX with TX), with 4.7 kΩ pull-ups on both | °C and % (like the DHT) |
 | `pir` | Presence | presence / free |
 | `contact` | Door or window (reed) | open / closed |
 | `button` | Button or switch | pressed / released |
 | `digital` | Generic digital output (rain, gas, flame, soil, float, sound) | state names you choose |
-| `distance` | HC-SR04 / JSN-SR04T (trig and echo on one pin) | cm |
-| `pulses` | Flow or pulses (YF-S201) | pulses per 10 s |
+| `distance` | HC-SR04 / JSN-SR04T (trig and echo on one pin) | cm, or a tank's level (%) or volume (L) |
+| `pulses` | Flow or pulses (YF-S201) | pulses per 10 s, or the flow in L/min or mL/min |
+
+**Unit** (on the IoT page, by sensor): °C or °F for a temperature. For a distance, **Tank level (%)** or **Tank volume (L)** take the distance to the water with the tank empty and full (and the volume when full): the level goes from one to the other, and never past them. For pulses, **Flow (L/min)** or **Flow (mL/min)** take the meter's pulses per litre (YF-S201: about 450); Home also shows the volume since boot. The rule's limits, the text on Home and in ntfy and MQTT's state text use the unit set; the API JSON keeps °C, cm and pulses (with `total`, the pulses since boot), so scripts and Home Assistant do not change with it.
 
 ### Actuators, by capability
 
@@ -129,7 +131,7 @@ Every actuator also accepts `auto` (back to the rule) and `status` (no change; r
 
 Per actuator:
 
-- **Pulse**: on for N seconds (1–3600), then off. A pulse is never saved as the state to restore, so a lock cannot reopen after a power loss. With the rule, the end of a pulse returns to automatic.
+- **Pulse**: on for N seconds (1–3600), then off. The **Pulse** button on Home uses the seconds set on the IoT page (0 = the type's: relay 1, pump and valve 10, lock 3, fan 30…). A pulse is never saved as the state to restore, so a lock cannot reopen after a power loss. With the rule, the end of a pulse returns to automatic.
 - **Safety off**: "turn off by itself after N minutes" (0 = never), for pumps, valves and heaters. With the rule, the actuator stays in manual afterwards, or the rule would turn it right back on.
 - **After a power loss**: off, or the last manual command (`/iot.state`).
 
@@ -142,17 +144,21 @@ Per actuator:
 
 The form writes the rule back as a sentence ("Turns the fan on when the value goes above 28 °C and off when it drops below 26 °C") before you save.
 
-### The "Now" card and the IoT card on Home
+### The IoT card on Home
 
-On the IoT page and on **Home** (its **IoT** card), each only while a sensor or actuator is set up and in use. Shows the reading and the actuator state, with the real control for its capability: a switch for on/off (relay, pump, valve, lock, buzzer), a 0–100 % slider for a level (LED, fan, motor), open, close and an angle for a servo, brightness and colour for a strip.
+**Home** shows the **IoT** card while a sensor or an actuator is set up and in use: the reading and the controls, with nothing to set there. The IoT page only sets the modules up.
 
-The sensor is drawn by what it measures: a gauge per value on the scale of its datasheet (DHT11 0–50 °C and 20–90 %, DHT22 −40–80 °C, DS18B20 −55–125 °C, SHT3x −40–125 °C, humidity 0–100 %, HC-SR04 0–400 cm), with the saved rule's limit marked on the value it watches; a lamp with the state's name for a digital sensor; the count for pulses. The drawing is made by the browser (`web/iot.js`), so it costs only the script in the flash.
+The sensor is drawn by what it measures, in the unit set: a gauge per value on the scale of its datasheet (DHT11 0–50 °C and 20–90 %, DHT22 −40–80 °C, DS18B20 −55–125 °C, SHT3x −40–125 °C, humidity 0–100 %, HC-SR04 0–400 cm), with the saved rule's limit marked on the value it watches; a tank filled to its level, with the volume or the percentage inside and the limit as a line; the flow in large print with the volume so far; a lamp with the state's name for a digital sensor; the count for pulses.
 
-Commands go out without reloading the page and the values refresh every 5 s (`/iot/now`), so nothing being edited in the form is lost. Values are announced to screen readers (`aria-live`); state is always written, never colour only.
+The actuator gets the control for what it does: a switch for on/off (relay, pump, valve, lock, buzzer); a switch, a 0–100 % slider and steps of 10 % for a level (LED, fan, motor); open, close and the angle on a dial for a servo; a switch, brightness, a colour and five ready ones for a strip. All have the **Pulse** button and, with a rule, the mode and **Back to automatic**.
+
+Commands go out without reloading the page and the values refresh every 5 s (`/iot/now`), not from a tab out of sight; a slider being moved is not overwritten. Values are announced to screen readers (`aria-live`); state is always written, never colour only. The card is drawn by the browser (`web/iot.js`), from what the page says is set up, so it costs only the script in the flash.
+
+On/off settings across the panel are switches.
 
 ### Reconfiguring
 
-**Reconfigure**, at the top of the IoT page once a sensor or an actuator is set up, opens a confirmation page of its own before acting. Once confirmed it deletes the sensor, the actuator, the rule, the saved state (`/iot.state`) and the API token: the actuator turns off and the local API stops answering until a new setup, which creates a new token. The form is then empty, for a new setup.
+**Reconfigure**, at the top of the IoT page once a sensor or an actuator is set up, asks twice: a confirmation page of its own, then the browser. With a panel password set, the page also asks for the current password and an authenticator code, as for a new password: the session cookie alone (readable on plain HTTP) does not clear the device. Once confirmed it deletes the sensor, the actuator, the rule, the saved state (`/iot.state`) and the API token: the actuator turns off and the local API stops answering until a new setup, which creates a new token. The form is then empty, for a new setup.
 
 ---
 
@@ -324,11 +330,11 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 499,696 of 500,000 bytes (304 to spare) |
+| Firmware | 499,504 of 500,000 bytes (496 to spare) |
 | Panel text, 4 languages | 337 texts (the pin drawing included), 45 KB as text, 16 KB in flash |
 | Relay Worker | 7.8 KB of script, 4.2 KB in flash (byte-pair encoded) |
 | Signed OTA package | ~354 KB of 400 KB (about 46 KB free) |
-| Embedded images | 1.1 KB pinout (gzipped SVG), 3.2 KB ESP-01 photo (AVIF, white background) |
+| Embedded images | 1.1 KB pinout (gzipped SVG), 1.5 KB ESP-01 photo (AVIF, white background) |
 | Configuration filesystem | 64 KB, unchanged |
 
 Kept small on purpose: page text in flash (`PSTR`) as 3-byte markers, with the text of the four languages in one gzipped table that the browser decodes (one column per language, rows ordered so similar texts sit together, an empty cell for text equal to English and one byte for text equal to the language before it, compressed with zopfli), no `scanf` (one `sscanf` pulled about 3 KB of the C library), TLS roots as trust anchors (name and key only, 1.6 KB, no X.509 decoder), an own JSON reader and writer (`Json.h`, about 6 KB less than ArduinoJson; config.json is a table of fields), one-shot HTTPS requests without `HTTPClient` (about 6 KB), no libgcc unwinder or stdio `FILE` layer (`TlsTrim.h`, about 10 KB; printf output goes through `vsnprintf`), no float `printf`, LittleFS without its debug asserts (`LFS_NO_ASSERT`, 3.4 KB; errors are still return codes), one TLS session at a time, TLS limited to ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519, MD5, the TLS 1.0 PRF and client certificates are left out of the link by `TlsTrim.h`, about 29 KB; the fast P-256 stays, so the handshake is as fast as before; every server the device uses negotiates ECDHE + AES-128-GCM), lwIP without extras (`ip=lm2n`, about 10 KB: no NAT, IP fragmentation or AutoIP; SNTP keeps one server, so `Clock` alternates between `pool.ntp.org` and `time.google.com` until it syncs), an own HTTP server instead of `ESP8266WebServer` (about 12 KB: one client at a time, routes in a table in flash instead of `std::function`, no upload, Digest, keep-alive or chunked encoding; the page ends when the connection closes), a WS2812 driver without a library, the command word table in flash. **mDNS** was measured at about 21 KB and does not fit; use a DHCP reservation instead.
@@ -349,7 +355,7 @@ Kept small on purpose: page text in flash (`PSTR`) as 3-byte markers, with the t
 
 ## 🧪 Tests
 
-Native tests (Unity + PlatformIO) use Arduino core stubs in `test/stubs`. CI requires **100 % line, function and branch coverage** of the firmware headers, builds with no warnings (`-Wall -Wextra -Werror`) and runs everything again under **AddressSanitizer and UndefinedBehaviorSanitizer** (buffer overflow, use after free, leaks, undefined behavior). Whatever comes from outside the device (MQTT packets, commands, the Cloudflare answers, the ntfy stream, the relay's frames, `config.json`) is also **fuzzed** (libFuzzer, `test/fuzz/`). The relay Worker (`relay/worker.mjs`) has its own tests on Node, with the Workers runtime pieces imitated, also at 100 % coverage, and they run again on the minified script the firmware carries.
+Native tests (Unity + PlatformIO) use Arduino core stubs in `test/stubs`. CI requires **100 % line, function and branch coverage** of the firmware headers, builds with no warnings (`-Wall -Wextra -Werror`) and runs everything again under **AddressSanitizer and UndefinedBehaviorSanitizer** (buffer overflow, use after free, leaks, undefined behavior). Whatever comes from outside the device (MQTT packets, commands, the Cloudflare answers, the ntfy stream, the relay's frames, `config.json`) is also **fuzzed** (libFuzzer, `test/fuzz/`). The relay Worker (`relay/worker.mjs`) has its own tests on Node, with the Workers runtime pieces imitated, also at 100 % coverage, and they run again on the minified script the firmware carries. So does the panel's IoT script (`web/iot.js`: the card on Home for each kind of sensor and actuator, and the setup form), with the browser imitated.
 
 ```bash
 python -m venv venv && . venv/bin/activate
@@ -360,6 +366,7 @@ pio test -e sanitize      # ASan + UBSan (gcc or clang)
 tools/static_check.sh     # cppcheck, as in CI
 test/fuzz/run.sh 30       # fuzzing, 30 s per target (requires clang)
 node --test relay/worker.test.mjs   # the relay Worker (Node 22)
+node --test web/iot.test.mjs        # the panel's IoT script
 ./test/coverage.sh        # requires gcc (Linux) — same command as CI
 ```
 

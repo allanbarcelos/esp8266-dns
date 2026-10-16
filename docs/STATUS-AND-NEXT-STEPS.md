@@ -8,10 +8,11 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 | | |
 | --- | --- |
-| Firmware | 499,696 of 500,000 bytes (304 to spare) |
+| Firmware | 499,504 of 500,000 bytes (496 to spare) |
 | Signed OTA package | ~354 KB of 400 KB |
-| Static RAM | 38,932 bytes |
-| Native tests | 592, with 100 % of lines, functions and branches |
+| Static RAM | 39,072 bytes |
+| Native tests | 599, with 100 % of lines, functions and branches |
+| Panel IoT script tests | 21 on Node, 100 % of lines, functions and branches, on the source and minified |
 | Relay Worker tests | 24 on Node, 100 % of lines, functions and branches, on the source and on the embedded script |
 | In CI | no compiler warnings, ASan and UBSan, cppcheck, fuzzing of 9 inputs |
 
@@ -109,7 +110,7 @@ Safe order:
 
 ## Next steps
 
-In order, with an effort estimate. Items that change the firmware need room first: 0.3 KB are left.
+In order, with an effort estimate. Items that change the firmware need room first: 0.5 KB are left.
 
 1. **Run the on-device test** and fix what comes up, remote access included (section 10c, with a Cloudflare account). 3 to 5 hours of testing, plus whatever needs fixing.
 2. **Make room.** The long help texts of the Cloudflare, remote access and ntfy pages (four languages each) and the Worker's own size are the first candidates. Half a day.

@@ -159,6 +159,20 @@ jobs:
           python3 tools/embed_relay.py --check --min "$RUNNER_TEMP/worker.min.mjs"
           WORKER="$RUNNER_TEMP/worker.min.mjs" node --test relay/worker.test.mjs
 
+      # The panel's IoT script (the card on Home, the setup form) with the
+      # browser imitated; 100% coverage, then the same tests minified
+      - name: Panel IoT script tests (100% lines/functions/branches)
+        run: >-
+          node --test --experimental-test-coverage
+          --test-coverage-include=web/iot.js
+          --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100
+          web/iot.test.mjs
+
+      - name: Panel IoT script tests on the minified script
+        run: |
+          python3 tools/embed_web.py --min-iot "$RUNNER_TEMP/iot.min.js"
+          IOT_JS="$RUNNER_TEMP/iot.min.js" node --test web/iot.test.mjs
+
   # ── Builds the firmware: compiles, measures and packages ─────────────────
   # Runs before the tests: green tests with a firmware over the limit are
   # worth nothing, the device can still hang.

@@ -22,6 +22,14 @@ struct IoTConfig {
     char     onText[16]    = {};     // digital: state names ("" = the type's)
     char     offText[16]   = {};
     uint8_t  metric        = 0;      // DHT/SHT3x: the rule uses 0 humidity, 1 temperature
+    // Unit shown on Home and in the text, and the rule's: temperature 0 °C,
+    // 1 °F; distance 0 cm, 1 tank level (%), 2 tank volume (L); pulses 0 per
+    // 10 s, 1 flow in L/min, 2 in mL/min. The API keeps °C, cm and pulses.
+    uint8_t  unit          = 0;
+    uint16_t tankEmpty     = 100;    // distance to the water with the tank empty (cm)
+    uint16_t tankFull      = 20;     // and full (cm)
+    uint16_t tankL         = 1000;   // tank volume when full (L)
+    uint16_t ppl           = 450;    // flow meter pulses per litre (YF-S201: about 450)
     bool     notify        = false;  // readings and state go to the ntfy topic
 
     char     actuator[12]  = {};
@@ -34,6 +42,7 @@ struct IoTConfig {
     uint8_t  leds          = 8;      // color: LEDs on the strip
     uint16_t maxOn         = 0;      // minutes on before turning off by itself; 0 = no limit
     bool     restore       = false;  // on power-up: last command (otherwise off)
+    uint16_t pulse         = 0;      // seconds of the Pulse button on Home; 0 = the type's
 
     // Rule (sensor and actuator): the sensor drives the actuator in automatic mode
     bool     rule          = true;

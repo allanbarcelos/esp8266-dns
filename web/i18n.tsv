@@ -179,7 +179,6 @@ CHOOSE	Choose	Escolha	Elija	Choisir
 TYPE	Type	Tipo	Tipo
 OPEN_BTN	Open	Abrir	Abrir	Ouvrir
 CLOSE_BTN	Close	Fechar	Cerrar	Fermer
-PULSE_S	Pulse (s)	Pulso (s)	Pulso (s)	Impulsion (s)
 PULSE	Pulse	Pulso	Pulso	Impulsion
 BACK_AUTO	Back to automatic	Voltar ao automático	Volver al automático	Retour en automatique
 LEVEL	Level	Nível	Nivel	Niveau
@@ -188,7 +187,6 @@ ANGLE	Angle	Ângulo	Ángulo
 COLOR	Color	Cor		Couleur
 TYPE_UNKNOWN	Type unknown to this version: that part stays off	Tipo desconhecido nesta versão: essa parte fica desligada	Tipo desconocido en esta versión: esa parte queda apagada	Type inconnu de cette version : cette partie reste éteinte
 SET_NTFY_TOPIC	Set the ntfy topic to send the reading	Defina o tópico do ntfy para enviar a leitura	Defina el tema de ntfy para enviar la lectura	Définissez le sujet ntfy pour envoyer la mesure
-NOW	Now	Agora	Ahora	Maintenant
 SENSOR	Sensor			Capteur
 ACTUATOR	Actuator	Atuador	Actuador	Actionneur
 MODE	Mode	Modo	Modo
@@ -219,9 +217,7 @@ OPEN_ANGLE	Open angle	Ângulo aberto	Ángulo abierto	Angle ouvert
 CLOSED_ANGLE	Closed angle	Ângulo fechado	Ángulo cerrado	Angle fermé
 LED_COUNT	Number of LEDs	Número de LEDs	Número de LED	Nombre de LED
 MAX_ON	Turn off by itself after (min; 0 = never)	Desligar sozinho depois de (min; 0 = nunca)	Apagar solo después de (min; 0 = nunca)	Éteindre tout seul après (min ; 0 = jamais)
-POWER_UP	On power-up	Ao ligar	Al encender	À la mise sous tension
 OFF_CAP	Off	Desligado	Apagado	Éteint
-LAST_COMMAND	Last command	Último comando	Último comando	Dernière commande
 RULE	Rule	Regra	Regla	Règle
 RULE_SWITCH	The sensor drives the actuator (automatic mode)	O sensor comanda o atuador (modo automático)	El sensor controla el actuador (modo automático)	Le capteur pilote l'actionneur (mode automatique)
 WHEN_ACTIVE	When the sensor becomes active	Quando o sensor fica ativo	Cuando el sensor se activa	Quand le capteur devient actif
@@ -240,6 +236,23 @@ FROM	From	De	Desde	De
 TO	To	Até	Hasta	À
 WINDOW_HELP	Outside it, automatic mode keeps the actuator off; a manual command holds until auto. Time zone: Settings.	Fora dela, o modo automático mantém o atuador desligado; um comando manual vale até auto. Fuso: Configurações.	Fuera de ella, el modo automático mantiene el actuador apagado; un comando manual vale hasta auto. Zona horaria: Configuración.	Hors de la plage, le mode automatique garde l'actionneur éteint ; une commande manuelle tient jusqu'à auto. Fuseau : Paramètres.
 NOTIFY	Send readings and changes to ntfy	Enviar leituras e mudanças ao ntfy	Enviar lecturas y cambios a ntfy	Envoyer les mesures et changements à ntfy
+UNIT	Unit	Unidade	Unidad	Unité
+TANK_EMPTY	Distance to the water, tank empty (cm)	Distância até a água, caixa vazia (cm)	Distancia al agua, tanque vacío (cm)	Distance jusqu'à l'eau, réservoir vide (cm)
+TANK_FULL	Distance to the water, tank full (cm)	Distância até a água, caixa cheia (cm)	Distancia al agua, tanque lleno (cm)	Distance jusqu'à l'eau, réservoir plein (cm)
+TANK_L	Tank volume when full (L)	Volume da caixa cheia (L)	Volumen del tanque lleno (L)	Volume du réservoir plein (L)
+TANK_HELP	Sensor at the top, facing the water; measure both distances with it in place.	Sensor no alto, voltado para a água; meça as duas distâncias com ele no lugar.	Sensor arriba, mirando al agua; mida las dos distancias con él en su sitio.	Capteur en haut, face à l'eau ; mesurez les deux distances avec lui en place.
+PPL	Pulses per litre (YF-S201: about 450)	Pulsos por litro (YF-S201: cerca de 450)	Pulsos por litro (YF-S201: unos 450)	Impulsions par litre (YF-S201 : environ 450)
+PULSE_LEN	Pulse button on Home (s; 0 = the type's)	Botão Pulso no Início (s; 0 = o do tipo)	Botón Pulso en Inicio (s; 0 = el del tipo)	Bouton Impulsion sur Accueil (s ; 0 = celle du type)
+RESTORE_LAST	On power-up, go back to the last command	Ao ligar, voltar ao último comando	Al encender, volver al último comando	À la mise sous tension, revenir à la dernière commande
+IOT_CLEAR_ASK	Delete the sensor, the actuator, the rule and the API token?	Apagar o sensor, o atuador, a regra e o token da API?	¿Borrar el sensor, el actuador, la regla y el token de la API?	Supprimer le capteur, l'actionneur, la règle et le jeton d'API ?
+DIST_CM	Distance (cm)	Distância (cm)	Distancia (cm)
+TANK_LEVEL	Tank level (%)	Nível da caixa (%)	Nivel del tanque (%)	Niveau du réservoir (%)
+TANK_VOLUME	Tank volume (L)	Volume da caixa (L)	Volumen del tanque (L)	Volume du réservoir (L)
+PULSES_10S	Pulses per 10 s	Pulsos a cada 10 s	Pulsos cada 10 s	Impulsions par 10 s
+FLOW_L	Flow (L/min)	Vazão (L/min)	Caudal (L/min)	Débit (L/min)
+FLOW_ML	Flow (mL/min)	Vazão (mL/min)	Caudal (mL/min)	Débit (mL/min)
+IN_10S	in 10 s	em 10 s	en 10 s	en 10 s
+TOTAL	Total
 RECONFIGURE	Reconfigure	Reconfigurar	Reconfigurar	Reconfigurer
 INVALID_VALUE	Invalid value	Valor inválido	Valor no válido	Valeur invalide
 INVALID_STATE_NAME	Invalid state name	Nome de estado inválido	Nombre de estado no válido	Nom d'état invalide

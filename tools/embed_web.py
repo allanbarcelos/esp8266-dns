@@ -18,6 +18,9 @@ words they have in common. Generated from the table:
   web/iot.js       L('English text') becomes L(row)
 
     python tools/embed_web.py           regenerates the files above from web/
+    python tools/embed_web.py --min-iot FILE   writes web/iot.js minified, with
+                                        its L('English') kept: web/iot.test.mjs runs
+                                        on it too (IOT_JS=FILE)
     python tools/embed_web.py --check   only checks (CI uses it); exits with an
                                         error if a generated file does not match
 
@@ -294,6 +297,12 @@ def check(rows, assets):
 
 
 def main():
+    if "--min-iot" in sys.argv[1:]:
+        with open(os.path.join(ROOT, "web", "iot.js"), encoding="utf-8") as f:
+            text = minify_js(f.read())
+        with open(sys.argv[sys.argv.index("--min-iot") + 1], "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        return
     rows, assets = build()
     if "--check" in sys.argv[1:]:
         errors = check(rows, assets)

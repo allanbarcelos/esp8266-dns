@@ -76,9 +76,11 @@ Flash again **without** erasing: the AP password must stay the same. Then flash 
 
 1. Set up the digital sensor on GPIO2 and the relay (or LED) on GPIO0, with the rule on.
 2. Press the sensor button a few times.
-3. From the panel: `on`, `off`, `pulse 3`, `auto`.
+3. From the IoT card on **Home**: the switch on and off, **Pulse**, **Back to automatic**.
+4. For each module you have, check its card: a DHT/DS18B20/SHT3x in °C and in °F (a gauge per value), an HC-SR04 as a tank (level and volume; move a board in front of it), a flow meter in L/min with the total, a fan or LED with the slider and the −/+ steps, a servo with open, close and the dial, a strip with brightness, colour and the ready ones.
+5. **Reconfigure** on the IoT page: the page asks for the password and a code, the browser asks once more; a wrong code changes nothing.
 
-**Expected:** the rule follows the sensor; the pulse turns off by itself after 3 s; the log shows `Panel: command "..."` for each one.
+**Expected:** the rule follows the sensor; the pulse turns off by itself; the values on Home refresh every 5 s and match the unit set (and ntfy's text too); the log shows `Panel: command "..."` for each command; after Reconfigure the actuator is off and the IoT page is empty.
 
 ## 8. Local API
 

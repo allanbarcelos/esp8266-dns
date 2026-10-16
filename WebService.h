@@ -581,10 +581,10 @@ private:
     // code (new password, new authenticator): the cookie alone, readable on
     // plain HTTP, is not enough. A wrong one is a counted mistake. On
     // success the code is spent in RAM; the caller saves the config.
-    bool _confirmed() {
+    bool _confirmed(PGM_P back = P_CONFIG) {
         CodeTime t = _codeTime();
         if (!t.now) {
-            _errorPage(S_CLOCK, P_CONFIG);
+            _errorPage(S_CLOCK, back);
             return false;
         }
         uint32_t step = _floor(t);
@@ -592,7 +592,7 @@ private:
         bool codeOk = _codeOk(_cfg.totp, t.now, step);
         if (!passOk || !codeOk) {
             _loginFailed(_tries());
-            _errorPage(S_SIGN_IN_FAILED, P_CONFIG);
+            _errorPage(S_SIGN_IN_FAILED, back);
             return false;
         }
         _spend(t, step);
@@ -769,20 +769,13 @@ private:
 
     void _boxEnd() { _p(PSTR("</section>")); }
 
-    // Label + value on one line with a separator (the value is always escaped).
-    // id, if any, lets the script update the value without reloading the page
-    void _row(PGM_P label, const String& value, PGM_P id = nullptr) { _row(label, value.c_str(), id); }
+    // Label + value on one line with a separator (the value is always escaped)
+    void _row(PGM_P label, const String& value) { _row(label, value.c_str()); }
 
-    void _row(PGM_P label, const char* value, PGM_P id = nullptr) {
+    void _row(PGM_P label, const char* value) {
         _p(PSTR("<div class='r'><span>"));
         _p(label);
-        if (id) {
-            _p(PSTR("</span><b id='"));
-            _p(id);
-            _p(S_TAG_END);
-        } else {
-            _p(PSTR("</span><b>"));
-        }
+        _p(PSTR("</span><b>"));
         _e(value);
         _p(PSTR("</b></div>"));
     }
@@ -977,7 +970,8 @@ private:
             _boxEnd();
 
             // The parts in use: sensor and actuator, then Cloudflare once it has a token
-            if (_iot.hasSensor() || _iot.hasActuator()) _liveCard(PSTR("IoT"));
+            if (_iot.hasSensor() || _iot.hasActuator())
+                _p(PSTR("<section class='c'><h2>IoT</h2><div id='io'></div></section>"));
             if (_cfg.cf_token[0]) {
                 char b[DURATION_LEN];
                 _box(PSTR("Cloudflare"));
@@ -2173,66 +2167,6 @@ private:
         _p(PSTR("</label>"));
     }
 
-    // Range 0–N with the value beside it; lift the finger and the command goes
-    void _range(PGM_P label, PGM_P id, int value, int max, PGM_P cmd, PGM_P unit) {
-        char buf[40];   // "' min='0' max='180' value='180" = 30
-        _labelOpen(label);
-        _p(PSTR(": <output id='"));
-        _p(id);
-        _p(PSTR("o'>"));
-        snprintf(buf, sizeof(buf), "%d", value);
-        _s(buf);
-        _p(PSTR("</output>"));
-        _p(unit);
-        _p(PSTR("<input type='range' id='"));
-        _p(id);
-        snprintf(buf, sizeof(buf), "' min='0' max='%d' value='%d", max, value);
-        _s(buf);
-        _p(PSTR("' oninput=\"$(this.id+'o').value=this.value\" onchange=\"c('"));
-        _p(cmd);
-        _p(PSTR("'+this.value)\"></label>"));
-    }
-
-    // Controls on the "Now" card, by what the actuator does
-    void _controls() {
-        const iot::ActuatorDef* a = _iot.actuatorDef();
-        uint8_t cap = a->cap;
-        char buf[32];
-        _p(PSTR("<div class='ctl'>"));
-        if (cap == iot::C_POSITION) {
-            _p(PSTR("<button type='button' onclick=\"c('open')\">" L_OPEN_BTN "</button>"
-                    "<button type='button' class='b2' onclick=\"c('close')\">" L_CLOSE_BTN "</button>"));
-        } else {
-            _p(PSTR("<button type='button' role='switch' id='sw' aria-checked='"));
-            _p(_iot.actuatorOn() ? PSTR("true") : PSTR("false"));
-            _p(PSTR("' onclick=\"c(this.getAttribute('aria-checked')=='true'?'off':'on')\">"));
-            _p(a->label);
-            _p(PSTR("</button>"));
-        }
-        _p(PSTR("<label>" L_PULSE_S "<input type='number' id='pd' min='1' max='3600' value='"));
-        snprintf(buf, sizeof(buf), "%u", a->pulse);
-        _s(buf);
-        _p(PSTR("'></label><button type='button' class='b2' onclick=\"c('pulse '+$('pd').value)\">"
-                L_PULSE "</button>"));
-        if (_iot.hasRule()) {
-            _p(PSTR("<button type='button' class='b2' id='au' onclick=\"c('auto')\""));
-            if (!_iot.manual()) _p(PSTR(" hidden"));
-            _p(PSTR(">" L_BACK_AUTO "</button>"));
-        }
-        _p(S_DIV_END);
-        if (cap == iot::C_LEVEL || cap == iot::C_COLOR)
-            _range(cap == iot::C_LEVEL ? PSTR(L_LEVEL) : PSTR(L_BRIGHTNESS),
-                   PSTR("lv"), _iot.level(), 100, PSTR("level "), PSTR("%"));
-        if (cap == iot::C_POSITION)
-            _range(PSTR(L_ANGLE), PSTR("ag"), _iot.angle(), 180, PSTR("angle "), PSTR(" deg"));
-        if (cap == iot::C_COLOR) {
-            snprintf(buf, sizeof(buf), "%06lx", (unsigned long)_iot.color());
-            _p(PSTR("<label>" L_COLOR "<input type='color' id='co' value='#"));
-            _s(buf);
-            _p(PSTR("' onchange=\"c('color '+this.value)\"></label>"));
-        }
-    }
-
     void _handleIot() {
         if (!_guard()) return;
         _pageBegin();
@@ -2243,10 +2177,8 @@ private:
         if (t.notify && _cfg.ntfy_topic[0] == '\0')
             _alertP(S_WARNING, PSTR(L_SET_NTFY_TOPIC));
 
-        bool live = _iot.hasSensor() || _iot.hasActuator();
-        if (live) _liveCard(PSTR(L_NOW));
-
-        // Something set up: Reconfigure clears it all (asks first) for a new setup
+        // Something set up: Reconfigure clears it all (asks twice, with the
+        // password and a code) for a new setup
         bool hs = t.sensor[0] && t.sensorPin >= 0;
         bool ha = t.actuator[0] && t.actuatorPin >= 0;
         if (hs || ha) {
@@ -2281,6 +2213,24 @@ private:
         _divOpen(PSTR("sm"));
         _pair(PSTR(L_RULE_VALUE), PSTR("metric"),
               PSTR(L_HUMIDITY), PSTR(L_TEMPERATURE), t.metric == 1);
+        _p(S_DIV_END);
+        // What the unit options say depends on the sensor: iot.js writes them
+        _divOpen(PSTR("su"));
+        _selectOpen(PSTR(L_UNIT), PSTR("unit"));
+        for (uint8_t i = 0; i < 3; i++) {
+            const char v[2] = {(char)('0' + i), '\0'};
+            _option(v, PSTR(""), t.unit == i);
+        }
+        _selectEnd();
+        _p(S_DIV_END);
+        _divOpen(PSTR("st"));
+        _number(PSTR(L_TANK_EMPTY), "tank_empty", t.tankEmpty, 2, 400);
+        _number(PSTR(L_TANK_FULL), "tank_full", t.tankFull, 0, 399);
+        _divOpen(PSTR("sl"));
+        _number(PSTR(L_TANK_L), "tank_l", t.tankL, 1, 30000);
+        _p(PSTR("</div><p class='m'>" L_TANK_HELP "</p></div>"));
+        _divOpen(PSTR("sq"));
+        _number(PSTR(L_PPL), "ppl", t.ppl, 1, 30000);
         _p(PSTR("</div><p class='m' id='sh'></p></fieldset>"));
 
         _fieldsetOpen(PSTR("fa"), PSTR(L_ACTUATOR));
@@ -2302,8 +2252,8 @@ private:
         _number(PSTR(L_LED_COUNT), "leds", t.leds, 1, IoTService::MAX_LEDS);
         _p(S_DIV_END);
         _number(PSTR(L_MAX_ON), "max_on", t.maxOn, 0, 1440);
-        _pair(PSTR(L_POWER_UP), PSTR("restore"),
-              PSTR(L_OFF_CAP), PSTR(L_LAST_COMMAND), t.restore);
+        _number(PSTR(L_PULSE_LEN), "pulse", t.pulse, 0, 3600);
+        _switch(PSTR("restore"), PSTR(L_RESTORE_LAST), t.restore);
         _p(PSTR("<p class='m' id='ah'></p></fieldset>"));
 
         _fieldsetOpen(PSTR("fr"), PSTR(L_RULE));
@@ -2334,37 +2284,16 @@ private:
 
         _switch(PSTR("notify"), PSTR(L_NOTIFY), t.notify);
         _button(S_SAVE);
-        if (live) _apiBox();
+        if (_iot.hasSensor() || _iot.hasActuator()) _apiBox();
 
         _pageFoot();
         _iotScript();
     }
 
-    // Sensor and actuator in use (Home and IoT): the reading, drawn by iot.js
-    // in #gg, and the actuator's control, which works without reloading
-    void _liveCard(PGM_P title) {
-        _box(title);
-        if (_iot.hasSensor()) _row(PSTR(L_SENSOR), _iot.sensorText(), PSTR("ns"));
-        if (_iot.hasActuator()) {
-            _row(PSTR(L_ACTUATOR), _iot.actuatorText(), PSTR("na"));
-            if (_iot.hasRule())
-                _row(PSTR(L_MODE), String(_iot.manual() ? L_MANUAL
-                                          : _iot.inHours() ? L_AUTOMATIC
-                                          : L_AUTO_OUTSIDE),
-                     PSTR("nm"));
-        }
-        if (_iot.hasSensor()) _p(PSTR("<div id='gg'></div>"));
-        if (_iot.hasActuator()) {
-            _p(PSTR("<div class='ci'>"));
-            _controls();
-            _p(PSTR("<p id='msg' class='m' role='status' aria-live='polite'></p></div>"));
-        }
-        _boxEnd();
-    }
-
     // iot.js and what it reads: type → Kind/Cap from the catalog, the CSRF
-    // token and the saved rule [limit, value it watches] (NaN: no rule).
-    // Ends the page.
+    // token, the saved rule [limit, value it watches] (NaN: no rule) and D:
+    // the unit, the tank, the flow meter, the Pulse seconds and the
+    // actuator's name (a text marker). Ends the page.
     void _iotScript() {
         _p(PSTR("<script>var SK={"));
         for (uint8_t i = 0; i < iot::SENSOR_COUNT; i++) {
@@ -2382,11 +2311,18 @@ private:
         }
         _p(PSTR("},T='"));
         _s(_formToken());
-        char buf[24];
-        if (_iot.hasRule()) snprintf(buf, sizeof(buf), "',R=[%d,%u", _cfg.iot.threshold, _cfg.iot.metric);
+        const IoTConfig& t = _cfg.iot;
+        const iot::ActuatorDef* a = _iot.actuatorDef();
+        char buf[96];
+        if (_iot.hasRule()) snprintf(buf, sizeof(buf), "',R=[%d,%u", t.threshold, t.metric);
         else strcpy(buf, "',R=[NaN,0");
         _s(buf);
-        _p(PSTR("];</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
+        unsigned pulse = t.pulse ? t.pulse : a ? a->pulse : 0;
+        snprintf(buf, sizeof(buf), "],D={k:%u,c:%u,u:%u,e:%u,f:%u,l:%u,p:%u,s:%u,a:'", _iot.sensorKind(),
+                 _iot.capability(), t.unit, t.tankEmpty, t.tankFull, t.tankL, t.ppl, pulse);
+        _s(buf);
+        if (a) _p(a->label);
+        _p(PSTR("'};</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
     }
 
     // Reads an integer from the form within the range; otherwise answers 400
@@ -2466,6 +2402,24 @@ private:
                 if (!_stateText("sensor_off", t.offText)) return;
             }
             if (iot::tempAndHumidity(kind) && !_u8("metric", 0, 1, t.metric)) return;
+            // Units: two for a temperature, three for a distance or pulses
+            t.unit = 0;
+            if (kind != iot::K_DIGITAL &&
+                !_u8("unit", 0, kind == iot::K_RANGE || kind == iot::K_PULSE ? 2 : 1, t.unit))
+                return;
+            if (kind == iot::K_RANGE && t.unit) {
+                int16_t e = 0, f = 0, l = 0;
+                if (!_int("tank_empty", 2, 400, e) || !_int("tank_full", 0, e - 1, f)) return;
+                if (t.unit == 2 && !_int("tank_l", 1, 30000, l)) return;
+                t.tankEmpty = (uint16_t)e;
+                t.tankFull = (uint16_t)f;
+                if (l) t.tankL = (uint16_t)l;
+            }
+            if (kind == iot::K_PULSE && t.unit) {
+                int16_t p = 0;
+                if (!_int("ppl", 1, 30000, p)) return;
+                t.ppl = (uint16_t)p;
+            }
         }
 
         if (ha) {
@@ -2491,9 +2445,10 @@ private:
                 (!_u8("angle_on", 0, 180, t.angleOn) || !_u8("angle_off", 0, 180, t.angleOff)))
                 return;
             if (cap == iot::C_COLOR && !_u8("leds", 1, IoTService::MAX_LEDS, t.leds)) return;
-            int16_t maxOn = 0;
-            if (!_int("max_on", 0, 1440, maxOn)) return;
+            int16_t maxOn = 0, pulse = 0;
+            if (!_int("max_on", 0, 1440, maxOn) || !_int("pulse", 0, 3600, pulse)) return;
             t.maxOn = (uint16_t)maxOn;
+            t.pulse = (uint16_t)pulse;
             t.restore = _flag("restore");
         }
 
@@ -2640,24 +2595,32 @@ private:
         _savedPage(PSTR(L_NEW_TOKEN_DONE), P_IOT);
     }
 
-    // Deletes sensor, actuator, rule and token. Asks for confirmation on its
-    // own page: a plain form (no script of its own) that the screen reader announces.
+    // Deletes sensor, actuator, rule and token. Asks first on its own page
+    // (a plain form that the screen reader announces), then in the browser;
+    // with a password set, the current password and a code confirm it, as
+    // for a new password: the session cookie alone is not enough.
     void _handleIotClear() {
         if (!_guard()) return;
         if (!_checkCSRF()) return;
+        bool locked = _cfg.webpss.length() > 0;
         if (!_flag("confirm")) {
             _pageBegin();
             _title(PSTR(L_RECONFIGURE));
             _alertP(S_WARNING,
                     PSTR(L_REMOVE_WARNING));
-            _p(PSTR("<form action='/iot/clear' method='POST'>"));
+            _p(PSTR("<form action='/iot/clear' method='POST' data-q='" L_IOT_CLEAR_ASK "'>"));
             _csrfField();
+            if (locked) {
+                _passwordInput(PSTR(L_CURRENT_PASS), S_F_PASS, S_REQ64, S_CURRENT_PASS_AC);
+                _codeInput();
+            }
             _p(PSTR("<input type='hidden' name='confirm' value='1'>"
                     "<button class='bx'>" L_YES_CLEAR "</button></form>"));
             _backButton(P_IOT);
             _pageEnd();
             return;
         }
+        if (locked && !_confirmed(P_IOT)) return;
         _cfg.iot = IoTConfig();
         _cfg.api_token[0] = '\0';
         if (!_store.save()) {

@@ -336,6 +336,12 @@ void test_full_round_trip() {
     config.iot.window = true;
     config.iot.winStart = 22 * 60;
     config.iot.winEnd = 6 * 60;
+    config.iot.unit = 2;
+    config.iot.tankEmpty = 150;
+    config.iot.tankFull = 25;
+    config.iot.tankL = 3000;
+    config.iot.ppl = 330;
+    config.iot.pulse = 12;
     static const uint8_t key[Totp::KEY_LEN] = {
         '1','2','3','4','5','6','7','8','9','0','1','2','3','4','5','6','7','8','9','0'
     };
@@ -362,6 +368,12 @@ void test_full_round_trip() {
     TEST_ASSERT_TRUE(config.iot.window);
     TEST_ASSERT_EQUAL(22 * 60, config.iot.winStart);
     TEST_ASSERT_EQUAL(6 * 60, config.iot.winEnd);
+    TEST_ASSERT_EQUAL(2, config.iot.unit);
+    TEST_ASSERT_EQUAL(150, config.iot.tankEmpty);
+    TEST_ASSERT_EQUAL(25, config.iot.tankFull);
+    TEST_ASSERT_EQUAL(3000, config.iot.tankL);
+    TEST_ASSERT_EQUAL(330, config.iot.ppl);
+    TEST_ASSERT_EQUAL(12, config.iot.pulse);
 
     TEST_ASSERT_EQUAL_STRING("user",             config.webusr.c_str());
     TEST_ASSERT_TRUE(Password::hashed(config.webpss));
@@ -413,6 +425,8 @@ void test_save_worst_case_fits() {
     std::memset(config.iot.actuator, 'a', sizeof(config.iot.actuator) - 1);
     std::memset(config.iot.onText,   'o', sizeof(config.iot.onText) - 1);
     std::memset(config.iot.offText,  'f', sizeof(config.iot.offText) - 1);
+    config.iot.unit = 255;
+    config.iot.tankEmpty = config.iot.tankFull = config.iot.tankL = config.iot.ppl = config.iot.pulse = 65535;
     std::memset(config.totp, 0xA5, sizeof(config.totp));
     config.totpStep = 0xFFFFFFFFu;
 
@@ -496,6 +510,12 @@ void test_wrong_types_and_ranges_keep_defaults() {
     TEST_ASSERT_EQUAL(8, config.iot.leds);
     TEST_ASSERT_EQUAL(0, config.iot.maxOn);
     TEST_ASSERT_EQUAL(90, config.iot.angleOn);
+    TEST_ASSERT_EQUAL(0, config.iot.unit);
+    TEST_ASSERT_EQUAL(100, config.iot.tankEmpty);
+    TEST_ASSERT_EQUAL(20, config.iot.tankFull);
+    TEST_ASSERT_EQUAL(1000, config.iot.tankL);
+    TEST_ASSERT_EQUAL(450, config.iot.ppl);
+    TEST_ASSERT_EQUAL(0, config.iot.pulse);
     TEST_ASSERT_EQUAL_UINT32(0u, config.totpStep);
     TEST_ASSERT_EQUAL_STRING("", config.dev_name);
     TEST_ASSERT_TRUE(Totp::blank(config.totp));
