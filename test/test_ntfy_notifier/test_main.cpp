@@ -196,6 +196,25 @@ void test_validates_topic() {
     TEST_ASSERT_FALSE(NtfyNotifier::isValidTopic("a b"));
 }
 
+// A server name only: HTTPS on 443, no scheme, port or path
+void test_validates_host() {
+    TEST_ASSERT_TRUE(NtfyNotifier::isValidHost("ntfy.example.com"));
+    TEST_ASSERT_TRUE(NtfyNotifier::isValidHost("n-1.example.com"));
+    TEST_ASSERT_FALSE(NtfyNotifier::isValidHost(""));
+    TEST_ASSERT_FALSE(NtfyNotifier::isValidHost("ntfy"));                 // no dot
+    TEST_ASSERT_FALSE(NtfyNotifier::isValidHost(".example.com"));
+    TEST_ASSERT_FALSE(NtfyNotifier::isValidHost("-ntfy.example.com"));
+    TEST_ASSERT_FALSE(NtfyNotifier::isValidHost("ntfy.example.com."));
+    TEST_ASSERT_FALSE(NtfyNotifier::isValidHost("ntfy.example.com-"));
+    TEST_ASSERT_FALSE(NtfyNotifier::isValidHost("https://ntfy.example.com"));
+    TEST_ASSERT_FALSE(NtfyNotifier::isValidHost("ntfy.example.com:8080"));
+    TEST_ASSERT_FALSE(NtfyNotifier::isValidHost("Ntfy.example.com"));     // lowercase only
+    std::string longest = std::string(59, 'a') + ".com";
+    TEST_ASSERT_TRUE(NtfyNotifier::isValidHost(longest.c_str()));
+    longest = "a" + longest;
+    TEST_ASSERT_FALSE(NtfyNotifier::isValidHost(longest.c_str()));
+}
+
 // ── Commands over ntfy (continuous stream) ───────────────────────────────────
 
 static const char* OK_HDR = "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\n\r\n";
@@ -553,6 +572,29 @@ static std::string actionsFor(const char* actuator, const char* sensor = "") {
     return header(MockHTTP::requests[0], "Actions");
 }
 
+// The user's own server: the post, the notification's buttons and the
+// command stream all go there, with the certificate validated
+void test_own_server() {
+    strlcpy(cfg.ntfy_host, "ntfy.example.com", sizeof(cfg.ntfy_host));
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
+    Fix f;
+    TEST_ASSERT_EQUAL_STRING("ntfy.example.com", f.ntfy.host());
+    MockHTTP::push(200);
+    f.ntfy.tick(0);
+    TEST_ASSERT_EQUAL_STRING("https://ntfy.example.com/my-topic", MockHTTP::requests[0].url.c_str());
+    TEST_ASSERT_TRUE(cloudflareTrust(MockHTTP::requests[0].trust));
+
+    strlcpy(cfg.ntfy_cmd, "cmd-x", sizeof(cfg.ntfy_cmd));
+    TEST_ASSERT_TRUE(contains(actionsFor("relay"), "http, On, https://ntfy.example.com/cmd-x, method=POST"));
+
+    resetMocks();
+    Cmd c;
+    MockHTTP::rawHttp = OK_HDR;
+    c.ntfy.tick(0);
+    TEST_ASSERT_TRUE(contains(MockHTTP::lastRaw, "GET /cmd-abc/json HTTP/1.0\r\nHost: ntfy.example.com\r\n"));
+    TEST_ASSERT_TRUE(cloudflareTrust(MockTLS::lastTrust));
+}
+
 void test_actions_by_what_the_actuator_does() {
     strlcpy(cfg.ntfy_cmd, "cmd-x", sizeof(cfg.ntfy_cmd));
     TEST_ASSERT_EQUAL_STRING(
@@ -813,6 +855,8 @@ int main() {
     RUN_TEST(test_not_enough_memory_does_not_post);
     RUN_TEST(test_tls_unavailable_does_not_post);
     RUN_TEST(test_validates_topic);
+    RUN_TEST(test_validates_host);
+    RUN_TEST(test_own_server);
     RUN_TEST(test_commands_connect_validating_certificate);
     RUN_TEST(test_commands_reconnect_asking_for_missed);
     RUN_TEST(test_commands_with_token_and_error_reply);

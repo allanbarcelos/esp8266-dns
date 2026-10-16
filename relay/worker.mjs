@@ -14,7 +14,7 @@
 // While the device is connected, the Worker also polls the ntfy command
 // topic for it ('C' frames): the device has room for one TLS session only.
 
-const VERSION = 2;
+const VERSION = 3;
 const WAIT_MS = 8000;        // a request waits this long for the device to (re)connect
 const REPLY_MS = 20000;      // and this long for its answer
 const MAX_BODY = 2048;       // HttpServer::MAX_BODY
@@ -250,7 +250,7 @@ export class Device {
     if (!ws || !h || !h.topic) return;
     const since = await this.ctx.storage.get('since');
     try {
-      const r = await fetch(`https://ntfy.sh/${encodeURIComponent(h.topic)}/json?poll=1&since=${encodeURIComponent(since)}`, {
+      const r = await fetch(`https://${h.host || 'ntfy.sh'}/${encodeURIComponent(h.topic)}/json?poll=1&since=${encodeURIComponent(since)}`, {
         headers: h.token ? { Authorization: `Bearer ${h.token}` } : {},
       });
       let last = since;

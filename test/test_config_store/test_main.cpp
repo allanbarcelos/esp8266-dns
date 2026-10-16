@@ -317,6 +317,7 @@ void test_full_round_trip() {
     strlcpy(config.cf_zone,    "zone_xyz",         sizeof(config.cf_zone));
     strlcpy(config.cf_host,    "home.example.com", sizeof(config.cf_host));
     strlcpy(config.ntfy_topic, "topic",           sizeof(config.ntfy_topic));
+    strlcpy(config.ntfy_host,  "ntfy.example.com", sizeof(config.ntfy_host));
     strlcpy(config.api_token,  "abc123",           sizeof(config.api_token));
     strlcpy(config.cf_record,  "rec_aaa",          sizeof(config.cf_record));
     strlcpy(config.dev_name,   "Garage gate", sizeof(config.dev_name));
@@ -371,6 +372,7 @@ void test_full_round_trip() {
     TEST_ASSERT_EQUAL_STRING("zone_xyz",         config.cf_zone);
     TEST_ASSERT_EQUAL_STRING("home.example.com", config.cf_host);
     TEST_ASSERT_EQUAL_STRING("topic",           config.ntfy_topic);
+    TEST_ASSERT_EQUAL_STRING("ntfy.example.com", config.ntfy_host);
     TEST_ASSERT_EQUAL_STRING("abc123",           config.api_token);
     TEST_ASSERT_EQUAL_STRING("rec_aaa",          config.cf_record);
     TEST_ASSERT_EQUAL_MEMORY(key, config.totp, Totp::KEY_LEN);
@@ -392,6 +394,7 @@ void test_save_worst_case_fits() {
     std::memset(config.ntfy_topic, 'n', sizeof(config.ntfy_topic) - 1);
     std::memset(config.ntfy_cmd,   'c', sizeof(config.ntfy_cmd) - 1);
     std::memset(config.ntfy_token, 'k', sizeof(config.ntfy_token) - 1);
+    std::memset(config.ntfy_host,  'y', sizeof(config.ntfy_host) - 1);
     std::memset(config.mqtt_host,  'm', sizeof(config.mqtt_host) - 1);
     std::memset(config.mqtt_user,  'u', sizeof(config.mqtt_user) - 1);
     std::memset(config.mqtt_pass,  'p', sizeof(config.mqtt_pass) - 1);
@@ -422,6 +425,7 @@ void test_save_worst_case_fits() {
     TEST_ASSERT_EQUAL(39, (int)std::strlen(config.cf_record));
     TEST_ASSERT_EQUAL(15, (int)std::strlen(config.iot.offText));
     TEST_ASSERT_EQUAL(63, (int)std::strlen(config.mqtt_host));
+    TEST_ASSERT_EQUAL(63, (int)std::strlen(config.ntfy_host));
     TEST_ASSERT_EQUAL(31, (int)std::strlen(config.mqtt_user));
     TEST_ASSERT_EQUAL(63, (int)std::strlen(config.mqtt_pass));
     TEST_ASSERT_EQUAL(79, (int)std::strlen(config.relay_host));

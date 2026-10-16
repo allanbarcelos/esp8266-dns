@@ -11,7 +11,8 @@
 #include "TlsClient.h"
 #include "IoTService.h"
 
-// ntfy.sh both ways.
+// ntfy both ways: ntfy.sh, or the user's own server (ntfy_host) on HTTPS
+// with a certificate from the roots in CloudflareCA.h (Let's Encrypt, Google).
 //
 // Publishing (data topic): the public IP at boot and when it changes, plus
 // the IoT readings and changes ([sensor], [actuator]). The IP comes from
@@ -26,7 +27,7 @@
 // only has memory for one TLS session: before a post, or when DNS or OTA
 // will use the network (hold), the stream closes; on reopening it asks for
 // since=<last id>, and ntfy (which keeps messages for 12 h) delivers what
-// arrived meanwhile. The ntfy.sh certificate is validated: a command forged
+// arrived meanwhile. The server's certificate is validated: a command forged
 // on the way would turn the equipment on.
 //
 // With the remote access relay on, its Worker polls the command topic
@@ -51,6 +52,18 @@ public:
             return;
         }
         _tickStream(now);
+    }
+
+    // The server: the one set, or ntfy.sh
+    const char* host() const { return _cfg.ntfy_host[0] ? _cfg.ntfy_host : "ntfy.sh"; }
+
+    // A server name: letters, digits, dots and dashes, not at the ends (no
+    // scheme, port or path: HTTPS on 443)
+    static bool isValidHost(const char* s) {
+        size_t n = strlen(s);
+        return n && n < sizeof(Config::ntfy_host) && strchr(s, '.') && s[0] != '.' && s[0] != '-' &&
+               s[n - 1] != '.' && s[n - 1] != '-' &&
+               strspn(s, "abcdefghijklmnopqrstuvwxyz0123456789.-") == n;
     }
 
     // The next tick will post (TLS): the remote access relay lets go first
@@ -207,7 +220,7 @@ private:
             headers += "\r\n";
         }
         if (actions) _actions(headers);
-        int code = https::request(client, "ntfy.sh", "POST", path, headers.c_str(), body, 5000);
+        int code = https::request(client, host(), "POST", path, headers.c_str(), body, 5000);
 
         if (code >= 200 && code < 300) {
             _log.log(PSTR("ntfy sent (%d)"), code);
@@ -253,7 +266,9 @@ private:
             if (i) out += "; ";
             out += "http, ";
             out += labels[i];
-            out += ", https://ntfy.sh/";
+            out += ", https://";
+            out += host();
+            out += '/';
             out += _cfg.ntfy_cmd;
             out += ", method=POST, body=";
             out += bodies[i];
@@ -315,16 +330,16 @@ private:
         cloudflareRoots(_st->trust);  // includes ISRG Root X1
         _st->tls.setTrustAnchors(&_st->trust);
         _st->tls.setX509Time(_clock.now());
-        if (!_st->tls.prepare(CONNECT_MS) || !_st->tls.connect("ntfy.sh", 443)) {
+        if (!_st->tls.prepare(CONNECT_MS) || !_st->tls.connect(host(), 443)) {
             _log.log(PSTR("ntfy: no connection for commands"));
             _fail(now);
             return;
         }
         // HTTP/1.0: the server sends the stream directly, not chunked
-        char req[200];
-        snprintf(req, sizeof(req), "GET /%s/json%s%s HTTP/1.0\r\nHost: ntfy.sh\r\n"
+        char req[240];
+        snprintf(req, sizeof(req), "GET /%s/json%s%s HTTP/1.0\r\nHost: %s\r\n"
                  "User-Agent: ESP8266\r\n", _cfg.ntfy_cmd,
-                 _lastId[0] ? "?since=" : "", _lastId);
+                 _lastId[0] ? "?since=" : "", _lastId, host());
         _st->tls.print(req);
         if (_cfg.ntfy_token[0]) {
             snprintf(req, sizeof(req), "Authorization: Bearer %s\r\n", _cfg.ntfy_token);

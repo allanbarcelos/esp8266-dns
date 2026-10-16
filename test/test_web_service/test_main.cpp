@@ -1314,7 +1314,7 @@ void test_remote_form() {
     strlcpy(cfg.relay_name, "esp-pump", sizeof(cfg.relay_name));
     Fixture f;
     f.get("/cloudflare");
-    TEST_ASSERT_TRUE(contains(f.out(), "No port to open"));
+    TEST_ASSERT_TRUE(contains(f.out(), "No router port to open"));
     TEST_ASSERT_FALSE(contains(f.out(), "https://"));
     TEST_ASSERT_TRUE(contains(f.out(), "action='/remote/save'"));
     TEST_ASSERT_TRUE(contains(f.out(), (std::string("<option value='") + CF_Z1 + "'>example.com</option>").c_str()));
@@ -1449,6 +1449,7 @@ void test_ntfy_page() {
     f.get("/ntfy");
     TEST_ASSERT_TRUE(contains(f.out(), "Topic: meu_topico"));
     TEST_ASSERT_TRUE(contains(f.out(), "value='meu_topico'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "name='host' value='' maxlength='63' autocapitalize='none' placeholder='ntfy.sh'"));
 }
 
 void test_ntfy_save() {
@@ -1464,6 +1465,18 @@ void test_ntfy_save() {
     f.post("/ntfy/save", {{"topic", ""}});
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL_STRING("", cfg.ntfy_topic);
+
+    // The own server: its name only; anything else is refused; blank is ntfy.sh
+    f.post("/ntfy/save", {{"host", " ntfy.example.com "}, {"topic", "t"}});
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("ntfy.example.com", cfg.ntfy_host);
+    f.post("/ntfy/save", {{"host", "https://ntfy.example.com/"}, {"topic", "t2"}});
+    TEST_ASSERT_EQUAL(400, f.srv.code);
+    TEST_ASSERT_TRUE(contains(f.out(), "Invalid value"));
+    TEST_ASSERT_EQUAL_STRING("ntfy.example.com", cfg.ntfy_host);
+    TEST_ASSERT_EQUAL_STRING("t", cfg.ntfy_topic);
+    f.post("/ntfy/save", {{"host", ""}});
+    TEST_ASSERT_EQUAL_STRING("", cfg.ntfy_host);
 }
 
 // How often the relay Worker checks the command topic: one of the offered values
@@ -1473,7 +1486,7 @@ void test_ntfy_poll_interval() {
     TEST_ASSERT_TRUE(contains(f.out(), "name='poll'"));
     TEST_ASSERT_TRUE(contains(f.out(), "<option value='5' selected>5 s</option>"));
     TEST_ASSERT_TRUE(contains(f.out(), "<option value='30'>30 s</option>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "100,000 daily requests"));
+    TEST_ASSERT_TRUE(contains(f.out(), "100,000 requests a day"));
 
     f.post("/ntfy/save", {{"topic", ""}, {"poll", "10"}});
     TEST_ASSERT_EQUAL(200, f.srv.code);
@@ -2501,7 +2514,7 @@ void test_iot_remove_asks_for_confirmation() {
     f.post("/iot/clear");
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "<h1>Reconfigure</h1>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "will be deleted"));
+    TEST_ASSERT_TRUE(contains(f.out(), "Deletes the sensor, the actuator"));
     TEST_ASSERT_TRUE(contains(f.out(), "name='confirm' value='1'"));
     TEST_ASSERT_TRUE(contains(f.out(), ">Yes, clear everything</button>"));
     TEST_ASSERT_TRUE(contains(f.out(), "href='/iot'>Back</a>"));

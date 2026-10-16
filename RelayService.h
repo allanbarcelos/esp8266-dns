@@ -42,7 +42,7 @@
 // relay stays down longer than GRACE_MS, the ntfy stream takes over.
 class RelayService {
 public:
-    static constexpr uint8_t       PROTOCOL      = 2;
+    static constexpr uint8_t       PROTOCOL      = 3;
     static constexpr unsigned long CONNECT_MS    = 5000UL;
     static constexpr unsigned long RECONNECT_MS  = 2000UL;
     static constexpr unsigned long PING_MS       = 30000UL;
@@ -277,15 +277,17 @@ private:
             br_hmac_out(&hc, d);
             for (int i = 0; i < 20; i++) snprintf(mac + 2 * i, 3, "%02x", d[i]);
         }
-        // The ntfy commands: topic, token, interval and the last message seen
-        // (the IDs are letters and digits, the rest is checked on the panel)
-        char b[320];
+        // The ntfy commands: server, topic, token, interval and the last
+        // message seen (the IDs are letters and digits, the rest is checked
+        // on the panel)
+        char b[384];
         int n = snprintf_P(b, sizeof(b), PSTR("H{\"v\":%u,\"fw\":\"%s\",\"api\":\"%s\""),
                            (unsigned)PROTOCOL, firmware_version, mac);
         if (_ntfy && _ntfy->wantsCommands()) {
             const char* since = _ntfy->lastId();
-            n += snprintf_P(b + n, sizeof(b) - n, PSTR(",\"topic\":\"%s\",\"token\":\"%s\",\"poll\":%u,\"since\":\"%s\""),
-                            _cfg.ntfy_cmd, _cfg.ntfy_token, (unsigned)_cfg.ntfy_poll,
+            n += snprintf_P(b + n, sizeof(b) - n,
+                            PSTR(",\"host\":\"%s\",\"topic\":\"%s\",\"token\":\"%s\",\"poll\":%u,\"since\":\"%s\""),
+                            _ntfy->host(), _cfg.ntfy_cmd, _cfg.ntfy_token, (unsigned)_cfg.ntfy_poll,
                             strspn(since, "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") == strlen(since)
                                 ? since : "");
         }
@@ -299,7 +301,7 @@ private:
         bool cmd = _ntfy && _ntfy->wantsCommands();
         return _fnv(_cfg.api_token, strlen(_cfg.api_token)) ^
                (cmd ? _fnv(_cfg.ntfy_cmd, strlen(_cfg.ntfy_cmd)) * 3 + _fnv(_cfg.ntfy_token, strlen(_cfg.ntfy_token)) +
-                          _cfg.ntfy_poll
+                          _fnv(_cfg.ntfy_host, strlen(_cfg.ntfy_host)) * 5 + _cfg.ntfy_poll
                     : 0);
     }
 

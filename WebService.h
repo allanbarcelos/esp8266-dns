@@ -1448,6 +1448,8 @@ private:
 
         _p(PSTR("<form action='/ntfy/save' method='POST'>"));
         _csrfField();
+        _input(PSTR(L_NTFY_HOST), PSTR("host"), _cfg.ntfy_host, PSTR("maxlength='63' autocapitalize='none' placeholder='ntfy.sh'"));
+        _p(PSTR("<p class='m'>" L_NTFY_HOST_HELP "</p>"));
         _input(PSTR(L_NTFY_TOPIC), PSTR("topic"), _cfg.ntfy_topic,
                PSTR("maxlength='63' pattern='[A-Za-z0-9_\\-]*' placeholder='my-secret-topic'"));
         _p(PSTR("<p class='m'>" L_NTFY_TOPIC_HELP "</p>"));
@@ -1481,12 +1483,18 @@ private:
         if (!_guard()) return;
         if (!_checkCSRF()) return;
 
+        String host = _server.arg("host");
         String topic = _server.arg("topic");
         String cmd = _server.arg("cmd");
         String token = _server.arg("token");
+        host.trim();
         topic.trim();
         cmd.trim();
         token.trim();
+        if (host.length() > 0 && !NtfyNotifier::isValidHost(host.c_str())) {
+            _errorPage(PSTR(L_INVALID_VALUE), P_NTFY);
+            return;
+        }
         if (topic.length() > 0 && !NtfyNotifier::isValidTopic(topic)) {
             _errorPage(PSTR(L_INVALID_TOPIC), P_NTFY);
             return;
@@ -1537,6 +1545,7 @@ private:
             }
         }
         _cfg.ntfy_poll = every;
+        strlcpy(_cfg.ntfy_host, host.c_str(), sizeof(_cfg.ntfy_host));
         strlcpy(_cfg.ntfy_topic, topic.c_str(), sizeof(_cfg.ntfy_topic));
         strlcpy(_cfg.ntfy_cmd, cmd.c_str(), sizeof(_cfg.ntfy_cmd));
         if (_flag("token_clear")) _cfg.ntfy_token[0] = '\0';

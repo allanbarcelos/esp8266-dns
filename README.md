@@ -183,6 +183,10 @@ curl -H 'Authorization: Bearer <token>' -d 'cmd=pulse 5' http://192.168.1.50/api
 
 ## 📣 ntfy
 
+### Server
+
+[ntfy.sh](https://ntfy.sh) by default, or **your own ntfy server**: put its name in **ntfy server** on the ntfy page (`ntfy.example.com`, no `https://`, port or path). Everything goes there: publishing, the action buttons, the command stream and, with remote access on, the Worker's checks of the command topic. The server must answer HTTPS on port 443 with a certificate the device trusts: Let's Encrypt (ISRG Root X1/X2) or Google Trust Services (GTS Root R1/R4), the roots already in the firmware. That covers the usual reverse proxies (Caddy, Traefik, nginx with certbot). A self-signed certificate or plain HTTP is refused, because a forged command would switch real equipment.
+
 ### Data topic (outgoing)
 
 - `[ip] 1.2.3.4` at boot and whenever the public IP changes. It does not depend on Cloudflare.
@@ -195,9 +199,9 @@ Set a **command topic** on the ntfy page (the button generates a random name). T
 
 - **One TLS session at a time.** The ESP-01 has memory for a single TLS session. Before publishing, or when Cloudflare or the OTA is about to use the network, the stream closes. On reopening it asks for `since=<last id>`, and ntfy (which keeps messages for 12 hours) delivers whatever arrived in between. Nothing is lost; at worst a command waits a few seconds.
 - **With remote access on**, the relay holds that session, so its Worker checks the command topic for the device (every 2, 5, 10 or 30 s, chosen on the ntfy page; 5 s by default) and sends each command down the relay. The page shows `relay` as the command state. If the relay stays down for more than a minute, the device's own stream takes over again, from the last message.
-- **The ntfy.sh certificate is validated** (ISRG Root X1, already embedded), on the command stream and when publishing: a command forged on the path would switch real equipment, and a publish carries the token and, in the action buttons, the command topic. Until the clock syncs nothing is published; the message waits for the next attempt.
+- **The server's certificate is validated** (the roots above, already embedded), on the command stream and when publishing: a command forged on the path would switch real equipment, and a publish carries the token and, in the action buttons, the command topic. Until the clock syncs nothing is published; the message waits for the next attempt.
 - Commands older than 10 minutes are ignored. Failed connections retry from 5 s up to 5 min. A stream silent for 2 minutes is reopened (ntfy sends a keepalive every 45 s).
-- ntfy.sh topics are public by name: whoever knows the command topic can send commands. Use a long random name (without a token, the panel refuses names shorter than 20 characters), different from the data topic, or an **ntfy access token** (used for both publishing and subscribing). The action buttons carry the command topic (and the token, if any), so keep the data topic private too.
+- ntfy.sh topics are public by name (on your own server, unless it requires a login): whoever knows the command topic can send commands. Use a long random name (without a token, the panel refuses names shorter than 20 characters), different from the data topic, or an **ntfy access token** (used for both publishing and subscribing). The action buttons carry the command topic (and the token, if any), so keep the data topic private too.
 
 ---
 

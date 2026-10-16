@@ -75,6 +75,7 @@ struct Config {
     char    ntfy_topic[64]            = {};
     char    ntfy_cmd[64]              = {};   // command topic; "" turns it off
     char    ntfy_token[48]            = {};   // ntfy access token (optional)
+    char    ntfy_host[64]             = {};   // ntfy server, HTTPS on 443; "" = ntfy.sh
     uint8_t ntfy_poll                 = 5;    // seconds between the relay Worker's checks of the command topic
     bool    ota_auto                  = true; // missing from the JSON keeps automatic updates on
     char    api_token[33]             = {};   // local API (Bearer); generated with the IoT setup
