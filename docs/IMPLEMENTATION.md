@@ -109,4 +109,5 @@ The panel and the API from anywhere at the user's own HTTPS address, with no ope
 | `8d8ca03` | The slowest loop and the count over 200 ms on Status; each new worst in the log, with the service that held the turn | 496,320 |
 | `24b3b40` | Crash place, from the core's crash callback (it did not run on a real watchdog reset) | 496,704 |
 | `3fba386` | Each part of the loop records itself in RTC memory as it starts; after an exception or a watchdog reset the next boot logs it with the chip's recorded address | 496,656 |
-| Deploy stack | The relay deploy overflowed the loop's 4 KB stack (software watchdog during "turn on"): one Answer for every call and the request bodies in helpers, ~1 KB less at the deepest call; the lowest free stack on Status | 496,976 |
+| `ec24db1` | The relay deploy overflowed the loop's 4 KB stack (software watchdog during "turn on"): one Answer for every call and the request bodies in helpers, ~1 KB less at the deepest call; the lowest free stack on Status | 496,976 |
+| Gzip through the relay | The Worker passes the device's gzipped CSS/JS as they are (`encodeBody: 'manual'`) instead of gzipping them again; relay protocol 2, so devices redeploy the Worker after the update | 496,976 |

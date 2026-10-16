@@ -156,7 +156,7 @@ void test_tick_runs_the_relay() {
     MockFS::put("/config.json", R"({"v":2,"ssid":"Home","pass":"12345678",
         "webpss":"strong-pass","ota_auto":false,"ntfy_cmd":"cmd-x","ntfy_topic":"data-x",
         "actuator":"relay","actuator_pin":0,"notify":true,
-        "relay_host":"esp-pump.example.com","relay_ver":1,
+        "relay_host":"esp-pump.example.com","relay_ver":2,
         "relay_key":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"})");
     App app;
     app.begin();
@@ -254,7 +254,7 @@ void test_tick_redeploys_an_outdated_relay() {
 void test_tick_falls_back_to_the_ntfy_stream() {
     MockFS::put("/config.json", R"({"v":2,"ssid":"Home","pass":"12345678","webpss":"strong-pass",
         "ota_auto":false,"ntfy_cmd":"cmd-x","actuator":"relay","actuator_pin":0,
-        "relay_host":"esp-pump.example.com","relay_ver":1,"relay_key":"00"})");
+        "relay_host":"esp-pump.example.com","relay_ver":2,"relay_key":"00"})");
     App app;
     app.begin();
     MockTLS::failConnect = true;
@@ -327,7 +327,7 @@ void test_tick_waits_for_memory_before_a_check() {
 // slowest loop
 void test_tick_relay_waits_and_slow_loops_are_logged() {
     MockFS::put("/config.json", R"({"ssid":"Home","pass":"12345678","webpss":"strong-pass",
-        "ota_auto":false,"relay_host":"esp-pump.example.com","relay_ver":1,"relay_key":"00"})");
+        "ota_auto":false,"relay_host":"esp-pump.example.com","relay_ver":2,"relay_key":"00"})");
     App app;
     app.begin();
     ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;

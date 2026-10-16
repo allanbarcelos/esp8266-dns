@@ -14,7 +14,7 @@
 // While the device is connected, the Worker also polls the ntfy command
 // topic for it ('C' frames): the device has room for one TLS session only.
 
-const VERSION = 1;
+const VERSION = 2;
 const WAIT_MS = 8000;        // a request waits this long for the device to (re)connect
 const REPLY_MS = 20000;      // and this long for its answer
 const MAX_BODY = 2048;       // HttpServer::MAX_BODY
@@ -70,8 +70,10 @@ export function toResponse(bytes) {
     const name = line.slice(0, c).trim();
     if (c > 0 && !/^(connection|content-length)$/i.test(name)) headers.append(name, line.slice(c + 1).trim());
   }
+  // The body goes out as the device sent it: without 'manual', a Worker
+  // gzips again a body whose Content-Encoding says gzip (the panel's CSS/JS)
   try {
-    return new Response(bytes.subarray(end + 4), { status, headers });
+    return new Response(bytes.subarray(end + 4), { status, headers, encodeBody: 'manual' });
   } catch {
     return text(502, 'Bad answer from the device');   // a body on a 204 or 304
   }

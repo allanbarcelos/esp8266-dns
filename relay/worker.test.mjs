@@ -158,6 +158,27 @@ test('toResponse keeps status, headers and body', async () => {
   assert.equal(await r.text(), 'ok');
 });
 
+// A gzipped body (the panel's CSS/JS) must not be gzipped again by the Worker
+test('toResponse sends the body as encoded by the device', async () => {
+  const Real = globalThis.Response;
+  let init;
+  globalThis.Response = class extends Real {
+    constructor(body, i) {
+      super(body, i);
+      init = i;
+    }
+  };
+  try {
+    const gz = new Uint8Array([0x1f, 0x8b, 8, 0]);
+    const r = toResponse(new Uint8Array([...enc.encode('HTTP/1.1 200 \r\nContent-Encoding: gzip\r\n\r\n'), ...gz]));
+    assert.equal(init.encodeBody, 'manual');
+    assert.equal(r.headers.get('Content-Encoding'), 'gzip');
+    assert.deepEqual(new Uint8Array(await r.arrayBuffer()), gz);
+  } finally {
+    globalThis.Response = Real;
+  }
+});
+
 test('toResponse refuses a broken answer', () => {
   assert.equal(toResponse(enc.encode('HTTP/1.1 200 \r\n')).status, 502);
   assert.equal(toResponse(enc.encode('HTTP/1.1 abc \r\n\r\n')).status, 502);
@@ -169,10 +190,10 @@ test('toResponse refuses a broken answer', () => {
 // ── the Worker in front ──────────────────────────────────────────────────────
 
 test('relay connection needs WebSocket, version and secret', async () => {
-  const h = (extra) => ({ headers: { Upgrade: 'websocket', 'X-Relay-Version': '1', Authorization: `Bearer ${SECRET}`, ...extra } });
+  const h = (extra) => ({ headers: { Upgrade: 'websocket', 'X-Relay-Version': '2', Authorization: `Bearer ${SECRET}`, ...extra } });
   const go = (init) => worker.default.fetch(new Request('https://r.example/.relay', init), env);
   assert.equal((await go({})).status, 426);
-  assert.equal((await go(h({ 'X-Relay-Version': '2' }))).status, 426);
+  assert.equal((await go(h({ 'X-Relay-Version': '3' }))).status, 426);
   assert.equal((await go(h({ Authorization: 'Bearer nope' }))).status, 401);
   const noAuth = h();
   delete noAuth.headers.Authorization;
@@ -393,14 +414,14 @@ test('state and hello are kept; hello sets where ntfy resumes', async () => {
   await device.webSocketMessage(ws, msg('S', '{"api":1}'));
   assert.deepEqual(ctx.store.get('state'), { json: '{"api":1}', at: 1_700_000_000_000 });
 
-  await device.webSocketMessage(ws, msg('H', '{"v":1,"topic":"cmd-x","poll":5}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":2,"topic":"cmd-x","poll":5}'));
   assert.equal(ctx.store.get('since'), '1700000000');           // from now on
   assert.equal(ctx.alarm, 1_700_000_001_000);
-  await device.webSocketMessage(ws, msg('H', '{"v":1,"topic":"cmd-x"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":2,"topic":"cmd-x"}'));
   assert.equal(ctx.store.get('since'), '1700000000');           // kept
-  await device.webSocketMessage(ws, msg('H', '{"v":1,"topic":"cmd-x","since":"abc123"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":2,"topic":"cmd-x","since":"abc123"}'));
   assert.equal(ctx.store.get('since'), 'abc123');               // the device knows best
-  await device.webSocketMessage(ws, msg('H', '{"v":1}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":2}'));
   assert.equal(ctx.alarm, null);
 });
 
