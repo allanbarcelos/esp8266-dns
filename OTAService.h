@@ -225,6 +225,14 @@ public:
     }
 
     static constexpr unsigned long FIRST_CHECK    = 20000UL;    // first check after boot
+    // Texts used in more than one place (each PSTR is its own copy in flash)
+    static constexpr char T_NO_MEM[] PROGMEM = "Not enough memory";
+    static constexpr char T_NO_MEM_LOG[] PROGMEM = "OTA: not enough memory";
+    static constexpr char T_NO_TLS[] PROGMEM = "TLS client unavailable";
+    static constexpr char T_NO_TLS_LOG[] PROGMEM = "OTA: TLS unavailable";
+    static constexpr char T_GITHUB[] PROGMEM = "Invalid response from GitHub";
+    static constexpr char T_SIZE[] PROGMEM = "Invalid firmware size";
+    static constexpr char T_RECOVERED[] PROGMEM = "OTA: recovery done, restoring the panel";
     static constexpr unsigned long CHECK_INTERVAL = 3600000UL;  // 1 hour
     static constexpr unsigned long DEADLINE       = 82800000UL; // ~23 h
     static constexpr unsigned long STALL_TIMEOUT  = 60000UL;    // no data for 60 s
@@ -289,8 +297,8 @@ private:
         uint32_t block = ESP.getMaxFreeBlockSize();
         _log.log(PSTR("OTA heap %u block %u"), heap, block);
         if (heap >= GITHUB_HEAP && block >= GITHUB_BLOCK) return true;
-        _note(Report::Failed, PSTR("Not enough memory"));
-        _log.log(PSTR("OTA: not enough memory"));
+        _note(Report::Failed, T_NO_MEM);
+        _log.log(T_NO_MEM_LOG);
         return false;
     }
 
@@ -495,8 +503,8 @@ private:
         static const char path[] =
             "/repos/allanbarcelos/esp8266-dns/releases/latest";
         if (!_prepareTls(host, true)) {
-            _note(Report::Failed, PSTR("TLS client unavailable"));
-            _log.log(PSTR("OTA: TLS unavailable"));
+            _note(Report::Failed, T_NO_TLS);
+            _log.log(T_NO_TLS_LOG);
             _checkFailed(now);
             return;
         }
@@ -521,7 +529,7 @@ private:
 
     void _onCheckHeaders(unsigned long now, int r) {
         if (r < 0) {
-            _note(Report::Failed, PSTR("Invalid response from GitHub"));
+            _note(Report::Failed, T_GITHUB);
             _log.log(PSTR("Version JSON error: headers"));
             _checkFailed(now);
             return;
@@ -539,7 +547,7 @@ private:
 
     void _onCheckBody(unsigned long now, int r) {
         if (r < 0) {
-            _note(Report::Failed, PSTR("Invalid response from GitHub"));
+            _note(Report::Failed, T_GITHUB);
             _log.log(PSTR("Version JSON error: tag_name"));
             _checkFailed(now);
             return;
@@ -563,7 +571,7 @@ private:
             _clearPending();
             _note(Report::UpToDate, PSTR("Firmware is up to date"));
             if (restore) {
-                _log.log(PSTR("OTA: recovery done, restoring the panel"));
+                _log.log(T_RECOVERED);
                 _wifi.scheduleRestart(1500);
             }
             return;
@@ -580,7 +588,7 @@ private:
             _note(Report::Failed, PSTR("%s rejected; waiting for another version"), _available);
             _log.log(PSTR("OTA: %s was already rejected"), _available);
             if (restore) {
-                _log.log(PSTR("OTA: recovery done, restoring the panel"));
+                _log.log(T_RECOVERED);
                 _wifi.scheduleRestart(1500);
             }
             return;
@@ -666,8 +674,8 @@ private:
         }
         _path = (char*)malloc(OTA_PATH_CAP);
         if (!_path) {
-            _note(Report::Failed, PSTR("Not enough memory"));
-            _log.log(PSTR("OTA: not enough memory"));
+            _note(Report::Failed, T_NO_MEM);
+            _log.log(T_NO_MEM_LOG);
             _recoverHeap();
             _downloadFailed(now);
             return;
@@ -684,8 +692,8 @@ private:
 
     void _downloadConnect(unsigned long now) {
         if (!_prepareTls(_host, _hop > 0)) {
-            _note(Report::Failed, PSTR("TLS client unavailable"));
-            _log.log(PSTR("OTA: TLS unavailable"));
+            _note(Report::Failed, T_NO_TLS);
+            _log.log(T_NO_TLS_LOG);
             _downloadFailed(now);
             return;
         }
@@ -759,8 +767,8 @@ private:
         if (_unknownLen) {
             flashSize = ESP.getFreeSketchSpace();
         } else if (_contentLength == 0) {
-            _note(Report::Failed, PSTR("Invalid firmware size"));
-            _log.log(PSTR("Invalid firmware size"));
+            _note(Report::Failed, T_SIZE);
+            _log.log(T_SIZE);
             _downloadFailed(now);
             return;
         } else {

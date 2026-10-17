@@ -105,9 +105,29 @@ static void echo(uint8_t pin, unsigned long highUs) {
 // ── Catalog, parsing and text commands ───────────────────────────────────────
 
 void test_catalog_by_identifier() {
-    TEST_ASSERT_EQUAL(10, iot::SENSOR_COUNT);
+    TEST_ASSERT_EQUAL(17, iot::SENSOR_COUNT);
     TEST_ASSERT_TRUE(iot::tempAndHumidity(iot::K_SHT3X) && !iot::tempAndHumidity(iot::K_DS18));
-    TEST_ASSERT_EQUAL(10, iot::ACTUATOR_COUNT);
+    TEST_ASSERT_TRUE(iot::tempAndHumidity(iot::K_AHT) && !iot::tempAndHumidity(iot::K_LUX));
+    TEST_ASSERT_EQUAL(11, iot::ACTUATOR_COUNT);
+    // I2C: SHT3x, AHT20 and BH1750 only
+    for (uint8_t k = iot::K_NONE; k <= iot::K_LUX; k++)
+        TEST_ASSERT_EQUAL(k == iot::K_SHT3X || k == iot::K_AHT || k == iot::K_LUX, iot::i2c(k));
+    // Units offered: none for digital and light, three for distance and pulses
+    const uint8_t units[] = {2, 0, 2, 2, 2, 3, 3, 2, 2, 0};
+    for (uint8_t k = iot::K_NONE; k <= iot::K_LUX; k++) TEST_ASSERT_EQUAL(units[k], iot::unitCount(k));
+    // The named digital sensors, with their state names; the gate pulses for 1 s
+    const char* named[][3] = {{"radar", "presence", "clear"}, {"leak", "wet", "dry"}, {"gas", "gas", "clear"},
+                              {"float", "high", "low"}, {"rain", "rain", "dry"}};
+    for (auto& n : named) {
+        int8_t i = iot::sensorIndex(n[0]);
+        TEST_ASSERT_TRUE(i >= 0);
+        TEST_ASSERT_EQUAL(iot::K_DIGITAL, iot::SENSORS[i].kind);
+        TEST_ASSERT_EQUAL_STRING(n[1], iot::SENSORS[i].on);
+        TEST_ASSERT_EQUAL_STRING(n[2], iot::SENSORS[i].off);
+    }
+    TEST_ASSERT_EQUAL(iot::K_AHT, iot::SENSORS[iot::sensorIndex("aht20")].kind);
+    TEST_ASSERT_EQUAL(iot::K_LUX, iot::SENSORS[iot::sensorIndex("bh1750")].kind);
+    TEST_ASSERT_EQUAL(1, iot::ACTUATORS[iot::actuatorIndex("gate")].pulse);
     TEST_ASSERT_EQUAL(0, iot::sensorIndex("dht22"));
     TEST_ASSERT_EQUAL(-1, iot::sensorIndex(""));
     TEST_ASSERT_EQUAL(-1, iot::sensorIndex("laser"));
@@ -1365,6 +1385,117 @@ void test_sht3x_reads_temperature_and_humidity() {
 }
 
 // The rule uses the chosen value, as with the DHT
+// AHT20 (0x38): a measurement command, then status and 20-bit values;
+// a sensor not calibrated yet gets its init command
+static std::vector<uint8_t> ahtFrame(uint8_t status, uint32_t h, uint32_t t) {
+    return {status, (uint8_t)(h >> 12), (uint8_t)(h >> 4), (uint8_t)((h & 0x0F) << 4 | t >> 16),
+            (uint8_t)(t >> 8), (uint8_t)t};
+}
+
+void test_aht20_reads_temperature_and_humidity() {
+    sensor("aht20", 0);                                   // SDA on GPIO0, SCL on GPIO2
+    actuator("relay", 3);
+    cfg.iot.metric = 1;
+    cfg.iot.above = true;
+    cfg.iot.threshold = 24;
+    I2cSim sim(0, 2);
+    sim.present = {0x38};
+    std::vector<uint8_t> frame = ahtFrame(0x18, 0x80000, 0x60000);   // 50.0 % and 25.0 C
+    sim.reply = [&](uint8_t, const std::vector<uint8_t>&) { return frame; };
+    IoTService iot{cfg, logger};
+    iot.begin();
+    TEST_ASSERT_TRUE(iot.sensorUses(0));
+    TEST_ASSERT_TRUE(iot.sensorUses(2));
+    TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[2]);
+    iot.tick(0);
+    TEST_ASSERT_TRUE(sim.writes.back() == std::vector<uint8_t>({0x38, 0xAC, 0x33, 0x00}));
+    iot.tick(IoTService::AHT_MEASURE_MS - 1);
+    TEST_ASSERT_EQUAL_STRING("waiting", iot.sensorText());
+    iot.tick(IoTService::AHT_MEASURE_MS);
+    TEST_ASSERT_EQUAL_STRING("25.0 C, 50.0%", iot.sensorText());
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"temperature\":25.0,\"humidity\":50.0"));
+    TEST_ASSERT_TRUE(iot.actuatorOn());                   // 25.0 C above 24
+
+    // The ends of the scale
+    frame = ahtFrame(0x18, 0, 0);
+    unsigned long t = IoTService::READ_GAP_MS;
+    iot.tick(t);
+    iot.tick(t + IoTService::AHT_MEASURE_MS);
+    TEST_ASSERT_EQUAL_STRING("-50.0 C, 0.0%", iot.sensorText());
+
+    // Not calibrated: the init command, and the reading waits for the next turn
+    frame = ahtFrame(0x10, 0x80000, 0x60000);
+    t += IoTService::READ_GAP_MS;
+    iot.tick(t);
+    iot.tick(t + IoTService::AHT_MEASURE_MS);
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
+    TEST_ASSERT_TRUE(sim.writes.back() == std::vector<uint8_t>({0x38, 0xBE, 0x08, 0x00}));
+    // Still busy: no value either
+    frame = ahtFrame(0x98, 0x80000, 0x60000);
+    t += IoTService::READ_GAP_MS;
+    iot.tick(t);
+    iot.tick(t + IoTService::AHT_MEASURE_MS);
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
+    // Back, in °F
+    cfg.iot.unit = 1;
+    iot.begin();
+    frame = ahtFrame(0x18, 0x80000, 0x60000);
+    iot.tick(0);
+    iot.tick(IoTService::AHT_MEASURE_MS);
+    TEST_ASSERT_EQUAL_STRING("77.0 F, 50.0%", iot.sensorText());
+    // Gone between the command and the reading, and gone altogether
+    t = IoTService::READ_GAP_MS;
+    iot.tick(t);
+    sim.present.clear();
+    iot.tick(t + IoTService::AHT_MEASURE_MS);
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
+    iot.tick(t + IoTService::READ_GAP_MS);
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
+}
+
+// BH1750 (0x23): one high-resolution reading at a time, in lux
+void test_bh1750_reads_light() {
+    sensor("bh1750", 3);                                  // SDA on RX, SCL on TX
+    actuator("relay", 0);
+    cfg.iot.threshold = 100;                              // on below 100 lx
+    cfg.iot.notify = true;
+    I2cSim sim(3, 1);
+    sim.present = {0x23};
+    std::vector<uint8_t> frame = {0x01, 0x2C};            // 300 counts: 250 lx
+    sim.reply = [&](uint8_t, const std::vector<uint8_t>&) { return frame; };
+    IoTService iot{cfg, logger};
+    iot.begin();
+    TEST_ASSERT_TRUE(iot.sensorUses(1));
+    iot.tick(0);
+    TEST_ASSERT_TRUE(sim.writes.back() == std::vector<uint8_t>({0x23, 0x20}));
+    iot.tick(IoTService::LUX_MEASURE_MS - 1);
+    TEST_ASSERT_EQUAL_STRING("waiting", iot.sensorText());
+    iot.tick(IoTService::LUX_MEASURE_MS);
+    TEST_ASSERT_EQUAL_STRING("250 lx", iot.sensorText());
+    TEST_ASSERT_TRUE(contains(stateOf(iot), "\"lux\":250}"));
+    TEST_ASSERT_FALSE(iot.actuatorOn());
+    TEST_ASSERT_EQUAL_STRING("[sensor] 250 lx | off", iot.message());
+
+    // Dark: the rule turns it on; the top of the scale
+    frame = {0x00, 0x30};                                 // 48 counts: 40 lx
+    unsigned long t = IoTService::READ_GAP_MS;
+    iot.tick(t);
+    iot.tick(t + IoTService::LUX_MEASURE_MS);
+    TEST_ASSERT_EQUAL_STRING("40 lx", iot.sensorText());
+    TEST_ASSERT_TRUE(iot.actuatorOn());
+    frame = {0xFF, 0xFF};
+    t += IoTService::READ_GAP_MS;
+    iot.tick(t);
+    iot.tick(t + IoTService::LUX_MEASURE_MS);
+    TEST_ASSERT_EQUAL_STRING("54612 lx", iot.sensorText());
+
+    // No answer
+    sim.present.clear();
+    t += IoTService::READ_GAP_MS;
+    iot.tick(t);
+    TEST_ASSERT_EQUAL_STRING("error", iot.sensorText());
+}
+
 void test_sht3x_drives_by_temperature() {
     sensor("sht3x", 3);                                   // SDA on RX, SCL on TX
     actuator("fan", 0);
@@ -1642,6 +1773,8 @@ int main() {
     RUN_TEST(test_proportional_outside_window);
     RUN_TEST(test_sht3x_reads_temperature_and_humidity);
     RUN_TEST(test_sht3x_drives_by_temperature);
+    RUN_TEST(test_aht20_reads_temperature_and_humidity);
+    RUN_TEST(test_bh1750_reads_light);
     RUN_TEST(test_ultrasonic_distance_and_failures);
     RUN_TEST(test_proportional_level);
     RUN_TEST(test_proportional_without_tenths_and_numeric_manual);

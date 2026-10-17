@@ -347,6 +347,7 @@ private:
             case 'h': return iot::tempAndHumidity(k);
             case 'd': return k == iot::K_RANGE;
             case 'n': return k == iot::K_PULSE;
+            case 'x': return k == iot::K_LUX;
             case 'b': return k == iot::K_DIGITAL;
             case 's': return c == iot::C_ONOFF;
             case 'l': return c == iot::C_LEVEL;
@@ -407,6 +408,8 @@ private:
                                  "\"stat_cla\":\"measurement\",\"val_tpl\":\"{{value_json.sensor.distance|default(none)}}\"")},
             {'n', P_SENSOR, PSTR(",\"name\":\"Pulses\",\"stat_cla\":\"measurement\","
                                  "\"val_tpl\":\"{{value_json.sensor.pulses|default(none)}}\"")},
+            {'x', P_SENSOR, PSTR(",\"dev_cla\":\"illuminance\",\"unit_of_meas\":\"lx\","
+                                 "\"stat_cla\":\"measurement\",\"val_tpl\":\"{{value_json.sensor.lux|default(none)}}\"")},
             {'b', P_BINARY, PSTR(",\"name\":\"Sensor\","
                                  "\"val_tpl\":\"{{'ON' if value_json.sensor.active|default(0) else 'OFF'}}\"")},
             {'s', P_SWITCH, PSTR(",\"name\":null,\"pl_on\":\"on\",\"pl_off\":\"off\","
@@ -462,10 +465,17 @@ private:
     }
 
     // PIR is motion and contact is a door; button and digital have no class
+    // Home Assistant device class of each named digital sensor
     void _binaryClass() {
+        static const char* const CLASSES[][2] = {{"pir", "motion"}, {"contact", "door"}, {"radar", "occupancy"},
+                                                 {"leak", "moisture"}, {"gas", "gas"}, {"rain", "moisture"}};
         const char* slug = _iot.sensorDef()->slug;
-        if (!strcmp(slug, "pir")) _outP(PSTR(",\"dev_cla\":\"motion\""));
-        else if (!strcmp(slug, "contact")) _outP(PSTR(",\"dev_cla\":\"door\""));
+        for (const auto& c : CLASSES) {
+            if (strcmp(slug, c[0])) continue;
+            _outP(PSTR(",\"dev_cla\":\""));
+            _out(c[1]);
+            _outP(PSTR("\""));
+        }
     }
 
     void _command(unsigned long now) {

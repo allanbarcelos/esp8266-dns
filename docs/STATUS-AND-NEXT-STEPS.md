@@ -8,11 +8,11 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 | | |
 | --- | --- |
-| Firmware | 499,520 of 500,000 bytes (480 to spare) |
+| Firmware | 499,888 of 500,000 bytes (112 to spare) |
 | Signed OTA package | ~354 KB of 400 KB |
-| Static RAM | 39,072 bytes |
-| Native tests | 599, with 100 % of lines, functions and branches |
-| Panel IoT script tests | 21 on Node, 100 % of lines, functions and branches, on the source and minified |
+| Static RAM | 39,392 bytes |
+| Native tests | 601, with 100 % of lines, functions and branches |
+| Panel IoT script tests | 23 on Node, 100 % of lines, functions and branches, on the source and minified |
 | Relay Worker tests | 24 on Node, 100 % of lines, functions and branches, on the source and on the embedded script |
 | In CI | no compiler warnings, ASan and UBSan, cppcheck, fuzzing of 9 inputs |
 
@@ -91,7 +91,7 @@ From 499,248 to 475,136 bytes (−24 KB, a measured analysis first, every step w
 
 - **500,000-byte limit.** A project rule, checked in CI. Every change fits inside it. 24,864 bytes are left after the size round.
 - **The fast P-256 stays.** Dropping it frees about 10 KB, but ECDHE and ECDSA on P-256 (every handshake) would use the slower generic code. Not a trade worth making while other room exists.
-- **The ESP-01 photo stays.** If space runs out, it is not the first thing to go. Its size is set by `PHOTO_BYTES` in `tools/embed_assets.py` (3,250 today): a smaller photo is the quickest room.
+- **The ESP-01 photo stays.** If space runs out, it is not the first thing to go. Its size is set by `PHOTO_BYTES` and `PHOTO_WIDTH` in `tools/embed_assets.py` (1,000 bytes at 140 px today, from 3,250 at 220 px): a smaller photo is the quickest room.
 - **Images in formats the browser decodes.** A decoder of our own costs flash; AVIF and SVG cost none.
 - **Never open a port to the device.** The ESP-01 does not serve HTTPS; access from outside goes through a tunnel with its own login.
 - **Three sign-in counts, not one per address.** The API token, the address of the last sign-in and everyone else each have their own. A full table per address does not fit in memory.
@@ -110,7 +110,7 @@ Safe order:
 
 ## Next steps
 
-In order, with an effort estimate. Items that change the firmware need room first: 0.5 KB are left.
+In order, with an effort estimate. Items that change the firmware need room first: 0.1 KB are left. The PZEM-004T energy meter (about 1 KB with its Home Assistant entities) waits for room.
 
 1. **Run the on-device test** and fix what comes up, remote access included (section 10c, with a Cloudflare account). 3 to 5 hours of testing, plus whatever needs fixing.
 2. **Make room.** The long help texts of the Cloudflare, remote access and ntfy pages (four languages each) and the Worker's own size are the first candidates. Half a day.

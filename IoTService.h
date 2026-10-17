@@ -27,8 +27,12 @@ public:
     static constexpr unsigned long DEBOUNCE_MS      = 200;
     static constexpr unsigned long READ_GAP_MS      = 2000;
     static constexpr unsigned long DS_CONVERT_MS    = 800;
-    static constexpr unsigned long SHT_MEASURE_MS   = 20;   // high repeatability: 15 ms
+    static constexpr uint8_t       SHT_MEASURE_MS   = 20;   // high repeatability: 15 ms
     static constexpr uint8_t       SHT_ADDR         = 0x44;
+    static constexpr uint8_t       AHT_MEASURE_MS   = 80;
+    static constexpr uint8_t       AHT_ADDR         = 0x38;
+    static constexpr uint8_t       LUX_MEASURE_MS   = 180;  // high resolution: 120 typical
+    static constexpr uint8_t       LUX_ADDR         = 0x23;
     // Start pulse held LOW: DHT11 needs ≥ 18 ms, DHT22 ≥ 1 ms (2 given the
     // millis resolution). Above the maximum the sensor may not answer.
     static constexpr unsigned long DHT11_WAKE_MS    = 18;
@@ -38,6 +42,7 @@ public:
     static constexpr unsigned long PULSE_WINDOW_MS  = 10000;
     static constexpr size_t        MSG_LEN          = 80;
     static constexpr uint8_t       MAX_LEDS         = 60;  // 1.8 ms with interrupts off
+    static constexpr char          ACTUATOR_MSG[] PROGMEM = "[actuator] %s";
 
     enum Result : uint8_t { OK, INVALID, UNSUPPORTED, NO_ACTUATOR };
 
@@ -111,7 +116,7 @@ public:
             _stateName(_onText, _r.onText, s.on);
             _stateName(_offText, _r.offText, s.off);
             pinMode((uint8_t)_r.sensorPin, INPUT_PULLUP);
-            if (s.kind == iot::K_SHT3X) pinMode((uint8_t)I2cBus::sclFor(_r.sensorPin), INPUT_PULLUP);
+            if (iot::i2c(s.kind)) pinMode((uint8_t)I2cBus::sclFor(_r.sensorPin), INPUT_PULLUP);
             if (s.kind == iot::K_PULSE) attachInterrupt((uint8_t)_r.sensorPin, onPulse, FALLING);
             _log.log(PSTR("IoT: sensor %s GPIO%d"), s.slug, _r.sensorPin);
         }
@@ -148,7 +153,7 @@ public:
                 _manual = false;
                 if (_ruleKnown()) _takeRule();
             }
-            _changed(PSTR("[actuator] %s"));
+            _changed(ACTUATOR_MSG);
             _persist();
         }
         if (_on && _r.maxOn && now - _onSince >= (unsigned long)_r.maxOn * 60000UL) {
@@ -164,7 +169,7 @@ public:
     // The sensor uses the pin: its own and, for the SHT3x (I2C), the paired SCL
     bool sensorUses(int pin) const {
         return pin == _r.sensorPin ||
-               (sensorKind() == iot::K_SHT3X && pin == I2cBus::sclFor(_r.sensorPin));
+               (iot::i2c(sensorKind()) && pin == I2cBus::sclFor(_r.sensorPin));
     }
     // Configuration from a newer version: the part stays off, the file untouched
     bool unknownType() const { return _unknownType; }
@@ -220,7 +225,7 @@ public:
         if (c.op == iot::OP_AUTO) {
             _manual = false;
             if (hasRule() && _ruleKnown()) _takeRule();
-            _changed(PSTR("[actuator] %s"));
+            _changed(ACTUATOR_MSG);
             _persist();
             return OK;
         }
@@ -251,7 +256,7 @@ public:
                 break;
         }
         _manual = hasRule();
-        _changed(PSTR("[actuator] %s"));
+        _changed(ACTUATOR_MSG);
         if (!_pulsing) _persist();
         return OK;
     }
@@ -561,7 +566,9 @@ private:
             case iot::K_DHT11:
             case iot::K_DHT22: _tickDht(now); return;
             case iot::K_DS18:  _tickDs(now); return;
-            case iot::K_SHT3X: _tickSht(now); return;
+            case iot::K_SHT3X:
+            case iot::K_AHT:
+            case iot::K_LUX:   _tickI2c(now); return;
             case iot::K_PULSE: _tickPulse(now); return;
             case iot::K_RANGE: _tickRange(now); return;
             default: break;
@@ -684,9 +691,10 @@ private:
         if (kind == iot::K_PULSE && _r.unit == 1) {
             _fmtTenths(a, sizeof(a), shown);
             snprintf(_sensorLine, sizeof(_sensorLine), "%s L/min", a);
-        } else if (kind == iot::K_PULSE || kind == iot::K_RANGE) {
-            static const char* const FMT[] = {"%d cm", "%d%%", "%d L", "%d pulses/10 s", "", "%d mL/min"};
-            snprintf(_sensorLine, sizeof(_sensorLine), FMT[(kind == iot::K_PULSE) * 3 + _r.unit], shown);
+        } else if (kind == iot::K_PULSE || kind == iot::K_RANGE || kind == iot::K_LUX) {
+            static const char* const FMT[] = {"%d cm", "%d%%", "%d L", "%d pulses/10 s", "", "%d mL/min", "%d lx"};
+            snprintf(_sensorLine, sizeof(_sensorLine),
+                     FMT[kind == iot::K_LUX ? 6 : (kind == iot::K_PULSE) * 3 + _r.unit], shown);
         } else if (kind == iot::K_DS18) {
             _fmtTenths(a, sizeof(a), shown);
             snprintf(_sensorLine, sizeof(_sensorLine), "%s %c", a, deg);
@@ -911,30 +919,67 @@ private:
         return crc;
     }
 
-    // SHT3x: asks for a measurement (no clock stretching) and reads on the
-    // first tick after SHT_MEASURE_MS. Reuses the DS18B20 state, which also
-    // waits for a conversion.
-    void _tickSht(unsigned long now) {
+    // I2C sensors: each asks for a measurement and reads on the first tick
+    // after its time. Reuses the DS18B20 state, which also waits for a
+    // conversion.
+    // - SHT3x (0x44): high repeatability, no clock stretching; CRC per word.
+    // - AHT20 (0x38): status, 20-bit humidity and temperature; an AHT not
+    //   calibrated yet gets its init command and reads on the next turn.
+    // - BH1750 (0x23): one high-resolution reading, then it powers down.
+    struct I2cDev {
+        uint8_t addr, ms, len, cmd[3];   // address, measurement time, the command that starts it
+    };
+
+    void _tickI2c(unsigned long now) {
+        // By kind, from K_SHT3X: SHT3x, AHT20, BH1750
+        static const I2cDev DEVS[] = {{SHT_ADDR, SHT_MEASURE_MS, 2, {0x24, 0x00}},
+                                      {AHT_ADDR, AHT_MEASURE_MS, 3, {0xAC, 0x33, 0x00}},
+                                      {LUX_ADDR, LUX_MEASURE_MS, 1, {0x20}}};
+        uint8_t k = sensorKind();
+        const I2cDev& dev = DEVS[k - iot::K_SHT3X];
+        uint8_t addr = dev.addr;
         I2cBus bus((uint8_t)_r.sensorPin, (uint8_t)I2cBus::sclFor(_r.sensorPin));
         if (_owState == OW_WAIT) {
-            if (now - _owSince < SHT_MEASURE_MS) return;
+            if (now - _owSince < dev.ms) return;
             _owState = OW_IDLE;
             uint8_t d[6];
-            if (!bus.read(SHT_ADDR, d, 6) || _crcSht(d) != d[2] || _crcSht(d + 3) != d[5]) {
+            if (!bus.read(addr, d, k == iot::K_LUX ? 2 : 6)) {
                 _fail();
                 return;
             }
-            // °C = -45 + 175 × t / 65535; %RH = 100 × h / 65535 (in tenths)
-            _temp = -450 + (int)(1750L * (d[0] << 8 | d[1]) / 65535);
-            _hum = (int)(1000L * (d[3] << 8 | d[4]) / 65535);
+            if (k == iot::K_LUX) {
+                _value = (d[0] << 8 | d[1]) * 5 / 6;   // lx = count / 1.2
+                _accept(_value, false);
+                return;
+            }
+            if (k == iot::K_SHT3X) {
+                if (_crcSht(d) != d[2] || _crcSht(d + 3) != d[5]) {
+                    _fail();
+                    return;
+                }
+                // °C = -45 + 175 × t / 65535; %RH = 100 × h / 65535 (in tenths)
+                _temp = -450 + (int)(1750L * (d[0] << 8 | d[1]) / 65535);
+                _hum = (int)(1000L * (d[3] << 8 | d[4]) / 65535);
+            } else {
+                if ((d[0] & 0x88) != 0x08) {           // busy, or not calibrated
+                    static const uint8_t INIT[] = {0xBE, 0x08, 0x00};
+                    bus.write(addr, INIT, 3);
+                    _fail();
+                    return;
+                }
+                // %RH = 100 × h / 2^20; °C = 200 × t / 2^20 - 50 (in tenths)
+                uint32_t h = (uint32_t)d[1] << 12 | (uint32_t)d[2] << 4 | d[3] >> 4;
+                uint32_t t = (uint32_t)(d[3] & 0x0F) << 16 | (uint32_t)d[4] << 8 | d[5];
+                _hum = (int)(h * 1000 >> 20);
+                _temp = (int)(t * 2000 >> 20) - 500;
+            }
             _accept(_r.metric == 1 ? _temp : _hum, true);
             return;
         }
         if (_haveRead && now - _lastRead < READ_GAP_MS) return;
         _lastRead = now;
         _haveRead = true;
-        static const uint8_t MEASURE[] = {0x24, 0x00};
-        if (!bus.write(SHT_ADDR, MEASURE, 2)) {
+        if (!bus.write(addr, dev.cmd, dev.len)) {
             _fail();
             return;
         }
@@ -1011,6 +1056,7 @@ private:
                 case iot::K_DHT11:
                 case iot::K_DHT22:
                 case iot::K_SHT3X:
+                case iot::K_AHT:
                     _fmtTenths(a, sizeof(a), _temp);
                     _fmtTenths(b, sizeof(b), _hum);
                     k += (size_t)snprintf(out + k, _left(n, k),
@@ -1022,6 +1068,9 @@ private:
                     break;
                 case iot::K_RANGE:
                     k += (size_t)snprintf(out + k, _left(n, k), ",\"distance\":%d", _value);
+                    break;
+                case iot::K_LUX:
+                    k += (size_t)snprintf(out + k, _left(n, k), ",\"lux\":%d", _value);
                     break;
                 default: // K_PULSE
                     k += (size_t)snprintf(out + k, _left(n, k), ",\"pulses\":%d,\"total\":%lu", _value,

@@ -6,6 +6,7 @@
 #include "Config.h"
 #include "Logger.h"
 #include "I2cBus.h"
+#include "IoTCatalog.h"
 
 // Where the power comes from, through the MAX17048 battery gauge (I2C, 0x36).
 //
@@ -84,7 +85,8 @@ public:
         int8_t scl = I2cBus::sclFor(sda);
         if (t.actuatorPin == sda || t.actuatorPin == scl) return false;
         if (t.sensorPin != sda && t.sensorPin != scl) return true;
-        return t.sensorPin == sda && strcmp(t.sensor, "sht3x") == 0;
+        int8_t i = iot::sensorIndex(t.sensor);   // an I2C sensor shares the gauge's pair
+        return t.sensorPin == sda && i >= 0 && iot::i2c(iot::SENSORS[i].kind);
     }
 
 private:

@@ -327,6 +327,12 @@ private:
     static constexpr char S_REQ64[] PROGMEM = "required maxlength='64'";
     static constexpr char S_MAX63[] PROGMEM = "maxlength='63'";
     static constexpr char S_CURRENT_PASS_AC[] PROGMEM = "autocomplete='current-password' ";
+    static constexpr char S_PASS8[] PROGMEM = "required minlength='8' maxlength='64'";
+    static constexpr char S_CURRENT_PASS[] PROGMEM = L_CURRENT_PASS;
+    static constexpr char S_CONFIRM_PASS[] PROGMEM = L_CONFIRM_PASS;
+    static constexpr char S_INVALID[] PROGMEM = L_INVALID_VALUE;
+    static constexpr char S_STATE_NAME[] PROGMEM = "maxlength='15' placeholder='" L_TYPE_DEFAULT "'";
+    static constexpr char S_OPTION_END[] PROGMEM = "</option>";
 
     // The relay Worker's intervals for the ntfy commands, in seconds (relay/worker.mjs POLLS)
     static constexpr uint8_t POLLS[] = {2, 5, 10, 30};
@@ -780,6 +786,9 @@ private:
         _p(PSTR("</b></div>"));
     }
 
+    // An address, "-" while offline
+    void _ipRow(PGM_P label, bool con, IPAddress ip) { _row(label, con ? ip.toString().c_str() : "-"); }
+
     // A row whose value is formatted (fmt in flash)
     void _rowf(PGM_P label, PGM_P fmt, ...) {
         char b[40];
@@ -955,8 +964,8 @@ private:
                 _p(PSTR("<h2>" L_PANEL_ACCESS "</h2>"));
                 _input(S_USER, S_F_USER, _cfg.webusr.length() ? _cfg.webusr.c_str() : "admin",
                        S_REQ32);
-                _passwordInput(PSTR(L_PANEL_PASS_MIN), PSTR("pass1"), PSTR("required minlength='8'"));
-                _passwordInput(PSTR(L_CONFIRM_PASS), PSTR("pass2"), PSTR("required minlength='8'"));
+                _passwordInput(PSTR(L_PANEL_PASS_MIN), PSTR("pass1"), S_PASS8);
+                _passwordInput(S_CONFIRM_PASS, PSTR("pass2"), S_PASS8);
             }
             _button(PSTR(L_CONNECT));
         } else {
@@ -1223,10 +1232,10 @@ private:
         _box(PSTR("Wi-Fi"));
         bool con = WiFi.isConnected();
         _row(PSTR("SSID"),    con ? WiFi.SSID()                 : String("-"));
-        _row(PSTR("IP"),      con ? WiFi.localIP().toString()   : String("-"));
-        _row(PSTR(L_GATEWAY), con ? WiFi.gatewayIP().toString() : String("-"));
-        _row(PSTR(L_NETMASK), con ? WiFi.subnetMask().toString(): String("-"));
-        _row(PSTR("DNS"),     con ? WiFi.dnsIP().toString()     : String("-"));
+        _ipRow(PSTR("IP"),      con, WiFi.localIP());
+        _ipRow(PSTR(L_GATEWAY), con, WiFi.gatewayIP());
+        _ipRow(PSTR(L_NETMASK), con, WiFi.subnetMask());
+        _ipRow(PSTR("DNS"),     con, WiFi.dnsIP());
         _row(PSTR("MAC"),     WiFi.macAddress());
         _rowf(PSTR("RSSI"),   PSTR("%d dBm"), (int)WiFi.RSSI());
         _boxEnd();
@@ -1342,11 +1351,9 @@ private:
     }
 
     void _zoneOption(const char* id, const char* name, bool on) {
-        _p(PSTR("<option value='"));
-        _e(id);
-        _p(on ? PSTR("' selected>") : S_TAG_END);
+        _optionOpen(id, on);
         _e(name);
-        _p(PSTR("</option>"));
+        _p(S_OPTION_END);
     }
 
     void _handleCloudflareSave() {
@@ -1461,9 +1468,7 @@ private:
         for (uint8_t s : POLLS) {
             char v[4];
             snprintf(v, sizeof(v), "%u", (unsigned)s);
-            _p(PSTR("<option value='"));
-            _s(v);
-            _p(s == _cfg.ntfy_poll ? PSTR("' selected>") : S_TAG_END);
+            _optionOpen(v, s == _cfg.ntfy_poll);
             _s(v);
             _p(PSTR(" s</option>"));
         }
@@ -1487,7 +1492,7 @@ private:
         cmd.trim();
         token.trim();
         if (host.length() > 0 && !NtfyNotifier::isValidHost(host.c_str())) {
-            _errorPage(PSTR(L_INVALID_VALUE), P_NTFY);
+            _errorPage(S_INVALID, P_NTFY);
             return;
         }
         if (topic.length() > 0 && !NtfyNotifier::isValidTopic(topic)) {
@@ -1535,7 +1540,7 @@ private:
                 }
             }
             if (!offered) {
-                _errorPage(PSTR(L_INVALID_VALUE), P_NTFY);
+                _errorPage(S_INVALID, P_NTFY);
                 return;
             }
         }
@@ -1703,10 +1708,10 @@ private:
         _csrfField();
         _input(S_USER, S_F_USER, _cfg.webusr.length() ? _cfg.webusr.c_str() : "admin",
                S_REQ32);
-        _passwordInput(PSTR(L_NEW_PASS_MIN), PSTR("pass1"), PSTR("required minlength='8' maxlength='64'"));
-        _passwordInput(PSTR(L_CONFIRM_PASS), PSTR("pass2"), PSTR("required minlength='8' maxlength='64'"));
+        _passwordInput(PSTR(L_NEW_PASS_MIN), PSTR("pass1"), S_PASS8);
+        _passwordInput(S_CONFIRM_PASS, PSTR("pass2"), S_PASS8);
         if (_cfg.webpss.length()) {
-            _passwordInput(PSTR(L_CURRENT_PASS), S_F_PASS, S_REQ64,
+            _passwordInput(S_CURRENT_PASS, S_F_PASS, S_REQ64,
                            S_CURRENT_PASS_AC);
             _codeInput();
         }
@@ -1716,7 +1721,7 @@ private:
     void _mfaResetForm() {
         _p(PSTR("<form action='/mfa/reset' method='POST'><p class='m'>" L_MFA_REPLACE_HELP "</p>"));
         _csrfField();
-        _passwordInput(PSTR(L_CURRENT_PASS), S_F_PASS, S_REQ64,
+        _passwordInput(S_CURRENT_PASS, S_F_PASS, S_REQ64,
                        S_CURRENT_PASS_AC);
         _codeInput();
         _button(PSTR(L_MFA_REPLACE));
@@ -1927,13 +1932,11 @@ private:
             int a = tz < 0 ? -tz : tz;
             char b[24];
             snprintf(b, sizeof(b), "%d", tz);
-            _p(PSTR("<option value='"));
-            _s(b);
-            _p(tz == _cfg.tz ? PSTR("' selected>") : S_TAG_END);
+            _optionOpen(b, tz == _cfg.tz);
             snprintf(b, sizeof(b), "UTC%c%02d:%02d ", tz < 0 ? '-' : '+', a / 60, a % 60);
             _s(b);
             _p(place);
-            _p(PSTR("</option>"));
+            _p(S_OPTION_END);
             place += strlen_P(place) + 1;
         }
         _selectEnd();
@@ -2053,18 +2056,23 @@ private:
 
     // The module photo: AVIF on its white background (Assets.h)
     void _deviceMark() {
-        _p(PSTR("<figure><img src='/esp01.avif' alt='ESP-01' width='220' height='209'>"
+        _p(PSTR("<figure><img src='/esp01.avif' alt='ESP-01' width='140' height='133'>"
                 "<figcaption class='m'>" L_FW_MODULE "<br>" L_PHOTO ": SparkFun, CC BY 2.0</figcaption></figure>"));
     }
 
     // ── IoT ──────────────────────────────────────────────────────────────────
 
-    void _option(const char* value, PGM_P label, bool on) {
+    // <option value='value'> (escaped), selected or not; the caller writes the text
+    void _optionOpen(const char* value, bool on) {
         _p(PSTR("<option value='"));
-        _s(value);
+        _e(value);
         _p(on ? PSTR("' selected>") : S_TAG_END);
+    }
+
+    void _option(const char* value, PGM_P label, bool on) {
+        _optionOpen(value, on);
         _p(label);
-        _p(PSTR("</option>"));
+        _p(S_OPTION_END);
     }
 
     void _selectOpen(PGM_P label, PGM_P name) {
@@ -2206,9 +2214,9 @@ private:
         _divOpen(PSTR("sd"));
         _pair(PSTR(L_ACTIVE_WITH_PIN), PSTR("sensor_high"),
               PSTR(L_LOW), PSTR(L_HIGH), t.sensorHigh);
-        _input(PSTR(L_ACTIVE_NAME), PSTR("sensor_on"), t.onText, PSTR("maxlength='15' placeholder='" L_TYPE_DEFAULT "'"));
+        _input(PSTR(L_ACTIVE_NAME), PSTR("sensor_on"), t.onText, S_STATE_NAME);
         _input(PSTR(L_INACTIVE_NAME), PSTR("sensor_off"), t.offText,
-               PSTR("maxlength='15' placeholder='" L_TYPE_DEFAULT "'"));
+               S_STATE_NAME);
         _p(S_DIV_END);
         _divOpen(PSTR("sm"));
         _pair(PSTR(L_RULE_VALUE), PSTR("metric"),
@@ -2318,8 +2326,8 @@ private:
         else strcpy(buf, "',R=[NaN,0");
         _s(buf);
         unsigned pulse = t.pulse ? t.pulse : a ? a->pulse : 0;
-        snprintf(buf, sizeof(buf), "],D={k:%u,c:%u,u:%u,e:%u,f:%u,l:%u,p:%u,s:%u,a:'", _iot.sensorKind(),
-                 _iot.capability(), t.unit, t.tankEmpty, t.tankFull, t.tankL, t.ppl, pulse);
+        snprintf(buf, sizeof(buf), "],D={k:%u,c:%u,u:%u,e:%u,f:%u,l:%u,p:%u,s:%u,t:'%s',a:'", _iot.sensorKind(),
+                 _iot.capability(), t.unit, t.tankEmpty, t.tankFull, t.tankL, t.ppl, pulse, a ? a->slug : "");
         _s(buf);
         if (a) _p(a->label);
         _p(PSTR("'};</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
@@ -2328,7 +2336,7 @@ private:
     // Reads an integer from the form within the range; otherwise answers 400
     bool _int(const char* name, int min, int max, int16_t& out) {
         if (IoTService::parseI16(_server.arg(name), min, max, out)) return true;
-        _errorPage(PSTR(L_INVALID_VALUE), P_IOT);
+        _errorPage(S_INVALID, P_IOT);
         return false;
     }
 
@@ -2404,9 +2412,7 @@ private:
             if (iot::tempAndHumidity(kind) && !_u8("metric", 0, 1, t.metric)) return;
             // Units: two for a temperature, three for a distance or pulses
             t.unit = 0;
-            if (kind != iot::K_DIGITAL &&
-                !_u8("unit", 0, kind == iot::K_RANGE || kind == iot::K_PULSE ? 2 : 1, t.unit))
-                return;
+            if (iot::unitCount(kind) && !_u8("unit", 0, iot::unitCount(kind) - 1, t.unit)) return;
             if (kind == iot::K_RANGE && t.unit) {
                 int16_t e = 0, f = 0, l = 0;
                 if (!_int("tank_empty", 2, 400, e) || !_int("tank_full", 0, e - 1, f)) return;
@@ -2433,7 +2439,7 @@ private:
             cap = iot::ACTUATORS[i].cap;
             if (!_pinArg("actuator_pin", t.actuatorPin)) return;
             if (hs && (t.actuatorPin == t.sensorPin ||
-                       (kind == iot::K_SHT3X && t.actuatorPin == I2cBus::sclFor(t.sensorPin)))) {
+                       (iot::i2c(kind) && t.actuatorPin == I2cBus::sclFor(t.sensorPin)))) {
                 _errorPage(PSTR(L_SAME_PINS), P_IOT);
                 return;
             }
@@ -2611,7 +2617,7 @@ private:
             _p(PSTR("<form action='/iot/clear' method='POST' data-q='" L_IOT_CLEAR_ASK "'>"));
             _csrfField();
             if (locked) {
-                _passwordInput(PSTR(L_CURRENT_PASS), S_F_PASS, S_REQ64, S_CURRENT_PASS_AC);
+                _passwordInput(S_CURRENT_PASS, S_F_PASS, S_REQ64, S_CURRENT_PASS_AC);
                 _codeInput();
             }
             _p(PSTR("<input type='hidden' name='confirm' value='1'>"

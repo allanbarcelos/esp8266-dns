@@ -30,8 +30,8 @@ except ImportError:  # optional: only makes the gzip smaller
     _zopfli = None
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-PHOTO_WIDTH = 220
-PHOTO_BYTES = 1500   # a decoration on Home: the flash went to the IoT card
+PHOTO_WIDTH = 140
+PHOTO_BYTES = 1000   # a small mark on Home, which is a dashboard now
 
 
 def pinout():

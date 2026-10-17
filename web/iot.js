@@ -22,22 +22,24 @@ function cl(x) { return Math.max(0, Math.min(1, x)); }
 
 // Unit options by sensor kind (the select's values are 0, 1, 2)
 var TU = ['°C', '°F'],
-    UO = { 2: TU, 3: TU, 4: TU, 7: TU,
+    UO = { 2: TU, 3: TU, 4: TU, 7: TU, 8: TU,
         5: [L('Distance (cm)'), L('Tank level (%)'), L('Tank volume (L)')],
         6: [L('Pulses per 10 s'), L('Flow (L/min)'), L('Flow (mL/min)')] },
-    US = { 5: ['cm', '%', 'L'], 6: [L('pulses'), 'L/min', 'mL/min'] };
+    US = { 5: ['cm', '%', 'L'], 6: [L('pulses'), 'L/min', 'mL/min'], 9: ['lx'] };
 
 // ── Form: only the fields for the chosen role, types and unit, the wiring
 // hint for each type and the rule written as a sentence ────────────────────
 
-var SH = ['',
+// Wiring hint by kind; the I2C sensors share one, with their address
+var I2 = L('I2C: SDA on this pin, SCL on its pair (GPIO0 with GPIO2, RX with TX); 4.7 kOhm pull-ups; address'),
+    DH = L('DHT11/DHT22: 4.7 to 10 kOhm pull-up between data and 3.3 V; one reading every 2 s.'),
+    SH = ['',
         L('Module with a digital output (D0); sensitivity is set on the trimpot.'),
-        L('DHT11: 4.7 to 10 kOhm pull-up between data and 3.3 V; one reading every 2 s.'),
-        L('DHT22: 4.7 to 10 kOhm pull-up between data and 3.3 V; one reading every 2 s.'),
+        DH, DH,
         L('DS18B20: 4.7 kOhm pull-up between data and 3.3 V.'),
         L('HC-SR04: trig and echo together on one pin, with 1 kOhm on echo; up to 400 cm.'),
         L('Counts pulses every 10 s (YF-S201: about 75 pulses per L/min).'),
-        L('I2C: SDA on this pin, SCL on its pair (GPIO0 with GPIO2, RX with TX); 4.7 kOhm pull-ups; address 0x44.')],
+        I2 + ' 0x44.', I2 + ' 0x38.', I2 + ' 0x23.'],
     AH = ['',
         L('Relay modules usually switch on low.'),
         L('PWM on the pin: use a MOSFET or a motor driver, never the load straight on the pin.'),
@@ -65,7 +67,7 @@ function f() {
         p = AC[V('actuator').value],
         n = uo(k),
         d = k == 1,
-        h = k == 2 || k == 3 || k == 7,
+        h = k == 2 || k == 3 || k == 7 || k == 8,
         u = h && V('metric').value != '1' ? '%' : US[k] ? US[k][n] : TU[n],
         a = V('actuator').selectedOptions[0].text.toLowerCase(),
         t = +V('threshold').value,
@@ -79,7 +81,7 @@ function f() {
     $('fr').hidden = !(hs && ha);
     $('sd').hidden = !d;
     $('sm').hidden = !h;
-    $('su').hidden = d;
+    $('su').hidden = !UO[k];
     $('st').hidden = k != 5 || !n;
     $('sl').hidden = n != 2;
     $('sq').hidden = k != 6 || !n;
@@ -116,7 +118,7 @@ function f() {
 // for a digital sensor; the count for pulses.
 
 // Kind → scale: [temperature from, to, humidity from, to]
-var GR = { 2: [0, 50, 20, 90], 3: [-40, 80, 0, 100], 4: [-55, 125], 7: [-40, 125, 0, 100] };
+var GR = { 2: [0, 50, 20, 90], 3: [-40, 80, 0, 100], 4: [-55, 125], 7: [-40, 125, 0, 100], 8: [-40, 85, 0, 100] };
 
 // Temperature (°C from the device) in the unit set
 function F(c) { return D.u == 1 ? r1(c * 1.8 + 32) : c; }
@@ -160,6 +162,7 @@ function sv(e) {
         h = !u ? g(L('Distance (HC-SR04)'), e.distance, 0, 400, 'cm', t)
             : tk(p, u == 1 ? Math.round(p * 100) + '%' : Math.round(p * D.l) + ' L', cl(dv(t, u == 1 ? 100 : D.l)));
     }
+    if (e.lux != null) h = big(e.lux, 'lx');
     if (e.temperature != null)
         h = g(L('Temperature'), F(e.temperature), F(r[0]), F(r[1]), TU[u], k == 4 || R[1] ? t : NaN);
     if (e.humidity != null) h += g(L('Humidity'), e.humidity, r[2], r[3], '%', R[1] ? NaN : t);
@@ -176,7 +179,7 @@ function z(e) {
 }
 
 // ── Home: the actuator's controls, by what it does ─────────────────────────
-// On/off: a switch. Level (LED, fan, motor): a switch, a 0–100 % slider and
+// On/off: a switch (a gate only pulses: no switch to hold it on). Level (LED, fan, motor): a switch, a 0–100 % slider and
 // steps of 10 %. Position (servo): open, close and the angle, on a dial.
 // Color (strip): a switch, brightness, a color and a few ready ones. All:
 // a pulse of D.s seconds and, with a rule, the way back to automatic.
@@ -193,7 +196,7 @@ function ui(c) {
     var b = "<button class='b2' data-c='",
         h = "<div class='ah'><b>" + IX(D.a) + "</b><span id='na'></span></div><div class='ctl'>", i;
     if (c == 3) h += b + "open'>" + L('Open') + '</button>' + b + "close'>" + L('Close') + '</button>';
-    else h += "<button role='switch' id='sw' class='tg' aria-checked='false' aria-label='" +
+    else if (D.t != 'gate') h += "<button role='switch' id='sw' class='tg' aria-checked='false' aria-label='" +
         IX(D.a) + "'><i></i></button>";
     if (c == 2) h += b + "-10' aria-label='-10%'>-</button>" + b + "+10' aria-label='+10%'>+</button>";
     h += b + 'pulse ' + D.s + "'>" + L('Pulse') + ' ' + D.s + ' s</button>';

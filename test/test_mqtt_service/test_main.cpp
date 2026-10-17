@@ -519,7 +519,7 @@ void test_pause_wifi_and_reconnection() {
 // ── Home Assistant discovery ─────────────────────────────────────────────────
 
 static const char* DISCOVERY_TOPIC = "homeassistant/device/esp8266iot_00dead/config";
-static const char* KEYS = "thdnbslcg";
+static const char* KEYS = "thdnxbslcg";
 
 // Last published discovery, already parsed
 static bool discovery(const std::string& out, DynamicJsonDocument& doc, size_t nth = 0) {
@@ -535,7 +535,7 @@ static bool discovery(const std::string& out, DynamicJsonDocument& doc, size_t n
 static std::string active(DynamicJsonDocument& doc) {
     std::string s;
     JsonObject cmps = doc["cmps"];
-    TEST_ASSERT_EQUAL(9, (int)cmps.size());
+    TEST_ASSERT_EQUAL(10, (int)cmps.size());
     for (const char* k = KEYS; *k; k++) {
         char key[2] = {*k, 0};
         JsonObject e = cmps[key];
@@ -613,6 +613,7 @@ void test_discovery_by_module_type() {
         {"ds18b20", "", "t"}, {"sht3x", "", "th"}, {"distance", "", "d"}, {"pulses", "", "n"},
         {"pir", "led", "bl"}, {"contact", "strip", "bc"}, {"button", "servo", "bg"},
         {"digital", "pump", "bs"}, {"", "fan", "l"}, {"", "", ""},
+        {"aht20", "", "th"}, {"pir", "gate", "bs"}, {"bh1750", "", "x"}, {"leak", "", "b"},
     };
     for (const Case& c : cases) {
         setUp();
@@ -652,6 +653,7 @@ void test_discovery_entity_details() {
     g.up();
     TEST_ASSERT_TRUE(discovery(g.net.out, doc));
     TEST_ASSERT_EQUAL_STRING("door", doc["cmps"]["b"]["dev_cla"]);
+
     JsonObject c = doc["cmps"]["c"];
     TEST_ASSERT_EQUAL_STRING("light", c["p"]);
     TEST_ASSERT_TRUE(contains(c["cmd_on_tpl"].as<std::string>(), "color #{{'%02x%02x%02x'|format(red,green,blue)}}"));
@@ -678,6 +680,29 @@ void test_discovery_entity_details() {
     k.up();
     TEST_ASSERT_TRUE(discovery(k.net.out, doc));
     TEST_ASSERT_EQUAL_STRING("Pulses", doc["cmps"]["n"]["name"]);
+    // The named digital sensors carry their class; a float switch has none
+    const char* classes[][2] = {{"radar", "occupancy"}, {"leak", "moisture"}, {"gas", "gas"},
+                                {"rain", "moisture"}, {"float", nullptr}, {"button", nullptr}};
+    for (auto& c : classes) {
+        setUp();
+        Fix h;
+        configure(c[0], "");
+        h.iot.begin();
+        h.up();
+        TEST_ASSERT_TRUE(discovery(h.net.out, doc));
+        if (c[1]) TEST_ASSERT_EQUAL_STRING(c[1], doc["cmps"]["b"]["dev_cla"]);
+        else TEST_ASSERT_FALSE(doc["cmps"]["b"].containsKey("dev_cla"));
+    }
+    // Light: illuminance in lx
+    setUp();
+    Fix x;
+    configure("bh1750", "");
+    x.iot.begin();
+    x.up();
+    TEST_ASSERT_TRUE(discovery(x.net.out, doc));
+    TEST_ASSERT_EQUAL_STRING("illuminance", doc["cmps"]["x"]["dev_cla"]);
+    TEST_ASSERT_EQUAL_STRING("lx", doc["cmps"]["x"]["unit_of_meas"]);
+    TEST_ASSERT_EQUAL_STRING("{{value_json.sensor.lux|default(none)}}", doc["cmps"]["x"]["val_tpl"]);
 }
 
 // Changing the module on the panel republishes: the old entity leaves, the new one comes in

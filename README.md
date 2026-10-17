@@ -106,11 +106,18 @@ Each choice shows only the fields it needs. Every sensor and actuator type shows
 | --- | --- | --- |
 | `dht22`, `dht11` | Temperature and humidity | °C or °F and % (the rule uses the one you pick) |
 | `ds18b20` | Temperature (1-Wire) | °C or °F |
-| `sht3x` | Temperature and humidity (SHT30/SHT31, I2C at address 0x44): SDA on the chosen pin and SCL on its pair (GPIO0 with GPIO2, RX with TX), with 4.7 kΩ pull-ups on both | °C and % (like the DHT) |
+| `sht3x` | Temperature and humidity (SHT30/SHT31, I2C at address 0x44): SDA on the chosen pin and SCL on its pair (GPIO0 with GPIO2, RX with TX), with 4.7 kΩ pull-ups on both | °C or °F and % (like the DHT) |
+| `aht20` | Temperature and humidity (AHT20/AHT21, I2C at 0x38, wired like the SHT3x); one not calibrated yet gets its init command | °C or °F and % |
+| `bh1750` | Light (BH1750, I2C at 0x23, wired like the SHT3x) | lx (1 to 54,612) |
 | `pir` | Presence | presence / free |
+| `radar` | Presence radar (LD2410 or RCWL-0516, OUT pin): sees someone sitting still, where a PIR does not | presence / free |
 | `contact` | Door or window (reed) | open / closed |
 | `button` | Button or switch | pressed / released |
-| `digital` | Generic digital output (rain, gas, flame, soil, float, sound) | state names you choose |
+| `leak` | Water leak (probe module, D0) | wet / dry |
+| `gas` | Gas or smoke (MQ-2, MQ-5…, D0 output) | gas / free |
+| `float` | Float switch (water level) | high / low |
+| `rain` | Rain (module with D0) | rain / dry |
+| `digital` | Generic digital output (flame, soil, sound) | state names you choose |
 | `distance` | HC-SR04 / JSN-SR04T (trig and echo on one pin) | cm, or a tank's level (%) or volume (L) |
 | `pulses` | Flow or pulses (YF-S201) | pulses per 10 s, or the flow in L/min or mL/min |
 
@@ -122,7 +129,7 @@ The capability decides the control shown in the panel and the commands accepted.
 
 | Capability | Identifiers | Control in the panel | Commands |
 | --- | --- | --- | --- |
-| **On/off** | `relay`, `pump`, `valve`, `lock`, `buzzer` | switch + pulse | `on`, `off`, `toggle`, `pulse 5` |
+| **On/off** | `relay`, `pump`, `valve`, `lock`, `buzzer`, `gate` | switch + pulse (a gate: the pulse only, 1 s by default, like a gate opener's button) | `on`, `off`, `toggle`, `pulse 5` |
 | **Level (PWM)** | `led`, `fan`, `motor` | switch + 0–100 % slider + pulse | the above + `50%`, `level 50` |
 | **Position** | `servo` | open/close + 0–180° slider + pulse | `open`, `close`, `angle 90`, `pulse 3` |
 | **Colour** | `strip` (WS2812, up to 60 LEDs) | switch + colour picker + brightness | the above + `color #ff8800`, `brightness 40` |
@@ -249,9 +256,11 @@ With the broker set, the device shows up in Home Assistant on its own (MQTT inte
 | --- | --- |
 | DHT11, DHT22 | temperature and humidity `sensor` |
 | DS18B20 | temperature `sensor` |
+| SHT3x, AHT20 | temperature and humidity `sensor` |
+| BH1750 | illuminance `sensor` (lx) |
 | Distance, pulses | `sensor` |
-| PIR, contact, button, digital | `binary_sensor` (motion for PIR, door for contact) |
-| Relay, pump, valve, lock, buzzer | `switch` |
+| PIR, radar, contact, leak, gas, rain, float, button, digital | `binary_sensor` (motion for PIR, occupancy for the radar, door for contact, moisture for leak and rain, gas for gas) |
+| Relay, pump, valve, lock, buzzer, gate | `switch` |
 | LED, fan, motor | `light` with brightness |
 | LED strip | `light` with color and brightness |
 | Servo | `number` (0 to 180°) |
@@ -330,11 +339,11 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 499,520 of 500,000 bytes (480 to spare) |
+| Firmware | 499,888 of 500,000 bytes (112 to spare) |
 | Panel text, 4 languages | 337 texts (the pin drawing included), 45 KB as text, 16 KB in flash |
 | Relay Worker | 7.8 KB of script, 4.2 KB in flash (byte-pair encoded) |
 | Signed OTA package | ~354 KB of 400 KB (about 46 KB free) |
-| Embedded images | 1.1 KB pinout (gzipped SVG), 1.5 KB ESP-01 photo (AVIF, white background) |
+| Embedded images | 1.1 KB pinout (gzipped SVG), 1 KB ESP-01 photo (AVIF, 140 px, white background) |
 | Configuration filesystem | 64 KB, unchanged |
 
 Kept small on purpose: page text in flash (`PSTR`) as 3-byte markers, with the text of the four languages in one gzipped table that the browser decodes (one column per language, rows ordered so similar texts sit together, an empty cell for text equal to English and one byte for text equal to the language before it, compressed with zopfli), no `scanf` (one `sscanf` pulled about 3 KB of the C library), TLS roots as trust anchors (name and key only, 1.6 KB, no X.509 decoder), an own JSON reader and writer (`Json.h`, about 6 KB less than ArduinoJson; config.json is a table of fields), one-shot HTTPS requests without `HTTPClient` (about 6 KB), no libgcc unwinder or stdio `FILE` layer (`TlsTrim.h`, about 10 KB; printf output goes through `vsnprintf`), no float `printf`, LittleFS without its debug asserts (`LFS_NO_ASSERT`, 3.4 KB; errors are still return codes), one TLS session at a time, TLS limited to ECDHE + AES-GCM (CBC, CCM, 3DES, ChaCha20, X25519, MD5, the TLS 1.0 PRF and client certificates are left out of the link by `TlsTrim.h`, about 29 KB; the fast P-256 stays, so the handshake is as fast as before; every server the device uses negotiates ECDHE + AES-128-GCM), lwIP without extras (`ip=lm2n`, about 10 KB: no NAT, IP fragmentation or AutoIP; SNTP keeps one server, so `Clock` alternates between `pool.ntp.org` and `time.google.com` until it syncs), an own HTTP server instead of `ESP8266WebServer` (about 12 KB: one client at a time, routes in a table in flash instead of `std::function`, no upload, Digest, keep-alive or chunked encoding; the page ends when the connection closes), a WS2812 driver without a library, the command word table in flash. **mDNS** was measured at about 21 KB and does not fit; use a DHCP reservation instead.
@@ -425,7 +434,7 @@ arduino-cli upload  --fqbn esp8266:esp8266:generic:eesz=1M64 -p /dev/ttyUSB0 --i
 arduino-cli monitor -p /dev/ttyUSB0 --config 115200
 ```
 
-Local builds report version `dev` and update to the latest release on the first OTA check (unless automatic update is off). After changing `docs/esp01-pinout.svg`, run `python3 tools/embed_assets.py` and commit `Assets.h`. The same tool turns `docs/esp-01.jpg` into the panel photo: 220 px wide (the size it is shown at), the white background made transparent, AVIF at the best quality that fits in `PHOTO_BYTES` (the browser decodes AVIF itself, so the firmware carries no decoder). It needs Pillow 11.3 or newer.
+Local builds report version `dev` and update to the latest release on the first OTA check (unless automatic update is off). After changing `docs/esp01-pinout.svg`, run `python3 tools/embed_assets.py` and commit `Assets.h`. The same tool turns `docs/esp-01.jpg` into the panel photo: `PHOTO_WIDTH` px wide (140, the size it is shown at), the white background made transparent, AVIF at the best quality that fits in `PHOTO_BYTES` (the browser decodes AVIF itself, so the firmware carries no decoder). It needs Pillow 11.3 or newer.
 
 The panel style and the IoT page script live in `web/panel.css` and `web/iot.js`. The device serves them gzipped (`/s.css`, `/iot.js`): the browser decompresses them and keeps them in its cache, and the URL carries a hash of the content, so a new version never uses a stale copy. After editing, run `python3 tools/embed_web.py` and commit `WebAssets.h`; CI runs `python3 tools/embed_web.py --check`.
 

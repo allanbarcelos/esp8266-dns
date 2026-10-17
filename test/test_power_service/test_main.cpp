@@ -148,6 +148,14 @@ void test_free_pins() {
     TEST_ASSERT_FALSE(PowerService::pinsFree(3, t));
     t.sensorPin = 2;
     TEST_ASSERT_TRUE(PowerService::pinsFree(3, t));
+    // Every I2C sensor shares the pair; an unknown type does not
+    t.sensorPin = 3;
+    for (const char* s : {"aht20", "bh1750"}) {
+        strlcpy(t.sensor, s, sizeof(t.sensor));
+        TEST_ASSERT_TRUE(PowerService::pinsFree(3, t));
+    }
+    strlcpy(t.sensor, "laser", sizeof(t.sensor));
+    TEST_ASSERT_FALSE(PowerService::pinsFree(3, t));
 }
 
 int main() {

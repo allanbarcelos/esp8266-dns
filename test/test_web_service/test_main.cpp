@@ -332,7 +332,7 @@ void test_root_station_mode() {
     TEST_ASSERT_FALSE(contains(f.out(), "/esp01.webp"));
     TEST_ASSERT_TRUE(contains(f.out(), "Firmware for the ESP-01 module"));
     // The photo, with the credit
-    TEST_ASSERT_TRUE(contains(f.out(), "<img src='/esp01.avif' alt='ESP-01' width='220' height='209'>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "<img src='/esp01.avif' alt='ESP-01' width='140' height='133'>"));
     TEST_ASSERT_TRUE(contains(f.out(), "Photo: SparkFun, CC BY 2.0"));
 }
 
@@ -1075,6 +1075,12 @@ void test_iot_sht3x_uses_two_pins() {
     f.post("/iot/save", a);                               // actuator on SCL
     TEST_ASSERT_EQUAL(400, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "need different pins"));
+    for (const char* s : {"aht20", "bh1750"}) {           // the other I2C sensors too
+        Args x = a;
+        x["sensor"] = s;
+        f.post("/iot/save", x);
+        TEST_ASSERT_TRUE(contains(f.out(), "need different pins"));
+    }
     a["actuator_pin"] = "3";
     f.post("/iot/save", a);
     TEST_ASSERT_EQUAL(200, f.srv.code);
@@ -1932,7 +1938,7 @@ void test_root_iot_card() {
     TEST_ASSERT_TRUE(contains(f.out(), "var SK={dht22:3"));
     TEST_ASSERT_TRUE(contains(f.out(), f.web.sessionCsrfToken()));
     TEST_ASSERT_TRUE(contains(f.out(), (std::string("',R=[NaN,0],D={k:1,c:0,") + D_DEFAULT +
-                                        "s:0,a:''};</script><script src='/iot.js?v=" WEB_IOT_TAG
+                                        "s:0,t:'',a:''};</script><script src='/iot.js?v=" WEB_IOT_TAG
                                         "'></script></body></html>").c_str()));
     TEST_ASSERT_FALSE(contains(f.out(), "id='sw'"));
     TEST_ASSERT_FALSE(contains(f.out(), "id='ns'"));
@@ -1942,11 +1948,12 @@ void test_root_iot_card() {
     actuatorCfg("relay", 0);
     f.iot.begin();
     f.get("/");
-    TEST_ASSERT_TRUE(contains(f.out(), (std::string("D={k:0,c:1,") + D_DEFAULT + "s:1,a:'Relay'}").c_str()));
+    TEST_ASSERT_TRUE(contains(f.out(), (std::string("D={k:0,c:1,") + D_DEFAULT + "s:1,t:'relay',a:'Relay'}").c_str()));
 
     // Each capability; the pulse set on the IoT page wins over the type's
-    const char* caps[][3] = {{"pump", "1", "s:10,a:'Pump'"}, {"fan", "2", "s:30,a:'Fan'"},
-                             {"servo", "3", "s:3,a:'Servo'"}, {"strip", "4", "s:5,"}};
+    const char* caps[][3] = {{"pump", "1", "s:10,t:'pump',a:'Pump'"}, {"fan", "2", "s:30,t:'fan',a:'Fan'"},
+                             {"servo", "3", "s:3,t:'servo',a:'Servo'"}, {"strip", "4", "s:5,t:'strip',"},
+                             {"gate", "1", "s:1,t:'gate',a:'Gate or garage door'"}};
     for (auto& c : caps) {
         actuatorCfg(c[0], 0);
         f.iot.begin();
@@ -1970,7 +1977,7 @@ void test_root_iot_card() {
     cfg.iot.pulse = 0;
     f.iot.begin();
     f.get("/");
-    TEST_ASSERT_TRUE(contains(f.out(), "',R=[200,0],D={k:5,c:1,u:2,e:180,f:30,l:5000,p:450,s:10,a:'Pump'}"));
+    TEST_ASSERT_TRUE(contains(f.out(), "',R=[200,0],D={k:5,c:1,u:2,e:180,f:30,l:5000,p:450,s:10,t:'pump',a:'Pump'}"));
     sensorCfg("ds18b20", 2);
     cfg.iot.metric = 1;
     cfg.iot.unit = 1;
@@ -2003,7 +2010,7 @@ void test_iot_page_with_nothing_set() {
     TEST_ASSERT_TRUE(contains(f.out(), f.web.sessionCsrfToken()));
     TEST_ASSERT_FALSE(contains(f.out(), f.web.csrfToken()));
     TEST_ASSERT_TRUE(contains(f.out(), (std::string("',R=[NaN,0],D={k:0,c:0,") + D_DEFAULT +
-                                        "s:0,a:''};</script><script src='/iot.js?v=" WEB_IOT_TAG
+                                        "s:0,t:'',a:''};</script><script src='/iot.js?v=" WEB_IOT_TAG
                                         "'></script></body></html>").c_str()));
     // Nothing set up: nothing to reconfigure
     TEST_ASSERT_FALSE(contains(f.out(), "/iot/clear"));
@@ -2105,11 +2112,11 @@ void test_iot_position_and_color_controls() {
     Fixture f;
     f.iot.begin();
     f.get("/");
-    TEST_ASSERT_TRUE(contains(f.out(), "D={k:0,c:3,u:0,e:100,f:20,l:1000,p:450,s:3,a:'Servo'}"));
+    TEST_ASSERT_TRUE(contains(f.out(), "D={k:0,c:3,u:0,e:100,f:20,l:1000,p:450,s:3,t:'servo',a:'Servo'}"));
     actuatorCfg("strip", 1);
     f.iot.begin();
     f.get("/");
-    TEST_ASSERT_TRUE(contains(f.out(), "D={k:0,c:4,u:0,e:100,f:20,l:1000,p:450,s:5,a:'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "D={k:0,c:4,u:0,e:100,f:20,l:1000,p:450,s:5,t:'strip',a:'"));
 }
 
 void test_iot_unknown_type_warns() {
@@ -2370,7 +2377,14 @@ void test_iot_save_units() {
     f.post("/iot/save", a);
     TEST_ASSERT_EQUAL(330, cfg.iot.ppl);
 
-    // A digital sensor: no unit, whatever comes
+    // Light and digital sensors: no unit, whatever comes
+    a["sensor"] = "bh1750";
+    a["unit"] = "9";
+    a["actuator_pin"] = "3";
+    f.post("/iot/save", a);
+    TEST_ASSERT_TRUE(contains(f.out(), "IoT set"));
+    TEST_ASSERT_EQUAL(0, cfg.iot.unit);
+    a["actuator_pin"] = "0";
     a["sensor"] = "pir";
     a["unit"] = "9";
     f.post("/iot/save", a);

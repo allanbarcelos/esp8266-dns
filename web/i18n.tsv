@@ -276,8 +276,8 @@ TOKEN	Token			Jeton
 GEN_NEW_TOKEN	Generate new token	Gerar novo token	Generar nuevo token	Générer un nouveau jeton
 GEN_TOKEN	Generate token	Gerar token	Generar token	Générer un jeton
 G_TEMP_HUM	Temperature and humidity	Temperatura e umidade	Temperatura y humedad	Température et humidité
-G_MOTION	Motion and contact	Movimento e contato	Movimiento y contacto	Mouvement et contact
-G_DISTANCE	Distance and flow	Distância e vazão	Distancia y caudal	Distance et débit
+G_MOTION	Presence, contact and alarms	Presença, contato e alarmes	Presencia, contacto y alarmas	Présence, contact et alarmes
+G_DISTANCE	Distance, flow and light	Distância, vazão e luz	Distancia, caudal y luz	Distance, débit et lumière
 G_ONOFF	On and off	Liga e desliga	Encendido y apagado	Marche et arrêt
 G_LEVEL	Level (PWM)	Nível (PWM)	Nivel (PWM)	Niveau (PWM)
 G_POSITION	Position	Posição	Posición
@@ -288,9 +288,16 @@ S_SHT3X	Temperature and humidity (SHT30/SHT31, I2C)	Temperatura e umidade (SHT30
 S_PIR	Motion (PIR)	Movimento (PIR)	Movimiento (PIR)	Mouvement (PIR)
 S_DOOR	Door or window (reed)	Porta ou janela (reed)	Puerta o ventana (reed)	Porte ou fenêtre (reed)
 S_BUTTON	Button or switch	Botão ou interruptor	Botón o interruptor	Bouton ou interrupteur
-S_DIGITAL	Digital (rain, gas, flame, soil, float, sound)	Digital (chuva, gás, chama, solo, boia, som)	Digital (lluvia, gas, llama, suelo, flotador, sonido)	Numérique (pluie, gaz, flamme, sol, flotteur, son)
+S_DIGITAL	Digital (flame, soil, sound)	Digital (chama, solo, som)	Digital (llama, suelo, sonido)	Numérique (flamme, sol, son)
 S_RANGE	Distance (HC-SR04)	Distância (HC-SR04)	Distancia (HC-SR04)
 S_PULSE	Flow or pulses (YF-S201)	Vazão ou pulsos (YF-S201)	Caudal o pulsos (YF-S201)	Débit ou impulsions (YF-S201)
+S_RADAR	Presence radar (LD2410, RCWL-0516)	Radar de presença (LD2410, RCWL-0516)	Radar de presencia (LD2410, RCWL-0516)	Radar de présence (LD2410, RCWL-0516)
+S_RAIN	Rain	Chuva	Lluvia	Pluie
+S_FLOAT	Float switch (water level)	Boia (nível de água)	Flotador (nivel de agua)	Flotteur (niveau d'eau)
+S_GAS	Gas or smoke (MQ, D0 output)	Gás ou fumaça (MQ, saída D0)	Gas o humo (MQ, salida D0)	Gaz ou fumée (MQ, sortie D0)
+S_LEAK	Water leak	Vazamento de água	Fuga de agua	Fuite d'eau
+S_LUX	Light (BH1750, I2C)	Luminosidade (BH1750, I2C)	Luminosidad (BH1750, I2C)	Luminosité (BH1750, I2C)
+S_AHT	Temperature and humidity (AHT20/AHT21, I2C)	Temperatura e umidade (AHT20/AHT21, I2C)	Temperatura y humedad (AHT20/AHT21, I2C)	Température et humidité (AHT20/AHT21, I2C)
 A_RELAY	Relay	Relé	Relé	Relais
 A_PUMP	Pump	Bomba	Bomba	Pompe
 A_VALVE	Solenoid valve	Válvula solenoide	Válvula solenoide	Électrovanne
@@ -300,6 +307,7 @@ A_LED	Dimmable LED	LED dimerizável	LED regulable	LED à intensité variable
 A_FAN	Fan	Ventilador	Ventilador	Ventilateur
 A_MOTOR	DC motor	Motor DC	Motor DC	Moteur CC
 A_STRIP	LED strip (WS2812)	Fita de LED (WS2812)	Tira de LED (WS2812)	Ruban LED (WS2812)
+A_GATE	Gate or garage door	Portão ou porta de garagem	Portón o puerta de garaje	Portail ou porte de garage
 V_MOTION	motion	movimento	movimiento	mouvement
 V_CLEAR	clear	livre	libre	libre
 V_OPEN	open	aberto	abierto	ouvert
@@ -308,6 +316,13 @@ V_PRESSED	pressed	pressionado	presionado	appuyé
 V_RELEASED	released	solto	suelto	relâché
 V_ACTIVE	active	ativo	activo	actif
 V_IDLE	idle	inativo	inactivo	inactif
+V_PRESENCE	presence	presença	presencia	présence
+V_RAIN	rain	chuva	lluvia	pluie
+V_LOW	low	baixo	bajo	bas
+V_HIGH	high	alto	alto	haut
+V_GAS	gas	gás	gas	gaz
+V_DRY	dry	seco	seco	sec
+V_WET	wet	molhado	mojado	mouillé
 V_WAITING	waiting	aguardando	esperando	en attente
 V_ERROR	error	erro		erreur
 V_CONNECTED	connected	conectado	conectado	connecté
@@ -321,12 +336,11 @@ V_INVALID_CMD	invalid command	comando inválido	comando no válido	commande inva
 V_CMD_NOT_VALID	command not valid for this actuator	comando não vale para este atuador	comando no válido para este actuador	commande non valable pour cet actionneur
 V_NO_ACTUATOR	no actuator configured	nenhum atuador configurado	ningún actuador configurado	aucun actionneur configuré
 J_HINT_DIGITAL	Module with a digital output (D0); sensitivity is set on the trimpot.	Módulo com saída digital (D0); a sensibilidade se ajusta no trimpot.	Módulo con salida digital (D0); la sensibilidad se ajusta en el trimpot.	Module à sortie numérique (D0) ; la sensibilité se règle sur le trimmer.
-J_HINT_DHT11	DHT11: 4.7 to 10 kOhm pull-up between data and 3.3 V; one reading every 2 s.	DHT11: pull-up de 4,7 a 10 kOhm entre dados e 3,3 V; uma leitura a cada 2 s.	DHT11: pull-up de 4,7 a 10 kOhm entre datos y 3,3 V; una lectura cada 2 s.	DHT11 : pull-up de 4,7 à 10 kOhm entre données et 3,3 V ; une mesure toutes les 2 s.
-J_HINT_DHT22	DHT22: 4.7 to 10 kOhm pull-up between data and 3.3 V; one reading every 2 s.	DHT22: pull-up de 4,7 a 10 kOhm entre dados e 3,3 V; uma leitura a cada 2 s.	DHT22: pull-up de 4,7 a 10 kOhm entre datos y 3,3 V; una lectura cada 2 s.	DHT22 : pull-up de 4,7 à 10 kOhm entre données et 3,3 V ; une mesure toutes les 2 s.
+J_HINT_DHT11	DHT11/DHT22: 4.7 to 10 kOhm pull-up between data and 3.3 V; one reading every 2 s.	DHT11/DHT22: pull-up de 4,7 a 10 kOhm entre dados e 3,3 V; uma leitura a cada 2 s.	DHT11/DHT22: pull-up de 4,7 a 10 kOhm entre datos y 3,3 V; una lectura cada 2 s.	DHT11/DHT22 : pull-up de 4,7 à 10 kOhm entre données et 3,3 V ; une mesure toutes les 2 s.
 J_HINT_DS18	DS18B20: 4.7 kOhm pull-up between data and 3.3 V.	DS18B20: pull-up de 4,7 kOhm entre dados e 3,3 V.	DS18B20: pull-up de 4,7 kOhm entre datos y 3,3 V.	DS18B20 : pull-up de 4,7 kOhm entre données et 3,3 V.
 J_HINT_RANGE	HC-SR04: trig and echo together on one pin, with 1 kOhm on echo; up to 400 cm.	HC-SR04: trig e echo juntos num pino, com 1 kOhm no echo; até 400 cm.	HC-SR04: trig y echo juntos en un pin, con 1 kOhm en echo; hasta 400 cm.	HC-SR04 : trig et echo ensemble sur une broche, avec 1 kOhm sur echo ; jusqu'à 400 cm.
 J_HINT_PULSE	Counts pulses every 10 s (YF-S201: about 75 pulses per L/min).	Conta pulsos a cada 10 s (YF-S201: cerca de 75 pulsos por L/min).	Cuenta pulsos cada 10 s (YF-S201: unos 75 pulsos por L/min).	Compte les impulsions toutes les 10 s (YF-S201 : environ 75 impulsions par L/min).
-J_HINT_SHT3X	I2C: SDA on this pin, SCL on its pair (GPIO0 with GPIO2, RX with TX); 4.7 kOhm pull-ups; address 0x44.	I2C: SDA neste pino, SCL no par (GPIO0 com GPIO2, RX com TX); pull-ups de 4,7 kOhm; endereço 0x44.	I2C: SDA en este pin, SCL en su par (GPIO0 con GPIO2, RX con TX); pull-ups de 4,7 kOhm; dirección 0x44.	I2C : SDA sur cette broche, SCL sur sa paire (GPIO0 avec GPIO2, RX avec TX) ; pull-ups de 4,7 kOhm ; adresse 0x44.
+J_HINT_SHT3X	I2C: SDA on this pin, SCL on its pair (GPIO0 with GPIO2, RX with TX); 4.7 kOhm pull-ups; address	I2C: SDA neste pino, SCL no par (GPIO0 com GPIO2, RX com TX); pull-ups de 4,7 kOhm; endereço	I2C: SDA en este pin, SCL en su par (GPIO0 con GPIO2, RX con TX); pull-ups de 4,7 kOhm; dirección	I2C : SDA sur cette broche, SCL sur sa paire (GPIO0 avec GPIO2, RX avec TX) ; pull-ups de 4,7 kOhm ; adresse
 J_HINT_RELAY	Relay modules usually switch on low.	Módulos de relé costumam ligar no nível baixo.	Los módulos de relé suelen activarse en nivel bajo.	Les modules relais s'activent généralement au niveau bas.
 J_HINT_PWM	PWM on the pin: use a MOSFET or a motor driver, never the load straight on the pin.	PWM no pino: use um MOSFET ou um driver de motor, nunca a carga direto no pino.	PWM en el pin: use un MOSFET o un driver de motor, nunca la carga directamente en el pin.	PWM sur la broche : utilisez un MOSFET ou un driver de moteur, jamais la charge directement sur la broche.
 J_HINT_SERVO	Servo on a separate 5 V supply with GND shared with the ESP.	Servo numa fonte de 5 V separada, com GND comum ao ESP.	Servo con una fuente de 5 V aparte, con GND común con el ESP.	Servo sur une alimentation 5 V séparée, avec la masse commune à l'ESP.

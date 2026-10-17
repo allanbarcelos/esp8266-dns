@@ -85,11 +85,12 @@ function page({ D = {}, R = [NaN, 0], home = false, form = null, reply } = {}) {
   const ctx = {
     document: doc,
     Math, URLSearchParams, Promise, NaN,
-    SK: { dht22: 3, dht11: 2, ds18b20: 4, sht3x: 7, pir: 1, contact: 1, distance: 5, pulses: 6 },
-    AC: { relay: 1, pump: 1, fan: 2, motor: 2, servo: 3, strip: 4 },
+    SK: { dht22: 3, dht11: 2, ds18b20: 4, sht3x: 7, aht20: 8, pir: 1, contact: 1, leak: 1, distance: 5, pulses: 6,
+      bh1750: 9 },
+    AC: { relay: 1, pump: 1, gate: 1, fan: 2, motor: 2, servo: 3, strip: 4 },
     T: 'csrf-token',
     R,
-    D: { k: 0, c: 0, u: 0, e: 100, f: 20, l: 1000, p: 450, s: 1, a: 'Relay', ...D },
+    D: { k: 0, c: 0, u: 0, e: 100, f: 20, l: 1000, p: 450, s: 1, t: 'relay', a: 'Relay', ...D },
     L: (x, ...a) => String(x).replace(/\{(\d)\}/g, (_, i) => a[i]),
     LV: (s) => s,
     IX: (s) => s,
@@ -217,6 +218,14 @@ test('pulses: the count; a flow meter: the flow and the volume so far', async ()
   assert.equal(p.$('gg').innerHTML, "<div><p><b>1000</b> mL/min</p><p class='m'>Total: 167 mL</p></div>");
 });
 
+test('AHT20: two gauges on its scale; BH1750: the light in lux', async () => {
+  let p = await homeWith({ k: 8 }, sensorState({ type: 'aht20', text: '', temperature: 22, humidity: 40 }));
+  assert.match(p.$('gg').innerHTML, />22 °C<\/text><text x='10' y='61'>-40<\/text><text x='90' y='61'>85</);
+  assert.match(p.$('gg').innerHTML, />40 %<\/text><text x='10' y='61'>0<\/text><text x='90' y='61'>100</);
+  p = await homeWith({ k: 9 }, sensorState({ type: 'bh1750', text: '250 lx', lux: 250 }));
+  assert.equal(p.$('gg').innerHTML, '<div><p><b>250</b> lx</p></div>');
+});
+
 // ── Home: the actuator, by what it does ──────────────────────────────────────
 
 const actState = (a) => ({ api: 1, sensor: null, actuator: { mode: 'manual', on: false, text: 'off', ...a } });
@@ -249,6 +258,14 @@ test('on/off: a switch named after the actuator and the type\'s pulse', async ()
   const n = p.calls.length;
   p.$('io').fire('click', new El(p.dom, 'span'));
   assert.equal(p.calls.length, n);
+});
+
+test('a gate only pulses: no switch to hold it open', async () => {
+  const p = await homeWith({ c: 1, s: 1, t: 'gate', a: 'Gate or garage door' }, actState({ type: 'gate' }));
+  const h = p.$('io').innerHTML;
+  assert.doesNotMatch(h, /id='sw'/);
+  assert.match(h, /<b>Gate or garage door<\/b>/);
+  assert.match(h, /data-c='pulse 1'>Pulse 1 s</);
 });
 
 test('level: a switch, steps of 10 % and a slider that is not overwritten while moved', async () => {
@@ -408,7 +425,7 @@ function form(values = {}) {
       dom.names.role ||= e;
       dom.inputs.push(e);
     }
-    const sensors = ['ds18b20', 'dht22', 'pir', 'distance', 'pulses'];
+    const sensors = ['ds18b20', 'dht22', 'pir', 'distance', 'pulses', 'aht20', 'bh1750'];
     add(new Select(dom, 'sensor', sensors, sensors, sensors.indexOf(v.sensor)));
     const acts = ['relay', 'fan', 'servo', 'strip'];
     add(new Select(dom, 'actuator', acts, ['Relay', 'Fan', 'Servo', 'Strip'], acts.indexOf(v.actuator)));
@@ -457,6 +474,13 @@ test('form: the unit options by sensor, and what each unit asks for', () => {
   p = page({ form: form({ sensor: 'pulses', unit: '2' }) });
   assert.match(visible(p), / sq /);
   assert.equal(p.$('st').hidden, true);                  // the tank (and its litres, inside) stays hidden
+  // An AHT20 has °C and °F; the light has no unit
+  p = page({ form: form({ sensor: 'aht20' }) });
+  assert.equal(units(p), '°C|°F|-');
+  assert.match(visible(p), /sm su/);
+  p = page({ form: form({ sensor: 'bh1750', threshold: '50', above: '0', margin: '0' }) });
+  assert.doesNotMatch(visible(p), /su/);
+  assert.match(p.$('rs').textContent, /below 50 lx/);
   // A digital sensor has no unit
   p = page({ form: form({ sensor: 'pir' }) });
   assert.match(visible(p), /sd/);
@@ -501,7 +525,11 @@ test('form: the parts for each actuator, the wiring hints, and every change redr
   assert.match(vis({ window: true }), / rt rw$/);
   assert.match(vis({ sensor: 'pir' }), / rd rt$/);
   const p = page({ form: form({ sensor: 'dht22', actuator: 'servo' }) });
-  assert.match(p.$('sh').textContent, /^DHT22: 4\.7 to 10 kOhm.* GPIO0 and GPIO2 must be high at boot/);
+  assert.match(p.$('sh').textContent, /^DHT11\/DHT22: 4\.7 to 10 kOhm.* GPIO0 and GPIO2 must be high at boot/);
+  // The I2C sensors: one hint, with each address
+  const hint = (s) => page({ form: form({ sensor: s }) }).$('sh').textContent;
+  assert.match(hint('aht20'), /^I2C: SDA on this pin.*; address 0x38\. GPIO0/);
+  assert.match(hint('bh1750'), /address 0x23\./);
   assert.match(p.$('ah').textContent, /^Servo on a separate 5 V supply/);
   // Every field redraws on input
   assert.equal(p.dom.inputs.every((e) => (e.listeners.input || []).length === 1), true);
