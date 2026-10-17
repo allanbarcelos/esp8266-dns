@@ -43,6 +43,7 @@ public:
     static constexpr size_t        MSG_LEN          = 80;
     static constexpr uint8_t       MAX_LEDS         = 60;  // 1.8 ms with interrupts off
     static constexpr char          ACTUATOR_MSG[] PROGMEM = "[actuator] %s";
+    static constexpr char          LOG_LINE[] PROGMEM = "IoT: %s";
 
     enum Result : uint8_t { OK, INVALID, UNSUPPORTED, NO_ACTUATOR };
 
@@ -526,7 +527,7 @@ private:
         _drive();
         char line[MSG_LEN];
         snprintf_P(line, sizeof(line), fmt, actuatorText());
-        _log.log(PSTR("IoT: %s"), line);
+        _log.log(LOG_LINE, line);
         if (_r.notify) {
             strlcpy(_pending, line, sizeof(_pending));
             _urgent = true;
@@ -610,7 +611,7 @@ private:
             snprintf(line, sizeof(line), "[sensor] %s | %s", sensorText(), actuatorText());
         else
             snprintf(line, sizeof(line), "[sensor] %s", sensorText());
-        if (log) _log.log(PSTR("IoT: %s"), line + 9);
+        if (log) _log.log(LOG_LINE, line + 9);
         if (_r.notify) {
             strlcpy(_pending, line, sizeof(_pending));
             _urgent = _urgent || log;

@@ -333,6 +333,18 @@ private:
     static constexpr char S_INVALID[] PROGMEM = L_INVALID_VALUE;
     static constexpr char S_STATE_NAME[] PROGMEM = "maxlength='15' placeholder='" L_TYPE_DEFAULT "'";
     static constexpr char S_OPTION_END[] PROGMEM = "</option>";
+    static constexpr char S_CLOUDFLARE[] PROGMEM = "Cloudflare";
+    static constexpr char S_SSID[] PROGMEM = "SSID";
+    static constexpr char S_PUBLIC_IP[] PROGMEM = L_PUBLIC_IP;
+    static constexpr char S_CONNECTION[] PROGMEM = L_CONNECTION;
+    static constexpr char S_PANEL_PASSWORD[] PROGMEM = L_PANEL_PASSWORD;
+    static constexpr char S_MFA_REPLACE[] PROGMEM = L_MFA_REPLACE;
+    static constexpr char S_VOLTAGE[] PROGMEM = L_VOLTAGE;
+    static constexpr char S_RATE[] PROGMEM = L_RATE;
+    static constexpr char S_SIGN_IN[] PROGMEM = L_SIGN_IN;
+    static constexpr char S_UNKNOWN_ZONE[] PROGMEM = L_UNKNOWN_ZONE;
+    static constexpr char S_TYPE[] PROGMEM = L_TYPE;
+    static constexpr char S_PIN[] PROGMEM = L_PIN;
 
     // The relay Worker's intervals for the ntfy commands, in seconds (relay/worker.mjs POLLS)
     static constexpr uint8_t POLLS[] = {2, 5, 10, 30};
@@ -958,7 +970,7 @@ private:
             _alertP(S_WARNING, PSTR(L_SETUP_MODE));
             _p(PSTR("<form action='/save' method='POST'>"));
             _csrfField();
-            _input(PSTR("SSID"), PSTR("ssid"), _cfg.ssid.c_str(), S_REQ32);
+            _input(S_SSID, PSTR("ssid"), _cfg.ssid.c_str(), S_REQ32);
             _passwordInput(PSTR(L_WIFI_PASSWORD), S_F_PASS, S_MAX63);
             if (_cfg.webpss.length() == 0) {
                 _p(PSTR("<h2>" L_PANEL_ACCESS "</h2>"));
@@ -972,9 +984,9 @@ private:
             _otaProgressBar();
 
             _box(PSTR(L_NETWORK));
-            _row(PSTR("SSID"),       WiFi.SSID());
+            _row(S_SSID,       WiFi.SSID());
             _row(PSTR(L_LOCAL_IP),   WiFi.localIP().toString());
-            _row(PSTR(L_PUBLIC_IP), _cfg.publicIP[0] ? _cfg.publicIP : "-");
+            _row(S_PUBLIC_IP, _cfg.publicIP[0] ? _cfg.publicIP : "-");
             _rowf(PSTR("RSSI"),      PSTR("%d dBm"), (int)WiFi.RSSI());
             _boxEnd();
 
@@ -983,9 +995,9 @@ private:
                 _p(PSTR("<section class='c'><h2>IoT</h2><div id='io'></div></section>"));
             if (_cfg.cf_token[0]) {
                 char b[DURATION_LEN];
-                _box(PSTR("Cloudflare"));
+                _box(S_CLOUDFLARE);
                 _row(PSTR(L_REMOTE), _cfg.relay_host[0] ? _cfg.relay_host : "-");
-                if (_cfg.relay_host[0] && _relay) _row(PSTR(L_CONNECTION), _relay->status());
+                if (_cfg.relay_host[0] && _relay) _row(S_CONNECTION, _relay->status());
                 _row(PSTR("DDNS"), _cfg.cf_host[0] ? _cfg.cf_host : "-");
                 _row(PSTR(L_LAST_UPDATE), _ago(_cfg.lastDnsUpdate != 0, _cfg.lastDnsUpdate, b));
                 _boxEnd();
@@ -1028,7 +1040,7 @@ private:
 
         // The Cloudflare token: the device finds the domains it reaches with
         // it; the Cloudflare page then sets up DDNS and the remote access
-        _box(PSTR("Cloudflare"));
+        _box(S_CLOUDFLARE);
         if (_cfg.cf_token[0])
             _alert(S_SUCCESS, L_TOKEN_SET " " + maskSecret(_cfg.cf_token));
         else
@@ -1048,11 +1060,11 @@ private:
         }
         _boxEnd();
 
-        _box(PSTR(L_PANEL_PASSWORD));
+        _box(S_PANEL_PASSWORD);
         _passwordForm();
         _boxEnd();
         if (_cfg.webpss.length()) {
-            _box(PSTR(L_MFA_REPLACE));
+            _box(S_MFA_REPLACE);
             _mfaResetForm();
             _boxEnd();
         }
@@ -1231,7 +1243,7 @@ private:
 
         _box(PSTR("Wi-Fi"));
         bool con = WiFi.isConnected();
-        _row(PSTR("SSID"),    con ? WiFi.SSID()                 : String("-"));
+        _row(S_SSID,    con ? WiFi.SSID()                 : String("-"));
         _ipRow(PSTR("IP"),      con, WiFi.localIP());
         _ipRow(PSTR(L_GATEWAY), con, WiFi.gatewayIP());
         _ipRow(PSTR(L_NETMASK), con, WiFi.subnetMask());
@@ -1248,18 +1260,18 @@ private:
             int r = _power->rateTenths();
             if (ok) {
                 _rowf(PSTR(L_CHARGE),  PSTR("%u%%"), (unsigned)_power->percent());
-                _rowf(PSTR(L_VOLTAGE), PSTR("%u.%02u V"), mv / 1000u, (mv % 1000u) / 10u);
-                _rowf(PSTR(L_RATE),    PSTR("%s%d.%d %%/h"), r < 0 ? "-" : "", abs(r) / 10, abs(r) % 10);
+                _rowf(S_VOLTAGE, PSTR("%u.%02u V"), mv / 1000u, (mv % 1000u) / 10u);
+                _rowf(S_RATE,    PSTR("%s%d.%d %%/h"), r < 0 ? "-" : "", abs(r) / 10, abs(r) % 10);
             } else {
                 _row(PSTR(L_CHARGE), "-");
-                _row(PSTR(L_VOLTAGE), "-");
-                _row(PSTR(L_RATE), "-");
+                _row(S_VOLTAGE, "-");
+                _row(S_RATE, "-");
             }
             _boxEnd();
         }
 
         // Checked every 5 min (PublicIPResolver); reverse name from the network's DNS
-        _box(PSTR(L_PUBLIC_IP));
+        _box(S_PUBLIC_IP);
         bool ip = _cfg.publicIP[0];
         _row(PSTR("IP"),      ip ? _cfg.publicIP : "-");
         _row(PSTR(L_REVERSE), _cfg.publicHost[0] ? _cfg.publicHost : "-");
@@ -1277,7 +1289,7 @@ private:
         if (!_guard()) return;
         uint8_t st = _cf ? _cf->state() : CloudflareSetup::IDLE;
         _pageBegin(st == CloudflareSetup::WORKING ? 3 : 0);
-        _title(PSTR("Cloudflare"));
+        _title(S_CLOUDFLARE);
         if (!_cf || !_cfg.cf_token[0]) {
             _alertP(S_WARNING, PSTR(L_CF_NEEDS_TOKEN));
             _p(PSTR("<a class='b' href='/config'>" L_SETTINGS "</a>"));
@@ -1398,7 +1410,7 @@ private:
         }
         CloudflareSetup::Zone z;
         if (!_cf || zone.length() != 32 || !CloudflareSetup::find(zone.c_str(), z)) {
-            _errorPage(PSTR(L_UNKNOWN_ZONE), P_CLOUDFLARE);
+            _errorPage(S_UNKNOWN_ZONE, P_CLOUDFLARE);
             return;
         }
         // A bare label gets the domain after it; the name ends up lowercase
@@ -1582,7 +1594,7 @@ private:
         }
         CloudflareSetup::Zone z;
         if (!_cf || (zone.length() && (zone.length() != 32 || !CloudflareSetup::find(zone.c_str(), z)))) {
-            _errorPage(PSTR(L_UNKNOWN_ZONE), P_CLOUDFLARE);
+            _errorPage(S_UNKNOWN_ZONE, P_CLOUDFLARE);
             return;
         }
         _cf->deploy(name.c_str(), zone.c_str(), wd.c_str());
@@ -1638,7 +1650,7 @@ private:
         _pageBegin();
         _title(PSTR("MQTT"));
         if (_mqtt) {
-            _box(PSTR(L_CONNECTION));
+            _box(S_CONNECTION);
             _row(S_STATE, _mqtt->status());
             _row(PSTR(L_TOPICS), String(_mqtt->base()) + "/state, /cmd, /avail");
             _boxEnd();
@@ -1691,7 +1703,7 @@ private:
     void _handlePassword() {
         if (!_guard(true)) return;
         _pageBegin();
-        _title(PSTR(L_PANEL_PASSWORD));
+        _title(S_PANEL_PASSWORD);
         if (_cfg.webpss.length() == 0)
             _alertP(S_WARNING, PSTR(L_SET_PASSWORD));
         _passwordForm();
@@ -1724,7 +1736,7 @@ private:
         _passwordInput(S_CURRENT_PASS, S_F_PASS, S_REQ64,
                        S_CURRENT_PASS_AC);
         _codeInput();
-        _button(PSTR(L_MFA_REPLACE));
+        _button(S_MFA_REPLACE);
     }
 
     // Changing a password that exists asks for it and for a code (_confirmed)
@@ -1746,7 +1758,7 @@ private:
 
     void _loginPage(PGM_P err, bool warn) {
         _pageBegin(0, err && !warn ? 401 : 200);
-        _title(PSTR(L_SIGN_IN));
+        _title(S_SIGN_IN);
         if (err) _alertP(warn ? S_WARNING : S_DANGER, err);
         else if (!_mfaOn()) _alertP(S_WARNING, PSTR(L_MFA_NEXT));
         _p(PSTR("<form action='/login' method='POST'>"));
@@ -1756,7 +1768,7 @@ private:
         _passwordInput(PSTR(L_PASSWORD), S_F_PASS, S_REQ64,
                        S_CURRENT_PASS_AC);
         if (_mfaOn()) _codeInput();
-        _button(PSTR(L_SIGN_IN));
+        _button(S_SIGN_IN);
         _pageEnd();
     }
 
@@ -2112,7 +2124,7 @@ private:
     }
 
     void _sensorSelect(const char* current) {
-        _selectOpen(PSTR(L_TYPE), PSTR("sensor"));
+        _selectOpen(S_TYPE, PSTR("sensor"));
         for (uint8_t g = 0; g < 3; g++) {
             _groupOpen(iot::SENSOR_GROUPS[g]);
             for (const iot::SensorDef& s : iot::SENSORS)
@@ -2123,7 +2135,7 @@ private:
     }
 
     void _actuatorSelect(const char* current) {
-        _selectOpen(PSTR(L_TYPE), PSTR("actuator"));
+        _selectOpen(S_TYPE, PSTR("actuator"));
         for (uint8_t cap = iot::C_ONOFF; cap <= iot::C_COLOR; cap++) {
             _groupOpen(iot::ACTUATOR_GROUPS[cap - 1]);
             for (const iot::ActuatorDef& a : iot::ACTUATORS)
@@ -2210,7 +2222,7 @@ private:
 
         _fieldsetOpen(PSTR("fs"), PSTR(L_SENSOR));
         _sensorSelect(t.sensor);
-        _pinSelect(PSTR(L_PIN), PSTR("sensor_pin"), t.sensorPin);
+        _pinSelect(S_PIN, PSTR("sensor_pin"), t.sensorPin);
         _divOpen(PSTR("sd"));
         _pair(PSTR(L_ACTIVE_WITH_PIN), PSTR("sensor_high"),
               PSTR(L_LOW), PSTR(L_HIGH), t.sensorHigh);
@@ -2243,7 +2255,7 @@ private:
 
         _fieldsetOpen(PSTR("fa"), PSTR(L_ACTUATOR));
         _actuatorSelect(t.actuator);
-        _pinSelect(PSTR(L_PIN), PSTR("actuator_pin"), t.actuatorPin);
+        _pinSelect(S_PIN, PSTR("actuator_pin"), t.actuatorPin);
         _divOpen(PSTR("al"));
         _pair(PSTR(L_ON_WITH_PIN), PSTR("actuator_high"),
               PSTR(L_LOW_RELAY), PSTR(L_HIGH), t.actuatorHigh);

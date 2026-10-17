@@ -8,6 +8,7 @@
 #include "Logger.h"
 
 class WiFiService {
+    static constexpr char DISCONNECTED[] PROGMEM = "Wi-Fi disconnected";
 public:
     WiFiService(Config& cfg, Logger& log) : _cfg(cfg), _log(log) {}
 
@@ -46,7 +47,7 @@ public:
 
         _evtDisconnected = WiFi.onStationModeDisconnected(
             [this](const WiFiEventStationModeDisconnected&) {
-                _log.log(PSTR("Wi-Fi disconnected"));
+                _log.log(DISCONNECTED);
             }
         );
     }
@@ -72,7 +73,7 @@ public:
         if (now - _lastStatusCheck >= STATUS_INTERVAL) {
             _lastStatusCheck = now;
             if (WiFi.status() != WL_CONNECTED) {
-                _log.log(PSTR("Wi-Fi disconnected"));
+                _log.log(DISCONNECTED);
                 _startReconnect(now);
             }
         }

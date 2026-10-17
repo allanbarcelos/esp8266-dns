@@ -61,7 +61,7 @@ Do not use the name of the DDNS record (the one that points at your home): the W
 
 ### What works through it
 
-- **The panel**, with the same sign-in. The session cookie only travels over HTTPS (browser to Cloudflare) and TLS (Cloudflare to the device).
+- **The panel**, with the same sign-in. The session cookie only travels over HTTPS (browser to Cloudflare) and TLS (Cloudflare to the device). An `http://` address is sent to `https://` before anything reaches the device, the answers carry HSTS (the browser then goes straight to HTTPS for a year) and the cookie is marked `Secure` on the way out: on your own domain a typed `http://` would otherwise carry the password in clear (workers.dev is HTTPS-only already).
 - **The API**, from scripts or apps anywhere:
 
   ```bash
@@ -77,7 +77,7 @@ Do not use the name of the DDNS record (the one that points at your home): the W
 ### Limits and costs
 
 - One request at a time reaches the device; others wait their turn at the Worker (up to 16). Expect 0.5 to 2 s per page or API call.
-- Sign-in and API paths are limited to **60 requests per minute per address** at the Worker, before they reach the device. The device keeps its own attempt limits.
+- Everything that checks the password, a code or the API token (sign-in, authenticator, new password, new authenticator, Reconfigure, the API) is limited to **60 requests per minute per address** at the Worker, before it reaches the device. The device keeps its own attempt limits.
 - Bodies over 2 KB get 413 (the panel's forms are much smaller).
 - Cloudflare's free plan includes 100,000 Worker requests a day. Polling ntfy every 5 s takes about 17,000; an app reading `/api/state` every 5 s about 17,000 more.
 - The device has room for one TLS session: the relay steps aside for a few seconds while the device checks its public IP, updates DNS, posts to ntfy or downloads an update. The Worker holds requests meanwhile.

@@ -152,7 +152,8 @@ test('toResponse keeps status, headers and body', async () => {
   const r = toResponse(enc.encode('HTTP/1.1 302 \r\nLocation: /login\r\nConnection: close\r\nContent-Length: 2\r\nnoise\r\nSet-Cookie: sid=1\r\n\r\nok'));
   assert.equal(r.status, 302);
   assert.equal(r.headers.get('Location'), '/login');
-  assert.equal(r.headers.get('Set-Cookie'), 'sid=1');
+  assert.equal(r.headers.get('Set-Cookie'), 'sid=1; Secure');            // HTTPS only, here
+  assert.equal(r.headers.get('Strict-Transport-Security'), 'max-age=31536000');
   assert.equal(r.headers.get('Connection'), null);
   assert.equal(r.headers.get('Content-Length'), null);
   assert.equal(await r.text(), 'ok');
@@ -190,10 +191,10 @@ test('toResponse refuses a broken answer', () => {
 // ── the Worker in front ──────────────────────────────────────────────────────
 
 test('relay connection needs WebSocket, version and secret', async () => {
-  const h = (extra) => ({ headers: { Upgrade: 'websocket', 'X-Relay-Version': '4', Authorization: `Bearer ${SECRET}`, ...extra } });
+  const h = (extra) => ({ headers: { Upgrade: 'websocket', 'X-Relay-Version': '5', Authorization: `Bearer ${SECRET}`, ...extra } });
   const go = (init) => worker.default.fetch(new Request('https://r.example/.relay', init), env);
   assert.equal((await go({})).status, 426);
-  assert.equal((await go(h({ 'X-Relay-Version': '3' }))).status, 426);
+  assert.equal((await go(h({ 'X-Relay-Version': '4' }))).status, 426);
   assert.equal((await go(h({ Authorization: 'Bearer nope' }))).status, 401);
   const noAuth = h();
   delete noAuth.headers.Authorization;
@@ -201,6 +202,13 @@ test('relay connection needs WebSocket, version and secret', async () => {
   assert.equal((await go(h())).status, 101);
   assert.equal(ctx.auto.request, 'ping');
   assert.equal(ctx.auto.response, 'pong');
+});
+
+test('plain HTTP goes to HTTPS, before anything else', async () => {
+  const r = await worker.default.fetch(new Request('http://r.example/login?x=1', { method: 'POST' }), env);
+  assert.equal(r.status, 301);
+  assert.equal(r.headers.get('Location'), 'https://r.example/login?x=1');
+  assert.equal(ctx.sockets.length, 0);
 });
 
 test('other paths go to the device', async () => {
@@ -341,7 +349,10 @@ test('sign-in and API requests are limited per address', async () => {
   };
   for (let i = 0; i < 60; i++) assert.equal(await hit(i % 2 ? '/api/state' : '/login'), 200);
   assert.equal(await hit('/mfa'), 429);
+  // Everything else that checks the password or a code counts too
+  for (const p of ['/mfa/reset', '/password/save', '/iot/clear']) assert.equal(await hit(p), 429);
   assert.equal(await hit('/status'), 200);            // the rest of the panel is not counted
+  assert.equal(await hit('/iot/clearx'), 200);
   assert.equal(await hit('/api/cmd', '192.0.2.2'), 200);
   const anon = device.fetch(new Request('https://r.example/login'));   // no address header
   await flush();
@@ -414,21 +425,21 @@ test('state and hello are kept; hello sets where ntfy resumes', async () => {
   await device.webSocketMessage(ws, msg('S', '{"api":1}'));
   assert.deepEqual(ctx.store.get('state'), { json: '{"api":1}', at: 1_700_000_000_000 });
 
-  await device.webSocketMessage(ws, msg('H', '{"v":4,"topic":"cmd-x","poll":5}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":5,"topic":"cmd-x","poll":5}'));
   assert.equal(ctx.store.get('since'), '1700000000');           // from now on
   assert.equal(ctx.alarm, 1_700_000_001_000);
-  await device.webSocketMessage(ws, msg('H', '{"v":4,"topic":"cmd-x"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":5,"topic":"cmd-x"}'));
   assert.equal(ctx.store.get('since'), '1700000000');           // kept
-  await device.webSocketMessage(ws, msg('H', '{"v":4,"topic":"cmd-x","since":"abc123"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":5,"topic":"cmd-x","since":"abc123"}'));
   assert.equal(ctx.store.get('since'), 'abc123');               // the device knows best
-  await device.webSocketMessage(ws, msg('H', '{"v":4,"topic":"cmd-x"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":5,"topic":"cmd-x"}'));
   assert.equal(ctx.store.get('since'), 'abc123');               // same server and topic: kept
-  await device.webSocketMessage(ws, msg('H', '{"v":4,"topic":"cmd-y"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":5,"topic":"cmd-y"}'));
   assert.equal(ctx.store.get('since'), '1700000000');           // another topic: from now on
   ctx.store.set('since', 'abc123');
-  await device.webSocketMessage(ws, msg('H', '{"v":4,"host":"ntfy.example.com","topic":"cmd-y"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":5,"host":"ntfy.example.com","topic":"cmd-y"}'));
   assert.equal(ctx.store.get('since'), '1700000000');           // another server: from now on
-  await device.webSocketMessage(ws, msg('H', '{"v":4}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":5}'));
   assert.equal(ctx.alarm, null);
 });
 

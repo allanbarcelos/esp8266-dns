@@ -396,20 +396,17 @@ private:
         static const char STATE_ON[] PROGMEM =
             ",\"name\":null,\"stat_tpl\":\"{{'on' if value_json.actuator.on else 'off'}}\","
             "\"cmd_off_tpl\":\"off\",\"schema\":\"template\"";
-        // On the stack: PSTR cannot initialize a static. A sensor with no
-        // reading yet has no field in the JSON: |default avoids the undefined
-        // variable warning in the HA log (the state stays unknown).
+        // On the stack: PSTR cannot initialize a static. The readings (P_SENSOR)
+        // end the same way, written after the body: a measurement and its
+        // value from the state. A sensor with no reading yet has no field in
+        // the JSON: |default avoids the undefined variable warning in the HA
+        // log (the state stays unknown).
         const Entity ENTITIES[] = {
-            {'t', P_SENSOR, PSTR(",\"dev_cla\":\"temperature\",\"unit_of_meas\":\"\xc2\xb0" "C\","
-                                 "\"stat_cla\":\"measurement\",\"val_tpl\":\"{{value_json.sensor.temperature|default(none)}}\"")},
-            {'h', P_SENSOR, PSTR(",\"dev_cla\":\"humidity\",\"unit_of_meas\":\"%\","
-                                 "\"stat_cla\":\"measurement\",\"val_tpl\":\"{{value_json.sensor.humidity|default(none)}}\"")},
-            {'d', P_SENSOR, PSTR(",\"dev_cla\":\"distance\",\"unit_of_meas\":\"cm\","
-                                 "\"stat_cla\":\"measurement\",\"val_tpl\":\"{{value_json.sensor.distance|default(none)}}\"")},
-            {'n', P_SENSOR, PSTR(",\"name\":\"Pulses\",\"stat_cla\":\"measurement\","
-                                 "\"val_tpl\":\"{{value_json.sensor.pulses|default(none)}}\"")},
-            {'x', P_SENSOR, PSTR(",\"dev_cla\":\"illuminance\",\"unit_of_meas\":\"lx\","
-                                 "\"stat_cla\":\"measurement\",\"val_tpl\":\"{{value_json.sensor.lux|default(none)}}\"")},
+            {'t', P_SENSOR, PSTR(",\"dev_cla\":\"temperature\",\"unit_of_meas\":\"\xc2\xb0" "C")},
+            {'h', P_SENSOR, PSTR(",\"dev_cla\":\"humidity\",\"unit_of_meas\":\"%")},
+            {'d', P_SENSOR, PSTR(",\"dev_cla\":\"distance\",\"unit_of_meas\":\"cm")},
+            {'n', P_SENSOR, PSTR(",\"name\":\"Pulses")},
+            {'x', P_SENSOR, PSTR(",\"dev_cla\":\"illuminance\",\"unit_of_meas\":\"lx")},
             {'b', P_BINARY, PSTR(",\"name\":\"Sensor\","
                                  "\"val_tpl\":\"{{'ON' if value_json.sensor.active|default(0) else 'OFF'}}\"")},
             {'s', P_SWITCH, PSTR(",\"name\":null,\"pl_on\":\"on\",\"pl_off\":\"off\","
@@ -458,6 +455,12 @@ private:
                 if (e.key == 'b') _binaryClass();
                 if (e.platform == P_LIGHT) _outP(STATE_ON);
                 _outP(e.body);
+                if (e.platform == P_SENSOR) {
+                    _outP(PSTR("\",\"stat_cla\":\"measurement\",\"val_tpl\":\"{{value_json.sensor."));
+                    _outP(e.key == 't' ? PSTR("temperature") : e.key == 'h' ? PSTR("humidity")
+                          : e.key == 'd' ? PSTR("distance") : e.key == 'n' ? PSTR("pulses") : PSTR("lux"));
+                    _outP(PSTR("|default(none)}}\""));
+                }
             }
             _outP(PSTR("}"));
         }

@@ -24,6 +24,7 @@
 // sessions while due()). The zone list goes to ZONES_PATH, a line per zone
 // ("id account name"), for the panel's select.
 class CloudflareSetup {
+    static constexpr char UNKNOWN_ZONE[] PROGMEM = "unknown zone";
 public:
     enum Job : uint8_t { NONE, SCAN, RECORD, DEPLOY };
     enum State : uint8_t { IDLE, WORKING, DONE, FAILED };
@@ -171,7 +172,7 @@ private:
     // The record by name, or a new one pointing at the current IP
     bool _record() {
         Zone z;
-        if (!find(_zone, z)) return _fail(PSTR("unknown zone"));
+        if (!find(_zone, z)) return _fail(UNKNOWN_ZONE);
         char path[sizeof("/client/v4/zones//dns_records?type=A&name=") + sizeof(_zone) + sizeof(_name)];
         int n = snprintf_P(path, sizeof(path), PSTR("/client/v4/zones/%s/dns_records"), _zone);
         snprintf_P(path + n, sizeof(path) - n, PSTR("?type=A&name=%s"), _name);
@@ -294,7 +295,7 @@ private:
     bool _deploy() {
         Zone z = {};
         bool own = _zone[0];
-        if (own && !find(_zone, z)) return _fail(PSTR("unknown zone"));
+        if (own && !find(_zone, z)) return _fail(UNKNOWN_ZONE);
         const char* acc = own ? z.account : _cfg.cf_account;
         if (!cfapi::_isId(acc)) return _fail(PSTR("no account: save and check the token"));
 

@@ -122,7 +122,7 @@ void test_connects_with_secret_and_checked_certificate() {
     TEST_ASSERT_TRUE(h.rfind("GET /.relay HTTP/1.1\r\n", 0) == 0);
     TEST_ASSERT_TRUE(contains(h, "\r\nHost: esp-pump.example.com\r\n"));
     TEST_ASSERT_TRUE(contains(h, (std::string("\r\nAuthorization: Bearer ") + SECRET + "\r\n").c_str()));
-    TEST_ASSERT_TRUE(contains(h, "\r\nX-Relay-Version: 4\r\n"));
+    TEST_ASSERT_TRUE(contains(h, "\r\nX-Relay-Version: 5\r\n"));
     TEST_ASSERT_TRUE(cloudflareTrust(MockTLS::lastTrust));
     TEST_ASSERT_EQUAL((long)fakeNow, (long)MockTLS::lastTime);
     TEST_ASSERT_EQUAL(0, MockTLS::insecureCalls);
@@ -131,21 +131,21 @@ void test_connects_with_secret_and_checked_certificate() {
     auto frames = r.drain();
     TEST_ASSERT_EQUAL(1, (int)frames.size());
     TEST_ASSERT_EQUAL(WsClient::BINARY, frames[0].op);
-    TEST_ASSERT_EQUAL_STRING("H{\"v\":4,\"fw\":\"dev\",\"api\":\"\"}", frames[0].payload.c_str());
+    TEST_ASSERT_EQUAL_STRING("H{\"v\":5,\"fw\":\"dev\",\"api\":\"\"}", frames[0].payload.c_str());
 }
 
 void test_hello_carries_a_keyed_hash_of_the_api_token() {
     strlcpy(cfg.api_token, "0123456789abcdef0123456789abcdef", sizeof(cfg.api_token));
     Rig r;
     r.open();
-    std::string want = "H{\"v\":4,\"fw\":\"dev\",\"api\":\"" + hmacHex(SECRET, cfg.api_token) + "\"}";
+    std::string want = "H{\"v\":5,\"fw\":\"dev\",\"api\":\"" + hmacHex(SECRET, cfg.api_token) + "\"}";
     TEST_ASSERT_EQUAL_STRING(want.c_str(), r.next().payload.c_str());
     TEST_ASSERT_FALSE(contains(MockTLS::wire, cfg.api_token));
 
     // A new token goes up in a new hello, within STATE_MS
     strlcpy(cfg.api_token, "ffff456789abcdef0123456789abcdef", sizeof(cfg.api_token));
     r.relay.tick(RelayService::STATE_MS);
-    want = "H{\"v\":4,\"fw\":\"dev\",\"api\":\"" + hmacHex(SECRET, cfg.api_token) + "\"}";
+    want = "H{\"v\":5,\"fw\":\"dev\",\"api\":\"" + hmacHex(SECRET, cfg.api_token) + "\"}";
     TEST_ASSERT_EQUAL_STRING(want.c_str(), r.next().payload.c_str());
     r.relay.tick(2 * RelayService::STATE_MS);
     TEST_ASSERT_FALSE(r.next().ok);
@@ -483,7 +483,7 @@ void test_hello_carries_the_ntfy_commands() {
     r.ntfy.deliver(ntfyLine("abc123", "off").c_str(), 0);
     r.open();
     TEST_ASSERT_EQUAL_STRING(
-        "H{\"v\":4,\"fw\":\"dev\",\"api\":\"\",\"host\":\"ntfy.sh\",\"topic\":\"cmd-abc\",\"token\":\"tk_x\","
+        "H{\"v\":5,\"fw\":\"dev\",\"api\":\"\",\"host\":\"ntfy.sh\",\"topic\":\"cmd-abc\",\"token\":\"tk_x\","
         "\"poll\":10,\"since\":\"abc123\"}",
         r.next().payload.c_str());
 

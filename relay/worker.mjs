@@ -14,12 +14,14 @@
 // While the device is connected, the Worker also polls the ntfy command
 // topic for it ('C' frames): the device has room for one TLS session only.
 
-const VERSION = 4;
+const VERSION = 5;
 const WAIT_MS = 8000;        // a request waits this long for the device to (re)connect
 const REPLY_MS = 20000;      // and this long for its answer
 const MAX_BODY = 2048;       // HttpServer::MAX_BODY
 const MAX_QUEUE = 16;
 const RATE = 60;             // sign-in and API requests per minute per address
+// What checks a password, a code or the API token: counted per address
+const LIMITED = /^\/(api\/|login$|mfa(\/reset)?$|password\/save$|iot\/clear$)/;
 const POLLS = [2, 5, 10, 30];
 
 const enc = new TextEncoder();
@@ -68,8 +70,13 @@ export function toResponse(bytes) {
   for (const line of lines.slice(1)) {
     const c = line.indexOf(':');
     const name = line.slice(0, c).trim();
-    if (c > 0 && !/^(connection|content-length)$/i.test(name)) headers.append(name, line.slice(c + 1).trim());
+    if (c > 0 && !/^(connection|content-length)$/i.test(name)) {
+      const v = line.slice(c + 1).trim();
+      // Here the panel is on HTTPS: the cookie goes on HTTPS only
+      headers.append(name, /^set-cookie$/i.test(name) ? v + '; Secure' : v);
+    }
   }
+  headers.set('Strict-Transport-Security', 'max-age=31536000');
   // The body goes out as the device sent it: without 'manual', a Worker
   // gzips again a body whose Content-Encoding says gzip (the panel's CSS/JS)
   try {
@@ -82,6 +89,11 @@ export function toResponse(bytes) {
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    // Never in clear over the internet: a password, a code or the cookie
+    if (url.protocol === 'http:') {
+      url.protocol = 'https:';
+      return Response.redirect(url.href, 301);
+    }
     if (url.pathname === '/.relay') {
       if (req.headers.get('Upgrade') !== 'websocket') return text(426, 'WebSocket only');
       if (req.headers.get('X-Relay-Version') !== String(VERSION)) return text(426, 'Relay version mismatch');
@@ -109,7 +121,7 @@ export class Device {
     const url = new URL(req.url);
     if (url.pathname === '/.relay') return this.accept();
     const ip = req.headers.get('CF-Connecting-IP') || '';
-    if (/^\/(api\/|login$|mfa$)/.test(url.pathname) && !this.allow(ip)) return text(429, 'Too many requests');
+    if (LIMITED.test(url.pathname) && !this.allow(ip)) return text(429, 'Too many requests');
     const body = new Uint8Array(await req.arrayBuffer());
     if (body.length > MAX_BODY) return text(413, 'Too large');
     if (this.queued >= MAX_QUEUE) return text(503, 'Device busy');

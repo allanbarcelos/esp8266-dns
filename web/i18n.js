@@ -176,7 +176,7 @@ function QR(s) {
         document.addEventListener('keydown', function (e) { if (e.key == 'Escape') sh(false); });
     }
     if (ft) ft.insertAdjacentHTML('beforeend', '<span>Created by Barcelos.Dev</span>' +
-        '<a class=gh href=https://github.com/allanbarcelos/esp8266-dns aria-label=GitHub>' +
+        '<a class=gh href=https://github.com/allanbarcelos/esp8266-dns rel=noreferrer aria-label=GitHub>' +
         ic('M9 20c-4 1-4-2-6-3m12 4v-4a3 3 0 0 0-1-3c3 0 6-1 6-6a5 5 0 0 0-1-3a5 5 0 0 0 0-3s-1 0-3 1a12 12 0 0 0-6 0C7 2 6 2 6 2a5 5 0 0 0 0 3a5 5 0 0 0-1 3c0 5 3 6 6 6a3 3 0 0 0-1 3v4') + '</a>');
     // Values in the rows (states and statuses from the device)
     document.querySelectorAll('.r b').forEach(function (b) { b.textContent = L(b.textContent); });
