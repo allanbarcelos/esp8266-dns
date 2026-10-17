@@ -65,6 +65,7 @@ public:
 
         ota.setAutomatic(config.ota_auto);
         ota.begin();
+        ntfy.via(&relay);   // with the relay up, its Worker sends the posts
         logger.log(PSTR("OTA: reserve %u KB, free %u KB"),
                    FlashLayout::OTA_RESERVE / 1024u,
                    ESP.getFreeSketchSpace() / 1024u);
@@ -103,11 +104,19 @@ public:
         bool slim = ota.slim();
         if (!slim) cfsetup.redeploy(now);   // after an update with another relay protocol
         if (ota.wantsNet(now)) net.want(NetArbiter::OTA);
+        // With the relay up its Worker brings the public IP and the latest
+        // release and sends the ntfy posts: no TLS session of their own, so
+        // the relay is not closed for them
+        if (const char* ip = relay.takeIP(); ip[0]) resolver.offer(ip, now);
+        if (const char* tag = relay.takeLatest(); tag[0]) ota.offerLatest(tag, now);
         if (!slim) {
-            if (resolver.due(now)) net.want(NetArbiter::IP);
+            if (resolver.due(now) && !relay.knowsIP()) net.want(NetArbiter::IP);
             if (dns.due(now)) net.want(NetArbiter::DNS);
             if (cfsetup.due()) net.want(NetArbiter::SETUP);
-            if (ntfy.postDue(now)) net.want(NetArbiter::POST);
+            if (ntfy.postDue(now)) {
+                if (relay.up()) ntfy.tick(now);
+                else net.want(NetArbiter::POST);
+            }
             if (relay.wantsNet(now)) net.want(NetArbiter::RELAY);
             if (ntfy.wantsCommands() && !relay.carries(now)) net.want(NetArbiter::STREAM);
         }

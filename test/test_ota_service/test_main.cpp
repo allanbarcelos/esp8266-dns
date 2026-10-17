@@ -1348,6 +1348,29 @@ void test_wants_net_follows_the_schedule() {
     TEST_ASSERT_TRUE(f.ota.wantsNet(0));
 }
 
+// The relay's Worker saw the latest release: not newer, that hour's check is
+// done; newer, the device's own check (which downloads it) is due now
+void test_latest_offered_by_the_relay() {
+    Fixture f;
+    f.ota.offerLatest("v150", OTAService::FIRST_CHECK, "v150");
+    TEST_ASSERT_FALSE(f.ota.wantsNet(OTAService::FIRST_CHECK + T - 1));
+    TEST_ASSERT_TRUE(f.ota.wantsNet(OTAService::FIRST_CHECK + T));
+    f.ota.offerLatest("v151", OTAService::FIRST_CHECK + 10, "v150");
+    TEST_ASSERT_TRUE(f.ota.wantsNet(OTAService::FIRST_CHECK + 10));
+    // Not a release tag, or a check already under way: ignored
+    f.ota.offerLatest("v150", 5000, "v150");
+    f.ota.offerLatest("latest", 6000, "v150");
+    TEST_ASSERT_FALSE(f.ota.wantsNet(OTAService::FIRST_CHECK + 20));   // still 5000
+    f.ota.requestCheck();
+    f.ota.offerLatest("v150", 9000, "v150");
+    TEST_ASSERT_TRUE(f.ota.pending());
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+    // From the build's own version by default ("dev": every release is newer)
+    Fixture g;
+    g.ota.offerLatest("v1", 100);
+    TEST_ASSERT_TRUE(g.ota.wantsNet(OTAService::FIRST_CHECK));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_parse_tag);
@@ -1355,6 +1378,7 @@ int main() {
     RUN_TEST(test_tagged_hash_binds_the_version);
     RUN_TEST(test_no_check_before_interval);
     RUN_TEST(test_first_automatic_check);
+    RUN_TEST(test_latest_offered_by_the_relay);
     RUN_TEST(test_check_after_interval);
     RUN_TEST(test_no_check_after_deadline);
     RUN_TEST(test_no_check_with_restart_pending);

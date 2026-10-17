@@ -11,10 +11,13 @@
 // SECRET, and a Durable Object binding, DEVICE. tools/embed_relay.py puts
 // it into the firmware; VERSION must match RelayService::PROTOCOL.
 //
-// While the device is connected, the Worker also polls the ntfy command
-// topic for it ('C' frames): the device has room for one TLS session only.
+// The device has room for one TLS session only, which this connection
+// takes. So while it is connected, the Worker does the rest of its network
+// for it: it polls the ntfy command topic ('C' frames down), sends its ntfy
+// posts ('P' up), tells it the public address it connects from ('I' down)
+// and the latest release on GitHub, once an hour ('V' down).
 
-const VERSION = 5;
+const VERSION = 6;
 const WAIT_MS = 8000;        // a request waits this long for the device to (re)connect
 const REPLY_MS = 20000;      // and this long for its answer
 const MAX_BODY = 2048;       // HttpServer::MAX_BODY
@@ -23,6 +26,8 @@ const RATE = 60;             // sign-in and API requests per minute per address
 // What checks a password, a code or the API token: counted per address
 const LIMITED = /^\/(api\/|login$|mfa(\/reset)?$|password\/save$|iot\/clear$)/;
 const POLLS = [2, 5, 10, 30];
+const RELEASES = 'https://api.github.com/repos/allanbarcelos/esp8266-dns/releases/latest';
+const RELEASE_MS = 3600000;
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -119,7 +124,7 @@ export class Device {
 
   async fetch(req) {
     const url = new URL(req.url);
-    if (url.pathname === '/.relay') return this.accept();
+    if (url.pathname === '/.relay') return this.accept(req);
     const ip = req.headers.get('CF-Connecting-IP') || '';
     if (LIMITED.test(url.pathname) && !this.allow(ip)) return text(429, 'Too many requests');
     const body = new Uint8Array(await req.arrayBuffer());
@@ -143,11 +148,14 @@ export class Device {
     return n <= RATE;
   }
 
-  // The device connects: a newer connection replaces an older one
-  accept() {
+  // The device connects: a newer connection replaces an older one. It is
+  // told the public address it comes from (no address check of its own).
+  accept(req) {
     for (const old of this.ctx.getWebSockets()) old.close(1000, 'replaced');
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
+    const ip = req.headers.get('CF-Connecting-IP');
+    if (ip) pair[1].send(new Uint8Array([73, ...enc.encode(ip)]));
     for (const w of this.waiters.splice(0)) w(pair[1]);
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -235,6 +243,23 @@ export class Device {
       await this.ctx.storage.put('state', { json: dec.decode(b.subarray(1)), at: Date.now() });
     } else if (type === 'H') {
       await this.hello(JSON.parse(dec.decode(b.subarray(1))));
+    } else if (type === 'P') {
+      await this.post(dec.decode(b.subarray(1)).split('\0'));
+    }
+  }
+
+  // An ntfy post from the device: server, topic, header lines, body. Sent
+  // once; a server that does not take it loses this one message.
+  async post([host, topic, head, body]) {
+    const headers = {};
+    for (const line of head.split('\r\n')) {
+      const c = line.indexOf(':');
+      if (c > 0) headers[line.slice(0, c)] = line.slice(c + 1).trim();
+    }
+    try {
+      await fetch(`https://${host}/${encodeURIComponent(topic)}`, { method: 'POST', headers, body });
+    } catch {
+      // unreachable: lost, like a post that fails on the device
     }
   }
 
@@ -245,8 +270,9 @@ export class Device {
     if (h.since) await this.ctx.storage.put('since', h.since);
     // Another server or topic: an ID from the old one means nothing there
     else if (!(await this.ctx.storage.get('since')) || (was && (was.host !== h.host || was.topic !== h.topic))) await this.ctx.storage.put('since', String(Math.floor(Date.now() / 1000)));
-    if (h.topic) await this.ctx.storage.setAlarm(Date.now() + 1000);
-    else await this.ctx.storage.deleteAlarm();
+    // Each connection starts with the release check, then the ntfy commands
+    await this.ctx.storage.delete('release');
+    await this.ctx.storage.setAlarm(Date.now() + 1000);
   }
 
   webSocketClose() {
@@ -257,11 +283,37 @@ export class Device {
     this.webSocketClose();
   }
 
-  // ntfy commands for the device, while it is connected
+  // While the device is connected: the latest release once an hour, the
+  // ntfy commands every poll seconds
   async alarm() {
     const [ws] = this.ctx.getWebSockets();
     const h = await this.ctx.storage.get('hello');
-    if (!ws || !h || !h.topic) return;
+    if (!ws || !h) return;
+    const now = Date.now();
+    let next = (await this.ctx.storage.get('release')) || 0;
+    if (now >= next) {
+      await this.release(ws);
+      next = now + RELEASE_MS;
+      await this.ctx.storage.put('release', next);
+    }
+    if (h.topic) next = Math.min(next, await this.commands(ws, h));
+    await this.ctx.storage.setAlarm(next);
+  }
+
+  // The latest release's tag ("v" and digits); on any failure nothing, and
+  // the device checks GitHub on its own
+  async release(ws) {
+    try {
+      const r = await fetch(RELEASES, { headers: { 'User-Agent': 'esp8266-dns-relay', Accept: 'application/vnd.github+json' } });
+      const tag = r.ok ? (await r.json()).tag_name : '';
+      if (/^v\d{1,9}$/.test(tag)) ws.send(new Uint8Array([86, ...enc.encode(tag)]));
+    } catch {
+      // GitHub unreachable or limited
+    }
+  }
+
+  // New messages on the command topic go down; returns when to look again
+  async commands(ws, h) {
     const since = await this.ctx.storage.get('since');
     try {
       const r = await fetch(`https://${h.host || 'ntfy.sh'}/${encodeURIComponent(h.topic)}/json?poll=1&since=${encodeURIComponent(since)}`, {
@@ -287,6 +339,6 @@ export class Device {
       // ntfy unreachable: next round
     }
     const poll = POLLS.includes(h.poll) ? h.poll : 5;
-    await this.ctx.storage.setAlarm(Date.now() + poll * 1000);
+    return Date.now() + poll * 1000;
   }
 }

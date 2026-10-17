@@ -156,7 +156,7 @@ void test_tick_runs_the_relay() {
     MockFS::put("/config.json", R"({"v":2,"ssid":"Home","pass":"12345678",
         "webpss":"strong-pass","ota_auto":false,"ntfy_cmd":"cmd-x","ntfy_topic":"data-x",
         "actuator":"relay","actuator_pin":0,"notify":true,
-        "relay_host":"esp-pump.example.com","relay_ver":5,
+        "relay_host":"esp-pump.example.com","relay_ver":6,
         "relay_key":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"})");
     App app;
     app.begin();
@@ -189,22 +189,33 @@ void test_tick_runs_the_relay() {
         if (f.payload[0] == 'D') answer += f.payload.substr(3);
     TEST_ASSERT_TRUE(answer.rfind("HTTP/1.1 200 ", 0) == 0);
 
-    // An ntfy post takes the session for its tick, then the relay comes back
+    // An ntfy post goes up the relay: its Worker sends it, the relay stays
     app.iot.command("on", 2100);
-    MockHTTP::push(200);
+    size_t before = MockHTTP::requests.size();
     setMillis(2100 + NtfyNotifier::POST_GAP);
     app.tick();
-    TEST_ASSERT_EQUAL_STRING("paused", app.relay.status());
-    TEST_ASSERT_EQUAL_STRING("https://ntfy.sh/data-x", MockHTTP::requests.back().url.c_str());
-    MockHTTP::rawHttp = "HTTP/1.1 101 Switching Protocols\r\n\r\n";
+    TEST_ASSERT_EQUAL_STRING("connected", app.relay.status());
+    TEST_ASSERT_EQUAL((int)before, (int)MockHTTP::requests.size());
+    bool posted = false;
+    for (ClientFrame f = takeClientFrame(MockTLS::wire, at); f.ok; f = takeClientFrame(MockTLS::wire, at))
+        posted = posted || f.payload.rfind(std::string("Pntfy.sh\0data-x\0", 16), 0) == 0;
+    TEST_ASSERT_TRUE(posted);
+
+    // The Worker tells the address and the latest release: no check of their own
+    MockTLS::live->inject(serverFrame(WsClient::BINARY, "I1.2.3.5"));
+    MockTLS::live->inject(serverFrame(WsClient::BINARY, "Vv1"));
     setMillis(2200 + NtfyNotifier::POST_GAP);
     app.tick();
-    TEST_ASSERT_EQUAL_STRING("connected", app.relay.status());
-
-    // A minute on with nothing to post: no ntfy turn, the relay stays up
-    size_t sent = MockHTTP::requests.size();
-    setMillis(2200 + NtfyNotifier::POST_GAP + NtfyNotifier::RETRY_INTERVAL);
     app.tick();
+    TEST_ASSERT_EQUAL_STRING("1.2.3.5", app.config.publicIP);
+    // Five minutes on (the Worker's pings keep it alive): no IP check, no
+    // ntfy turn, the relay stays up
+    size_t sent = MockHTTP::requests.size();
+    for (unsigned long k = 1; k <= 5; k++) {
+        MockTLS::live->inject(serverFrame(WsClient::PING, ""));
+        setMillis(2200 + NtfyNotifier::POST_GAP + k * 60000UL);
+        app.tick();
+    }
     TEST_ASSERT_EQUAL_STRING("connected", app.relay.status());
     TEST_ASSERT_EQUAL((int)sent, (int)MockHTTP::requests.size());
 }
@@ -264,7 +275,7 @@ void test_tick_redeploys_an_outdated_relay() {
 void test_tick_falls_back_to_the_ntfy_stream() {
     MockFS::put("/config.json", R"({"v":2,"ssid":"Home","pass":"12345678","webpss":"strong-pass",
         "ota_auto":false,"ntfy_cmd":"cmd-x","actuator":"relay","actuator_pin":0,
-        "relay_host":"esp-pump.example.com","relay_ver":5,"relay_key":"00"})");
+        "relay_host":"esp-pump.example.com","relay_ver":6,"relay_key":"00"})");
     App app;
     app.begin();
     MockTLS::failConnect = true;
@@ -337,7 +348,7 @@ void test_tick_waits_for_memory_before_a_check() {
 // slowest loop
 void test_tick_relay_waits_and_slow_loops_are_logged() {
     MockFS::put("/config.json", R"({"ssid":"Home","pass":"12345678","webpss":"strong-pass",
-        "ota_auto":false,"relay_host":"esp-pump.example.com","relay_ver":5,"relay_key":"00"})");
+        "ota_auto":false,"relay_host":"esp-pump.example.com","relay_ver":6,"relay_key":"00"})");
     App app;
     app.begin();
     ESP._heap = PublicIPResolver::MIN_TLS_HEAP - 1;

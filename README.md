@@ -211,7 +211,7 @@ curl -H 'Authorization: Bearer <token>' -d 'cmd=pulse 5' http://192.168.1.50/api
 Set a **command topic** on the ntfy page (the button generates a random name). The device subscribes to it with a long-lived connection (`GET /<topic>/json`) and every message becomes a command, delivered in about a second. Replies to invalid commands go to the data topic as `[error] …`.
 
 - **One TLS session at a time.** The ESP-01 has memory for a single TLS session. Before publishing, or when Cloudflare or the OTA is about to use the network, the stream closes. On reopening it asks for `since=<last id>`, and ntfy (which keeps messages for 12 hours) delivers whatever arrived in between. Nothing is lost; at worst a command waits a few seconds. Saving another server or command topic closes the stream at once and reopens it there, from that moment on (an ID from the old topic means nothing on the new one); the relay Worker does the same.
-- **With remote access on**, the relay holds that session, so its Worker checks the command topic for the device (every 2, 5, 10 or 30 s, chosen on the ntfy page; 5 s by default) and sends each command down the relay. The page shows `relay` as the command state. If the relay stays down for more than a minute, the device's own stream takes over again, from the last message.
+- **With remote access on**, the relay holds that session, so its Worker checks the command topic for the device (every 2, 5, 10 or 30 s, chosen on the ntfy page; 5 s by default) and sends each command down the relay. The page shows `relay` as the command state. If the relay stays down for more than a minute, the device's own stream takes over again, from the last message. The posts to the data topic go up the relay too and the Worker sends them (one try: a server that refuses it loses that message), so the relay is not closed for them.
 - **The server's certificate is validated** (the roots above, already embedded), on the command stream and when publishing: a command forged on the path would switch real equipment, and a publish carries the token and, in the action buttons, the command topic. Until the clock syncs nothing is published; the message waits for the next attempt.
 - Commands older than 10 minutes are ignored. Failed connections retry from 5 s up to 5 min. A stream silent for 2 minutes is reopened (ntfy sends a keepalive every 45 s).
 - ntfy.sh topics are public by name (on your own server, unless it requires a login): whoever knows the command topic can send commands. Use a long random name (without a token, the panel refuses names shorter than 20 characters), different from the data topic, or an **ntfy access token** (used for both publishing and subscribing). The action buttons carry the command topic (and the token, if any), so keep the data topic private too.
@@ -339,7 +339,7 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 498,464 of 500,000 bytes (1,536 to spare) |
+| Firmware | 499,856 of 500,000 bytes (144 to spare) |
 | Panel text, 4 languages | 337 texts (the pin drawing included), 45 KB as text, 16 KB in flash |
 | Relay Worker | 7.8 KB of script, 4.2 KB in flash (byte-pair encoded) |
 | Signed OTA package | ~354 KB of 400 KB (about 46 KB free) |

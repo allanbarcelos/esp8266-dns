@@ -379,7 +379,7 @@ void test_deploy_on_own_domain() {
     std::string script = expanded();
     TEST_ASSERT_EQUAL((int)RELAY_SCRIPT_LEN, (int)script.size());
     TEST_ASSERT_TRUE(contains(up->payload, ("Content-Type: application/javascript+module\r\n\r\n" + script).c_str()));
-    TEST_ASSERT_TRUE(script.rfind("const VERSION = 5;\n", 0) == 0);
+    TEST_ASSERT_TRUE(script.rfind("const VERSION = 6;\n", 0) == 0);
     TEST_ASSERT_TRUE(contains(script, "export class Device"));
 
     // The address on the domain

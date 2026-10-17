@@ -238,9 +238,34 @@ void test_trust_anchors_out_of_memory() {
     }
 }
 
+// The relay's Worker saw the address: it counts as the check, no TLS
+void test_address_offered_by_the_relay() {
+    Fix f;
+    f.resolver.offer("203.0.113.7", T0);
+    TEST_ASSERT_EQUAL_STRING("203.0.113.7", cfg.publicIP);
+    TEST_ASSERT_EQUAL(T0, cfg.ipChanged);
+    TEST_ASSERT_EQUAL(T0, cfg.ipChecked);
+    TEST_ASSERT_TRUE(logHas(logger, "Public IP: 203.0.113.7"));
+    TEST_ASSERT_FALSE(f.resolver.due(T0 + CHECK - 1));
+    TEST_ASSERT_TRUE(f.resolver.due(T0 + CHECK));
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::calledURLs.size());
+    // The same again: only the time of the check; not an address: nothing
+    f.resolver.offer("203.0.113.7", T0 + 10);
+    TEST_ASSERT_EQUAL(1, logCount("Public IP"));
+    TEST_ASSERT_EQUAL(T0 + 10, cfg.ipChecked);
+    f.resolver.offer("2001:db8::1", T0 + 20);
+    f.resolver.offer("999999999999999", T0 + 20);
+    TEST_ASSERT_EQUAL(T0 + 10, cfg.ipChecked);
+    TEST_ASSERT_EQUAL_STRING("203.0.113.7", cfg.publicIP);
+    // A new one is logged as a change
+    f.resolver.offer("203.0.113.8", T0 + 30);
+    TEST_ASSERT_TRUE(logHas(logger, "Public IP changed: 203.0.113.7 -> 203.0.113.8"));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_first_service_ok);
+    RUN_TEST(test_address_offered_by_the_relay);
     RUN_TEST(test_checks_every_5_min_and_logs_only_changes);
     RUN_TEST(test_without_wifi_or_clock_does_not_check);
     RUN_TEST(test_failure_logs_once_and_retries_every_minute);

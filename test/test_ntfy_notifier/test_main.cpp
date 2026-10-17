@@ -855,6 +855,45 @@ void test_delivery_needs_commands() {
     TEST_ASSERT_EQUAL_STRING("", f.ntfy.lastId());
 }
 
+// With a link that takes the post (the relay), nothing goes out over TLS
+struct FakeLink : PostLink {
+    bool ok = true;
+    std::string host, topic, headers, body;
+    bool post(const char* h, const char* t, const String& hd, const char* b) override {
+        host = h;
+        topic = t;
+        headers = hd.c_str();
+        body = b;
+        return ok;
+    }
+};
+
+void test_posts_through_the_link() {
+    strlcpy(cfg.publicIP, "1.2.3.4", sizeof(cfg.publicIP));
+    strlcpy(cfg.ntfy_token, "tk_1", sizeof(cfg.ntfy_token));
+    Fix f;
+    FakeLink link;
+    f.ntfy.via(&link);
+    ESP._heap = 1000;                     // no TLS needed: no memory check either
+    f.ntfy.tick(0);
+    TEST_ASSERT_EQUAL(0, (int)MockHTTP::requests.size());
+    TEST_ASSERT_EQUAL_STRING("ntfy.sh", link.host.c_str());
+    TEST_ASSERT_EQUAL_STRING("my-topic", link.topic.c_str());
+    TEST_ASSERT_EQUAL_STRING("Content-Type: text/plain\r\nAuthorization: Bearer tk_1\r\n", link.headers.c_str());
+    TEST_ASSERT_EQUAL_STRING("[ip] 1.2.3.4", link.body.c_str());
+    TEST_ASSERT_TRUE(logHas(logger, "ntfy sent (relay)"));
+    TEST_ASSERT_FALSE(f.ntfy.postDue(NtfyNotifier::RETRY_INTERVAL));    // sent
+
+    // The link cannot take it (the relay went down): over TLS, as before
+    ESP._heap = 50000;
+    link.ok = false;
+    strlcpy(cfg.publicIP, "5.6.7.8", sizeof(cfg.publicIP));
+    MockHTTP::push(200);
+    f.ntfy.tick(NtfyNotifier::RETRY_INTERVAL);
+    TEST_ASSERT_EQUAL(1, (int)MockHTTP::requests.size());
+    TEST_ASSERT_TRUE(contains(MockHTTP::requests[0].payload, "[ip] 5.6.7.8"));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_no_post_without_topic);
@@ -870,6 +909,7 @@ int main() {
     RUN_TEST(test_not_enough_memory_does_not_post);
     RUN_TEST(test_tls_unavailable_does_not_post);
     RUN_TEST(test_validates_topic);
+    RUN_TEST(test_posts_through_the_link);
     RUN_TEST(test_validates_host);
     RUN_TEST(test_own_server);
     RUN_TEST(test_commands_connect_validating_certificate);

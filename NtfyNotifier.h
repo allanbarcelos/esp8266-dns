@@ -33,6 +33,15 @@
 // With the remote access relay on, its Worker polls the command topic
 // instead and sends each message down the relay (deliver()); the stream
 // stays closed, and opens again if the relay stays down (relayed(false)).
+// Another way out for a post: the remote access relay, whose Worker sends
+// it (no TLS session of the device's own, so the relay stays up)
+class PostLink {
+public:
+    virtual bool post(const char* host, const char* topic, const String& headers, const char* body) = 0;
+protected:
+    ~PostLink() = default;
+};
+
 class NtfyNotifier {
 public:
     NtfyNotifier(Config& cfg, Logger& log, Clock& clock, IoTService* iot = nullptr)
@@ -74,6 +83,9 @@ public:
         _held = on;
         if (on) _closeStream();
     }
+
+    // Posts go through it while it can take them
+    void via(PostLink* link) { _via = link; }
 
     // Another server or command topic: the stream reopens there, from now on
     void restart() {
@@ -131,6 +143,7 @@ private:
     Logger&           _log;
     IoTService*       _iot;
     Clock&            _clock;
+    PostLink*         _via = nullptr;
 
     char          _lastSent[16];
     unsigned long _lastAttempt;
@@ -200,6 +213,17 @@ private:
     }
 
     bool _post(const char* body, bool actions = false) {
+        String headers = "Content-Type: text/plain\r\n";
+        if (_cfg.ntfy_token[0]) {
+            headers += "Authorization: Bearer ";
+            headers += _cfg.ntfy_token;
+            headers += "\r\n";
+        }
+        if (actions) _actions(headers);
+        if (_via && _via->post(host(), _cfg.ntfy_topic, headers, body)) {
+            _log.log(PSTR("ntfy sent (relay)"));
+            return true;
+        }
         if (!PublicIPResolver::memoryOk()) {
             _log.log(PSTR("ntfy: not enough memory"));
             return false;
@@ -219,13 +243,6 @@ private:
         }
         char path[sizeof(_cfg.ntfy_topic) + 1];
         snprintf(path, sizeof(path), "/%s", _cfg.ntfy_topic);
-        String headers = "Content-Type: text/plain\r\n";
-        if (_cfg.ntfy_token[0]) {
-            headers += "Authorization: Bearer ";
-            headers += _cfg.ntfy_token;
-            headers += "\r\n";
-        }
-        if (actions) _actions(headers);
         int code = https::request(client, host(), "POST", path, headers.c_str(), body, 5000);
 
         if (code >= 200 && code < 300) {

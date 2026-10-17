@@ -8,7 +8,7 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 | | |
 | --- | --- |
-| Firmware | 498,464 of 500,000 bytes (1,536 to spare) |
+| Firmware | 499,856 of 500,000 bytes (144 to spare) |
 | Signed OTA package | ~354 KB of 400 KB |
 | Static RAM | 39,392 bytes |
 | Native tests | 601, with 100 % of lines, functions and branches |

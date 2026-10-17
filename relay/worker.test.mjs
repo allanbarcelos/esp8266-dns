@@ -76,6 +76,9 @@ function makeCtx() {
       put: async (k, v) => {
         store.set(k, v);
       },
+      delete: async (k) => {
+        store.delete(k);
+      },
       setAlarm: async (t) => {
         ctx.alarm = t;
       },
@@ -191,10 +194,10 @@ test('toResponse refuses a broken answer', () => {
 // ── the Worker in front ──────────────────────────────────────────────────────
 
 test('relay connection needs WebSocket, version and secret', async () => {
-  const h = (extra) => ({ headers: { Upgrade: 'websocket', 'X-Relay-Version': '5', Authorization: `Bearer ${SECRET}`, ...extra } });
+  const h = (extra) => ({ headers: { Upgrade: 'websocket', 'X-Relay-Version': '6', Authorization: `Bearer ${SECRET}`, ...extra } });
   const go = (init) => worker.default.fetch(new Request('https://r.example/.relay', init), env);
   assert.equal((await go({})).status, 426);
-  assert.equal((await go(h({ 'X-Relay-Version': '4' }))).status, 426);
+  assert.equal((await go(h({ 'X-Relay-Version': '5' }))).status, 426);
   assert.equal((await go(h({ Authorization: 'Bearer nope' }))).status, 401);
   const noAuth = h();
   delete noAuth.headers.Authorization;
@@ -425,28 +428,31 @@ test('state and hello are kept; hello sets where ntfy resumes', async () => {
   await device.webSocketMessage(ws, msg('S', '{"api":1}'));
   assert.deepEqual(ctx.store.get('state'), { json: '{"api":1}', at: 1_700_000_000_000 });
 
-  await device.webSocketMessage(ws, msg('H', '{"v":5,"topic":"cmd-x","poll":5}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":6,"topic":"cmd-x","poll":5}'));
   assert.equal(ctx.store.get('since'), '1700000000');           // from now on
   assert.equal(ctx.alarm, 1_700_000_001_000);
-  await device.webSocketMessage(ws, msg('H', '{"v":5,"topic":"cmd-x"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":6,"topic":"cmd-x"}'));
   assert.equal(ctx.store.get('since'), '1700000000');           // kept
-  await device.webSocketMessage(ws, msg('H', '{"v":5,"topic":"cmd-x","since":"abc123"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":6,"topic":"cmd-x","since":"abc123"}'));
   assert.equal(ctx.store.get('since'), 'abc123');               // the device knows best
-  await device.webSocketMessage(ws, msg('H', '{"v":5,"topic":"cmd-x"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":6,"topic":"cmd-x"}'));
   assert.equal(ctx.store.get('since'), 'abc123');               // same server and topic: kept
-  await device.webSocketMessage(ws, msg('H', '{"v":5,"topic":"cmd-y"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":6,"topic":"cmd-y"}'));
   assert.equal(ctx.store.get('since'), '1700000000');           // another topic: from now on
   ctx.store.set('since', 'abc123');
-  await device.webSocketMessage(ws, msg('H', '{"v":5,"host":"ntfy.example.com","topic":"cmd-y"}'));
+  await device.webSocketMessage(ws, msg('H', '{"v":6,"host":"ntfy.example.com","topic":"cmd-y"}'));
   assert.equal(ctx.store.get('since'), '1700000000');           // another server: from now on
-  await device.webSocketMessage(ws, msg('H', '{"v":5}'));
-  assert.equal(ctx.alarm, null);
+  ctx.store.set('release', 1);
+  await device.webSocketMessage(ws, msg('H', '{"v":6}'));
+  assert.equal(ctx.alarm, 1_700_000_001_000);                  // the release check, even without commands
+  assert.equal(ctx.store.has('release'), false);                // each connection checks it first
 });
 
 test('alarm polls ntfy and forwards the messages', async () => {
   const ws = await connect();
   ctx.store.set('hello', { topic: 'cmd x', token: 'tk_1', poll: 10 });
   ctx.store.set('since', 'old');
+  ctx.store.set('release', Infinity);                           // checked already
   const calls = [];
   mock.method(globalThis, 'fetch', async (url, init) => {
     calls.push([url, init]);
@@ -474,6 +480,7 @@ test('alarm on the own server, without token, with nothing new, or failing', asy
   const ws = await connect();
   ctx.store.set('hello', { host: 'ntfy.example.com', topic: 'cmd', poll: 7 });
   ctx.store.set('since', 's');
+  ctx.store.set('release', Infinity);
   const calls = [];
   mock.method(globalThis, 'fetch', async (url, init) => {
     calls.push([url, init]);
@@ -498,19 +505,84 @@ test('alarm on the own server, without token, with nothing new, or failing', asy
   assert.equal(ctx.alarm, 1_700_000_005_000);
 });
 
-test('alarm stops without the device or a topic', async () => {
-  let n = 0;
-  mock.method(globalThis, 'fetch', async () => {
-    n++;
-    return new RealResponse('');
+test('alarm stops without the device or its hello; without a topic, only the release', async () => {
+  const urls = [];
+  mock.method(globalThis, 'fetch', async (url) => {
+    urls.push(url);
+    return new RealResponse('', { status: 404 });
   });
   ctx.store.set('hello', { topic: 'cmd' });
   await device.alarm();                       // no device connected
   await connect();
   ctx.store.delete('hello');
   await device.alarm();                       // no hello yet
-  ctx.store.set('hello', {});
-  await device.alarm();                       // no topic
-  assert.equal(n, 0);
+  assert.equal(urls.length, 0);
   assert.equal(ctx.alarm, null);
+  ctx.store.set('hello', {});
+  await device.alarm();                       // no topic: the release, then in an hour
+  assert.deepEqual(urls, ['https://api.github.com/repos/allanbarcelos/esp8266-dns/releases/latest']);
+  assert.equal(ctx.alarm, 1_700_003_600_000);
+});
+
+// ── the rest of the device's network ─────────────────────────────────────────
+
+test('the device is told the address it connects from', async () => {
+  const res = await device.fetch(new Request('https://r.example/.relay', { headers: { 'CF-Connecting-IP': '203.0.113.7' } }));
+  assert.equal(res.status, 101);
+  const ws = ctx.sockets.at(-1);
+  assert.equal(ws.sent[0][0], 73);
+  assert.equal(dec.decode(ws.sent[0].subarray(1)), '203.0.113.7');
+});
+
+test('the device\'s ntfy posts go out from here', async () => {
+  const ws = await connect();
+  const calls = [];
+  mock.method(globalThis, 'fetch', async (url, init) => {
+    calls.push([url, init]);
+    return new RealResponse('', { status: 200 });
+  });
+  const head = 'Content-Type: text/plain\r\nAuthorization: Bearer tk_1\r\nActions: http, On, https://ntfy.sh/c, method=POST, body=on\r\nnoise\r\n';
+  await device.webSocketMessage(ws, msg('P', ['ntfy.sh', 'data t', head, '[sensor] 21.0 C | on'].join('\0')));
+  assert.equal(calls[0][0], 'https://ntfy.sh/data%20t');
+  assert.equal(calls[0][1].method, 'POST');
+  assert.equal(calls[0][1].body, '[sensor] 21.0 C | on');
+  assert.deepEqual(calls[0][1].headers, {
+    'Content-Type': 'text/plain',
+    Authorization: 'Bearer tk_1',
+    Actions: 'http, On, https://ntfy.sh/c, method=POST, body=on',
+  });
+  // An unreachable server loses that message, nothing else
+  mock.method(globalThis, 'fetch', async () => {
+    throw new Error('down');
+  });
+  await device.webSocketMessage(ws, msg('P', ['ntfy.example.com', 't', '', 'x'].join('\0')));
+  assert.equal(ws.sent.length, 0);
+});
+
+test('the latest release goes down once an hour', async () => {
+  const ws = await connect();
+  ctx.store.set('hello', {});
+  let answer = () => new RealResponse(JSON.stringify({ tag_name: 'v158' }));
+  const calls = [];
+  mock.method(globalThis, 'fetch', async (url, init) => {
+    calls.push([url, init]);
+    return answer();
+  });
+  await device.alarm();
+  assert.equal(calls[0][1].headers['User-Agent'], 'esp8266-dns-relay');
+  assert.equal(ws.sent.at(-1)[0], 86);
+  assert.equal(dec.decode(ws.sent.at(-1).subarray(1)), 'v158');
+  assert.equal(ctx.store.get('release'), 1_700_003_600_000);
+  await device.alarm();                                         // within the hour: no new check
+  assert.equal(calls.length, 1);
+  // Anything but a "v" and digits, a refusal or no answer: nothing goes down
+  const sent = ws.sent.length;
+  for (const a of [() => new RealResponse(JSON.stringify({ tag_name: 'latest' })),
+    () => new RealResponse(JSON.stringify({})), () => new RealResponse('limit', { status: 403 }),
+    () => { throw new Error('down'); }]) {
+    answer = a;
+    ctx.store.delete('release');
+    await device.alarm();
+  }
+  assert.equal(ws.sent.length, sent);
 });

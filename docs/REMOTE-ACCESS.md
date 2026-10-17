@@ -79,8 +79,8 @@ Do not use the name of the DDNS record (the one that points at your home): the W
 - One request at a time reaches the device; others wait their turn at the Worker (up to 16). Expect 0.5 to 2 s per page or API call.
 - Everything that checks the password, a code or the API token (sign-in, authenticator, new password, new authenticator, Reconfigure, the API) is limited to **60 requests per minute per address** at the Worker, before it reaches the device. The device keeps its own attempt limits.
 - Bodies over 2 KB get 413 (the panel's forms are much smaller).
-- Cloudflare's free plan includes 100,000 Worker requests a day. Polling ntfy every 5 s takes about 17,000; an app reading `/api/state` every 5 s about 17,000 more.
-- The device has room for one TLS session: the relay steps aside for a few seconds while the device checks its public IP, updates DNS, posts to ntfy or downloads an update. The Worker holds requests meanwhile.
+- Cloudflare's free plan includes 100,000 Worker requests a day. Polling ntfy every 5 s takes about 17,000; an app reading `/api/state` every 5 s about 17,000 more. The release check is 24 a day, and each ntfy post one.
+- The device has room for one TLS session, which the relay takes. So the Worker does the rest of the device's network while it is connected: it tells the device the public address it connects from (no IP check every 5 minutes), sends its ntfy posts and asks GitHub for the latest release once an hour. The relay only steps aside, for a few seconds, to update the DNS record when the IP changes and to download an update; the Worker holds requests meanwhile. If GitHub refuses the Worker (its rate limit is shared), the device checks on its own as before.
 - After a firmware update that changes the relay protocol, the device uploads the new Worker by itself.
 
 ### A login in front (optional)

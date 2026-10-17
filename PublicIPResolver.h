@@ -39,6 +39,17 @@ public:
         _check(now);
     }
 
+    // The address seen another way (the remote access relay's Worker sees the
+    // device's own connection): counts as this period's check
+    void offer(const char* ip, unsigned long now) {
+        IPAddress a;
+        if (!a.fromString(ip)) return;
+        _checked = true;
+        _lastCheck = now;
+        _failing = false;
+        _apply(a.toString().c_str(), now);
+    }
+
     // The next tick call will use the network (TLS)
     bool due(unsigned long now) const {
         return WiFi.isConnected() && _clock.synced() &&
@@ -85,6 +96,10 @@ private:
         }
 
         _failing = false;
+        _apply(ip, now);
+    }
+
+    void _apply(const char* ip, unsigned long now) {
         _cfg.ipChecked = now;
         if (strcmp(ip, _cfg.publicIP) == 0) return;
         if (_cfg.publicIP[0])

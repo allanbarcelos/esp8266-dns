@@ -40,9 +40,9 @@
 // the Worker polls the ntfy command topic for the device (the hello says
 // which, with the token, the interval and the last message seen); if the
 // relay stays down longer than GRACE_MS, the ntfy stream takes over.
-class RelayService {
+class RelayService : public PostLink {
 public:
-    static constexpr uint8_t       PROTOCOL      = 5;
+    static constexpr uint8_t       PROTOCOL      = 6;
     static constexpr unsigned long CONNECT_MS    = 5000UL;
     static constexpr unsigned long RECONNECT_MS  = 2000UL;
     static constexpr unsigned long PING_MS       = 30000UL;
@@ -91,6 +91,28 @@ public:
     }
 
     bool up() const       { return _open; }
+
+    // The public address the Worker saw this connection come from, and the
+    // latest release it found on GitHub: each once ("" when none new)
+    const char* takeIP()     { return _take(_public, _ipNew); }
+    const char* takeLatest() { return _take(_latest, _latestNew); }
+    // The Worker gave this connection's address: no check of the device's own
+    bool knowsIP() const { return _open && _public[0]; }
+
+    // An ntfy post for the Worker to send: 'P', then server, topic, header
+    // lines and body, apart by a 0
+    bool post(const char* host, const char* topic, const String& headers, const char* body) override {
+        if (!_open) return false;
+        String p = host;
+        p += '\0';
+        p += topic;
+        p += '\0';
+        p += headers;
+        p += '\0';
+        p += body;
+        _s->ws.send(WsClient::BINARY, "P", 1, p.c_str(), p.length());
+        return true;
+    }
 
     // Uses the network: connected, or due to connect
     bool wantsNet(unsigned long now) const {
@@ -151,6 +173,9 @@ private:
     uint16_t      _id = 0;
     uint32_t      _ip = 0;
     uint32_t      _sum = 0;      // of the last state sent
+    char          _public[16] = {};
+    char          _latest[16] = {};
+    bool          _ipNew = false, _latestNew = false;
     uint32_t      _helloSum = 0; // of what the hello carried
 
     void _connect(unsigned long now) {
@@ -183,6 +208,7 @@ private:
             return;
         }
         _open = true;
+        _public[0] = '\0';
         _backoff = 5;
         _lastIn = _lastPing = _lastState = now;
         _log.log(PSTR("relay: connected"));
@@ -235,6 +261,9 @@ private:
             _s->ws.skip();
         } else if (int type = _s->ws.next(); type == 'R') {
             _request();
+        } else if (type == 'I' || type == 'V') {
+            _s->ws.read(type == 'I' ? _public : _latest, sizeof(_public));
+            (type == 'I' ? _ipNew : _latestNew) = true;
         } else if (type != 'C' || !_ntfy) {
             _s->ws.skip();
         } else {
@@ -321,6 +350,12 @@ private:
         _sum = sum;
         _stateSent = now;
         _s->ws.send(WsClient::BINARY, json, n + 1);
+    }
+
+    static const char* _take(const char* v, bool& fresh) {
+        bool f = fresh;
+        fresh = false;
+        return f ? v : "";
     }
 
     void _drop(unsigned long now, unsigned long ms) {

@@ -117,6 +117,15 @@ public:
         _loadPending();
     }
 
+    // The latest release seen another way (the remote access relay's Worker
+    // asks GitHub): if it is not newer, it counts as this hour's check; a
+    // newer one makes the device's own check (which also downloads it) due
+    // now, on its network turn.
+    void offerLatest(const char* tag, unsigned long now, const char* current = firmware_version) {
+        if (busy() || parseTag(tag) < 0) return;
+        _lastCheck = isNewer(tag, current) ? 0 : now;
+    }
+
     // The POST only arms the request; the tick runs it.
     void requestCheck() {
         if (_active() || _wantCheck) return;
