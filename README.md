@@ -394,7 +394,7 @@ Tests run on the computer, with the core simulated; every release also runs on a
 | `build` | new firmware | Embedded CSS/JS, TLS roots and relay Worker up to date, compiles with arduino-cli, firmware within **500,000 bytes**, signature verifier, OTA package size |
 | `test` | after `build`, or alone when only tests changed | Tests + 100 % coverage, no warnings; again under ASan and UBSan |
 | `release` | push to `main` with new firmware | Compresses, signs, **verifies the signature** and publishes the release |
-| `pages` | after `release`, when `install/` changes on `main`, or on *Run workflow* | Publishes the [web installer](https://allanbarcelos.github.io/esp8266-dns/) to GitHub Pages with the latest release's firmware |
+| `pages` | only when `install/` or `tools/web_installer.py` changes on `main`, or on *Run workflow* | Publishes the [web installer](https://allanbarcelos.github.io/esp8266-dns/) to GitHub Pages with a published release's firmware (the new one if the same push releases, otherwise the last). A release alone does not redeploy it: the installer is for the first flash, and the device then updates itself over OTA |
 
 The pipeline runs `plan → check → build → test → release → pages`; if one job fails, the next ones do not run. Without new firmware (docs, workflow, tools), `build`, `test` and `release` are skipped. To force a release, use *Run workflow* with `release: true`.
 

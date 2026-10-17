@@ -91,17 +91,24 @@ jobs:
             version="ci-${GITHUB_SHA::7}"
           fi
 
-          # Web installer on main: with a new release, when the page changes
-          # (diff against the previous push) or on Run workflow. It always
-          # flashes a published version: the new one or the last tag.
+          # Web installer on main: only when the page or its generator changes
+          # (diff against the previous push; without a known base, against the
+          # last tag) or on Run workflow. A new release alone does not
+          # redeploy it: the installer is for the first flash, and the device
+          # then updates itself to the latest release over OTA on its first
+          # check. It always flashes a published version: the new one when
+          # this push also releases, otherwise the last tag.
           pages=false
           if [ "$REF" = "refs/heads/main" ] && [ "$EVENT" != "pull_request" ]; then
-            if [ "$release" = "true" ] || [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ "$EVENT" = "workflow_dispatch" ]; then
               pages=true
             elif [ "$EVENT" = "push" ]; then
-              if ! git rev-parse -q --verify "$BEFORE^{commit}" >/dev/null; then
-                pages=true   # push without a known base (new branch, force push)
-              elif git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -qE "$PAGES_PATHS"; then
+              base="$BEFORE"
+              if ! git rev-parse -q --verify "$base^{commit}" >/dev/null; then
+                base="$last_tag"   # push without a known base (new branch, force push)
+              fi
+              if ! git rev-parse -q --verify "$base^{commit}" >/dev/null \
+                 || git diff --name-only "$base" "$GITHUB_SHA" | grep -qE "$PAGES_PATHS"; then
                 pages=true
               fi
             fi
@@ -326,9 +333,9 @@ jobs:
           fail_on_unmatched_files: true
 
   # ── Web installer (ESP Web Tools) on GitHub Pages ────────────────────────
-  # The firmware comes from the release's firmware.bin (gzip of the raw .bin):
-  # the page only flashes published versions. Needs Settings → Pages →
-  # Source: GitHub Actions.
+  # Only when the page changes (plan). The firmware comes from the release's
+  # firmware.bin (gzip of the raw .bin): the page only flashes published
+  # versions. Needs Settings → Pages → Source: GitHub Actions.
   pages:
     needs: [plan, release]
     if: >-
