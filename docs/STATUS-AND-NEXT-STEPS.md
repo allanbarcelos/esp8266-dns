@@ -8,7 +8,7 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 | | |
 | --- | --- |
-| Firmware | 499,952 of 500,000 bytes (48 to spare) |
+| Firmware | 498,624 of 500,000 bytes (1,376 to spare) |
 | Signed OTA package | ~354 KB of 400 KB |
 | Static RAM | 39,784 bytes |
 | Native tests | 607, with 100 % of lines, functions and branches |
@@ -83,14 +83,14 @@ Every release of this round ran on a real ESP-01, HTTP/1.0 to the Cloudflare API
 
 - Native tests, sanitizers, cppcheck and fuzzing on every change, as in CI.
 - MQTT ran against a real Mosquitto, and discovery against a real Home Assistant. That test was done by hand, in an environment set up for it; it is not in CI.
-- The web installer was tested in Chrome and Edge, with the serial port simulated. The AVIF photo was checked in Edge.
+- The web installer was tested in Chrome and Edge, with the serial port simulated.
 - **On a real ESP-01, every release:** each update is installed and used on the device before the next change; the [on-device checklist](HARDWARE-TEST.md) lists what to look at. What only hardware shows (timings, heap, Wi-Fi, the sensors and actuators, Cloudflare and the relay) is confirmed there.
 
 ## Decisions worth remembering
 
 - **500,000-byte limit.** A project rule, checked in CI. Every change fits inside it. 24,864 bytes are left after the size round.
 - **The fast P-256 stays.** Dropping it frees about 10 KB, but ECDHE and ECDSA on P-256 (every handshake) would use the slower generic code. Not a trade worth making while other room exists.
-- **The ESP-01 photo stays.** If space runs out, it is not the first thing to go. Its size is set by `PHOTO_BYTES` and `PHOTO_WIDTH` in `tools/embed_assets.py` (1,000 bytes at 140 px today, from 3,250 at 220 px): a smaller photo is the quickest room.
+- **The ESP-01 photo is in the README, not in the firmware** (since 2026-10-17): on a dashboard it was decoration, and its kilobyte went back to the budget. The panel keeps the pin drawing, which the setup needs.
 - **Images in formats the browser decodes.** A decoder of our own costs flash; AVIF and SVG cost none.
 - **Never open a port to the device.** The ESP-01 does not serve HTTPS; access from outside goes through a tunnel with its own login.
 - **Three sign-in counts, not one per address.** The API token, the address of the last sign-in and everyone else each have their own. A full table per address does not fit in memory.

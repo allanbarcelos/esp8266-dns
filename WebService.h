@@ -261,13 +261,12 @@ private:
 
     // Embedded files (Assets.h, WebAssets.h): public, with no device data.
     // The type is in RAM: it goes into the header's %s.
+    // Each one gzipped, with a hash of its content in the URL (?v=)
     struct Asset {
         PGM_P          path;
         const char*    type;
         const uint8_t* data;
         uint16_t       len;
-        bool           hashed;
-        bool           gz;
     };
 
     static constexpr char P_ROOT[] PROGMEM = "/";
@@ -308,7 +307,6 @@ private:
     static constexpr char P_IOT_JS[] PROGMEM = "/iot.js";
     static constexpr char P_I18N_JS[] PROGMEM = "/i18n.js";
     static constexpr char P_PINOUT_SVG[] PROGMEM = "/pinout.svg";
-    static constexpr char P_ESP01_AVIF[] PROGMEM = "/esp01.avif";
 
     // Text used in several places: one copy in flash (PSTR makes one per use)
     static constexpr char S_WARNING[] PROGMEM = "warning";
@@ -370,7 +368,7 @@ private:
             Asset f;
             memcpy_P(&f, &ASSETS[i], sizeof(f));
             if (m == HttpServer::GET && !strcmp_P(p, f.path))
-                return _asset(f.type, f.data, f.len, f.hashed, f.gz);
+                return _asset(f.type, f.data, f.len);
         }
         _server.send(404, "text/plain", "");
     }
@@ -975,7 +973,6 @@ private:
     void _handleRoot() {
         if (!_guard()) return;
         _pageBegin();
-        _deviceMark();
 
         if (_wifi.inConfigMode()) {
             _alertP(S_WARNING, PSTR(L_SETUP_MODE));
@@ -1940,9 +1937,9 @@ private:
     // without asking again.
     // The type is in RAM: it goes into the header's %s, which does not read
     // from flash. The photo is AVIF, already compressed: no gzip.
-    void _asset(const char* type, const uint8_t* data, size_t len, bool hashed = false, bool gz = true) {
-        _server.sendHeader("Cache-Control", hashed ? "max-age=31536000, immutable" : "max-age=604800");
-        if (gz) _server.sendHeader("Content-Encoding", "gzip");
+    void _asset(const char* type, const uint8_t* data, size_t len) {
+        _server.sendHeader("Cache-Control", "max-age=31536000, immutable");
+        _server.sendHeader("Content-Encoding", "gzip");
         _server.send_P(200, type, reinterpret_cast<PGM_P>(data), len);
     }
 
@@ -2078,11 +2075,6 @@ private:
     }
 
     // The module photo: AVIF on its white background (Assets.h)
-    void _deviceMark() {
-        _p(PSTR("<figure><img src='/esp01.avif' alt='ESP-01' width='140' height='133'>"
-                "<figcaption class='m'>" L_FW_MODULE "<br>" L_PHOTO ": SparkFun, CC BY 2.0</figcaption></figure>"));
-    }
-
     // ── IoT ──────────────────────────────────────────────────────────────────
 
     // <option value='value'> (escaped), selected or not; the caller writes the text
@@ -2618,11 +2610,10 @@ inline const WebService::Route WebService::ROUTES[] PROGMEM = {
 };
 
 inline const WebService::Asset WebService::ASSETS[] PROGMEM = {
-    {P_S_CSS, "text/css", WEB_CSS_GZ, sizeof(WEB_CSS_GZ), true, true},
-    {P_IOT_JS, "text/javascript", WEB_IOT_GZ, sizeof(WEB_IOT_GZ), true, true},
-    {P_I18N_JS, "text/javascript", WEB_I18N_GZ, sizeof(WEB_I18N_GZ), true, true},
-    {P_PINOUT_SVG, "image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ), true, true},
-    {P_ESP01_AVIF, "image/avif", ASSET_PHOTO, sizeof(ASSET_PHOTO), false, false},
+    {P_S_CSS, "text/css", WEB_CSS_GZ, sizeof(WEB_CSS_GZ)},
+    {P_IOT_JS, "text/javascript", WEB_IOT_GZ, sizeof(WEB_IOT_GZ)},
+    {P_I18N_JS, "text/javascript", WEB_I18N_GZ, sizeof(WEB_I18N_GZ)},
+    {P_PINOUT_SVG, "image/svg+xml", ASSET_PINOUT_GZ, sizeof(ASSET_PINOUT_GZ)},
 };
 
 inline const size_t WebService::ROUTE_COUNT = sizeof(ROUTES) / sizeof(ROUTES[0]);
