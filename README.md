@@ -339,7 +339,7 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 499,840 of 500,000 bytes (160 to spare) |
+| Firmware | 499,952 of 500,000 bytes (48 to spare) |
 | Panel text, 4 languages | 337 texts (the pin drawing included), 45 KB as text, 16 KB in flash |
 | Relay Worker | 7.8 KB of script, 4.2 KB in flash (byte-pair encoded) |
 | Signed OTA package | ~354 KB of 400 KB (about 46 KB free) |
@@ -359,6 +359,8 @@ Kept small on purpose: page text in flash (`PSTR`) as 3-byte markers, with the t
 | Critical memory     | Heap < 15 KB or fragmentation > 50 % on 3 consecutive checks (10 s) → reboot |
 | Daily reboot        | After 24 h of uptime (postponed during OTA)                                |
 | Configuration mode  | No watchdog takes the AP down while it is active                           |
+
+The panel's own defences: sign-in with a salted PBKDF2 password and an authenticator code, attempts that wait longer each time (the address of the last sign-in counts apart), a session cookie that is HttpOnly and SameSite=Strict and, at home (plain HTTP), counts only from the address that signed in, a form token per session, the Host check against DNS rebinding, and on every page `Content-Security-Policy: default-src 'self' 'unsafe-inline'; img-src 'self' blob:` (nothing loads or goes anywhere but the device) with `X-Frame-Options: DENY`. Remote access adds HTTPS only, HSTS and a per-address limit at the Worker ([REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)).
 
 ---
 

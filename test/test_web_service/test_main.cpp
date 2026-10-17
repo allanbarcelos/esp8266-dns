@@ -2982,9 +2982,60 @@ void test_security_headers() {
     TEST_ASSERT_EQUAL_STRING("no-store", f.srv.headers["Cache-Control"].c_str());
     TEST_ASSERT_EQUAL_STRING("DENY", f.srv.headers["X-Frame-Options"].c_str());
     TEST_ASSERT_EQUAL_STRING("nosniff", f.srv.headers["X-Content-Type-Options"].c_str());
+    // Pages load and send nothing from elsewhere
+    TEST_ASSERT_EQUAL_STRING("default-src 'self' 'unsafe-inline';img-src 'self' blob:", f.srv.headers["Content-Security-Policy"].c_str());
     api(f, HTTP_GET, "/api/state", (std::string("Bearer ") + TOKEN).c_str());
     TEST_ASSERT_EQUAL_STRING("DENY", f.srv.headers["X-Frame-Options"].c_str());
     TEST_ASSERT_EQUAL_STRING("no-store", f.srv.headers["Cache-Control"].c_str());
+    TEST_ASSERT_EQUAL(0, (int)f.srv.headers.count("Content-Security-Policy"));
+}
+
+// A request through another link (the remote access relay), from address ip
+struct RelayLink : HttpLink {
+    std::string in, out;
+    size_t      at = 0;
+    uint32_t    ip = 0;
+    int available() override { return (int)(in.size() - at); }
+    int read() override { return at < in.size() ? (uint8_t)in[at++] : -1; }
+    bool connected() override { return true; }
+    void write(const uint8_t* p, size_t n) override { out.append(reinterpret_cast<const char*>(p), n); }
+    uint32_t remoteIP() override { return ip; }
+};
+
+static std::string through(Fixture& f, const std::string& raw, uint32_t ip) {
+    RelayLink l;
+    l.in = raw;
+    l.ip = ip;
+    f.web.server().serve(l);
+    return l.out;
+}
+
+// At home (plain HTTP) a session counts only from the address that signed
+// in; through the relay (HTTPS, a phone's address changes) it is not tied
+void test_session_tied_to_the_local_address() {
+    Fixture f;                                        // signed in from 192.168.1.10
+    f.get("/status");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+    f.srv.ip = 0x6301A8C0;                            // another device, the same cookie
+    f.get("/status");
+    TEST_ASSERT_EQUAL(302, f.srv.code);
+    TEST_ASSERT_EQUAL_STRING("/login", f.srv.headers["Location"].c_str());
+    f.srv.ip = 0x0A01A8C0;
+    f.get("/status");
+    TEST_ASSERT_EQUAL(200, f.srv.code);
+
+    webNow = PANEL_TIME;
+    char code[8];
+    Totp::codeAt(PANEL_TOTP, webNow, code);
+    std::string body = std::string("user=admin&pass=strong-pass&code=") + code + "&_csrf=" + f.web.csrfToken();
+    std::string r = through(f, "POST /login HTTP/1.1\r\nContent-Type: application/x-www-form-urlencoded\r\n"
+                               "Content-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body, 0x01020304);
+    TEST_ASSERT_TRUE(r.rfind("HTTP/1.1 302 ", 0) == 0);
+    size_t s = r.find("sid=");
+    TEST_ASSERT_TRUE(s != std::string::npos);
+    std::string sid = r.substr(s, 4 + 32);
+    r = through(f, "GET /status HTTP/1.1\r\nCookie: " + sid + "\r\n\r\n", 0x05060708);   // another address
+    TEST_ASSERT_TRUE(r.rfind("HTTP/1.1 200 ", 0) == 0);
 }
 
 void test_log_says_where_the_command_came_from() {
@@ -3760,6 +3811,7 @@ int main() {
     RUN_TEST(test_ntfy_short_command_topic_without_token);
     RUN_TEST(test_ntfy_warns_short_topic_already_saved);
     RUN_TEST(test_security_headers);
+    RUN_TEST(test_session_tied_to_the_local_address);
     RUN_TEST(test_log_says_where_the_command_came_from);
     return UNITY_END();
 }

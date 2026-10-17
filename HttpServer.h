@@ -95,6 +95,8 @@ public:
     // name longer than the buffer, or with no name before the port, is "?".
     const char*   host() const           { return _host; }
     uint32_t      remoteIP()             { return _link->remoteIP(); }
+    // From the local network (not through the remote access relay)
+    bool          local() const          { return _link == &_socket; }
 
     // Argument value (query, then urlencoded body); "plain" is the body
     String arg(const char* name) const {

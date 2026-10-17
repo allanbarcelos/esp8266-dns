@@ -242,6 +242,7 @@ private:
     uint8_t          _session = 0;   // 0 signed out, 1 authenticator setup, 2 signed in
     char             _sid[33] = {};
     unsigned long    _sidUntil = 0;
+    uint32_t         _sidIp = 0;     // the local address the session belongs to (0: through the relay)
     uint8_t          _pending[Totp::KEY_LEN] = {};
     bool             _pendingSet = false;
 
@@ -482,6 +483,10 @@ private:
         return false;
     }
 
+    // At home the panel is plain HTTP: a session started there only counts
+    // from the same address, so a cookie seen on the network (by ARP
+    // spoofing, say) is worth nothing from another device. Through the relay
+    // it is HTTPS, and a phone's address changes: not tied.
     bool _sessionOk() {
         if (_session == 0) return false;
         if ((long)(millis() - _sidUntil) >= 0) {
@@ -489,7 +494,7 @@ private:
             _sid[0] = '\0';
             return false;
         }
-        return _cookieMatches();
+        return _cookieMatches() && (!_sidIp || _server.remoteIP() == _sidIp);
     }
 
     void _writeCookie(unsigned long maxAge) {
@@ -513,6 +518,7 @@ private:
                  (unsigned long)ESP.random(), (unsigned long)ESP.random());
         _session = level;
         _sidUntil = millis() + SESSION_MS;
+        _sidIp = _server.local() ? _server.remoteIP() : 0;
         _writeCookie(SESSION_MS / 1000);
     }
 
@@ -679,6 +685,11 @@ private:
 
     void _pageBegin(int refreshSec = 0, int code = 200) {
         _noStore();
+        // Scripts, styles and requests only from the device: even text that
+        // slipped past the escaping could not load or send anything elsewhere
+        // (inline: the page's own data and handlers, and the swatches' colours;
+        // blob: the pinout redrawn in the panel's language)
+        _server.sendHeader("Content-Security-Policy", "default-src 'self' 'unsafe-inline';img-src 'self' blob:");
         _server.setContentLength(HttpServer::UNKNOWN_LENGTH);
         _server.send(code, "text/html", "");
         _p(_HTML_HEAD_A);
@@ -1243,7 +1254,7 @@ private:
 
         _box(PSTR("Wi-Fi"));
         bool con = WiFi.isConnected();
-        _row(S_SSID,    con ? WiFi.SSID()                 : String("-"));
+        _row(S_SSID,    con ? WiFi.SSID().c_str()         : "-");
         _ipRow(PSTR("IP"),      con, WiFi.localIP());
         _ipRow(PSTR(L_GATEWAY), con, WiFi.gatewayIP());
         _ipRow(PSTR(L_NETMASK), con, WiFi.subnetMask());
@@ -2009,7 +2020,7 @@ private:
         _title(PSTR(L_UPDATE));
         _box(PSTR("Firmware"));
         _row(PSTR(L_CURRENT_VERSION), firmware_version);
-        _row(PSTR(L_AUTOMATIC_CAP), String(_cfg.ota_auto ? L_ON : L_OFF));
+        _row(PSTR(L_AUTOMATIC_CAP), _cfg.ota_auto ? L_ON : L_OFF);
         if (_ota.availableVersion()[0] != '\0')
             _row(PSTR(L_AVAILABLE), _ota.availableVersion());
         if (_ota.detail()[0] != '\0')
