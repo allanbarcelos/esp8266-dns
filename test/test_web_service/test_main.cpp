@@ -822,7 +822,7 @@ void test_settings_save_name_and_hostname() {
     TEST_ASSERT_EQUAL_STRING("Gate", cfg.dev_name);
     TEST_ASSERT_EQUAL_STRING("gate-1", cfg.hostname);
     TEST_ASSERT_EQUAL_STRING("gate-1", WiFi.hostName.c_str());
-    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"hostname\":\"gate-1\""));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"hnm\":\"gate-1\""));
 
     // Blank goes back to the default; the core hostname stays until a restart
     WiFi.hostName = "";
@@ -1140,7 +1140,7 @@ void test_settings_save_gauge() {
     f.post("/config/save", {{"name", ""}, {"hostname", ""}, {"bat_sda", "3"}});
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_EQUAL(3, cfg.bat_sda);
-    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"bat_sda\":3"));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"bat\":3"));
     TEST_ASSERT_EQUAL(INPUT_PULLUP, mock::pinModeV[1]);   // begin again: SCL released
 
     // Invalid pin, or taken by IoT
@@ -1577,7 +1577,7 @@ void test_mqtt_save() {
     TEST_ASSERT_EQUAL_STRING("10.0.0.2:1884", cfg.mqtt_host);
     TEST_ASSERT_EQUAL_STRING("casa", cfg.mqtt_user);
     TEST_ASSERT_EQUAL_STRING("s3nha", cfg.mqtt_pass);
-    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"mqtt_host\":\"10.0.0.2:1884\""));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"mqh\":\"10.0.0.2:1884\""));
 
     // A blank password keeps it; the switch deletes it
     f.post("/mqtt/save", {{"host", "10.0.0.2"}, {"user", "casa"}, {"pass", ""}});
@@ -1829,7 +1829,7 @@ void test_update_saves_automatic() {
     TEST_ASSERT_FALSE(cfg.ota_auto);
     TEST_ASSERT_FALSE(f.ota.automatic());
     TEST_ASSERT_TRUE(contains(f.out(), "off"));
-    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"ota_auto\":false"));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"ota\":false"));
 
     f.post("/update/auto", {{"ota_auto", "1"}});
     TEST_ASSERT_TRUE(cfg.ota_auto);
@@ -2210,7 +2210,7 @@ void test_iot_save_digital_sensor_and_actuator() {
     TEST_ASSERT_TRUE(t.rule);
     TEST_ASSERT_TRUE(t.toggle);
     TEST_ASSERT_TRUE(t.notify);
-    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"sensor\":\"pir\""));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"sen\":\"pir\""));
     TEST_ASSERT_TRUE(f.iot.hasRule());                 // already applied
 
     // No rule: the digital sensor mode is not read
@@ -3121,7 +3121,7 @@ void test_authenticator_is_required() {
     TEST_ASSERT_EQUAL_STRING("/", f.srv.headers["Location"].c_str());
     TEST_ASSERT_EQUAL_MEMORY(key, cfg.totp, Totp::KEY_LEN);
     TEST_ASSERT_TRUE(logHas(logger, "Panel: authenticator on"));
-    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"totp_step\":"));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"ots\":"));
 
     // The signed-in session is a new cookie: one seen during setup is worth nothing
     f.keepCookie();
@@ -3217,7 +3217,7 @@ void test_code_works_once() {
     uint32_t spent = cfg.totpStep;
     TEST_ASSERT_EQUAL_UINT32((uint32_t)(PANEL_TIME / 30), spent);
     TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"],
-                              ("\"totp_step\":" + std::to_string(spent)).c_str()));
+                              ("\"ots\":" + std::to_string(spent)).c_str()));
 
     postLogin(f, "admin", "strong-pass", cur);
     TEST_ASSERT_EQUAL(401, f.srv.code);

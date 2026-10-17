@@ -129,7 +129,7 @@ void test_iot_v2_round_trip() {
     t.linear = true;
     t.thresholdHi = 40;
     TEST_ASSERT_TRUE(store.save());
-    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"v\":2"));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"v\":3"));
 
     config = Config{};
     TEST_ASSERT_TRUE(store.load());
@@ -171,7 +171,7 @@ static const char* V1 = R"({"ssid":"net","iot_sensor":2,"iot_module":0,
 void test_v1_migration_full() {
     MockFS::put("/config.json", V1);
     TEST_ASSERT_TRUE(store.load());
-    TEST_ASSERT_TRUE(logHas(logger, "migrated to v2"));
+    TEST_ASSERT_TRUE(logHas(logger, "migrated to v3"));
     const IoTConfig& t = config.iot;
     TEST_ASSERT_EQUAL_STRING("dht22", t.sensor);
     TEST_ASSERT_EQUAL(2, t.sensorPin);
@@ -202,10 +202,10 @@ void test_v1_migration_full() {
     TEST_ASSERT_EQUAL(70, st.level);
     TEST_ASSERT_EQUAL(120, st.angle);
 
-    // Original kept; the new file is already v2
+    // Original kept; the new file is already the current version
     TEST_ASSERT_EQUAL_STRING(V1, MockFS::files["/config.v1.json"].c_str());
-    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"v\":2"));
-    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"actuator\":\"fan\""));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"v\":3"));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"act\":\"fan\""));
     TEST_ASSERT_EQUAL_STRING("net", config.ssid.c_str());
 }
 
@@ -265,15 +265,70 @@ void test_migration_that_cannot_save_keeps_the_config() {
     TEST_ASSERT_EQUAL_STRING(V1, MockFS::files["/config.json"].c_str());
 }
 
+// A version 2 file (the names in full): every field is read, by the hash of
+// its name, and the next save writes the same values under the three letters
+void test_v2_names_are_read() {
+    MockFS::put("/config.json", "{\"v\":2,"
+        R"("webusr":"usr0","webpss":"pbkdf2:32df4bf98374fb9500b6e2d939aefb9c:a09a1183612299e514bbc7bdcc881f941231a72c","totp":"00112233445566778899aabbccddeeff00112233","totp_step":4,)"
+        R"("totp_bstep":5,"ssid":"sid5","pass":"wpw6","ntfy_topic":"ntt7",)"
+        R"("ntfy_cmd":"ntc8","ntfy_token":"ntk9","ntfy_poll":11,"ntfy_host":"nth11",)"
+        R"("mqtt_host":"mqh12","mqtt_user":"mqu13","mqtt_pass":"mqp14","name":"nam15",)"
+        R"("hostname":"hnm16","hosts":"hst17","tz":19,"bat_sda":20,)"
+        R"("lang":"pt","ota_auto":false,"api_token":"api22","cf_token":"cft23",)"
+        R"("cf_zone":"cfz24","cf_host":"cfh25","cf_record":"cfr26","cf_account":"cfa27",)"
+        R"("relay_host":"rlh28","relay_key":"rlk29","relay_ver":31,"relay_name":"rln31",)"
+        R"("relay_zone":"rlz32","sensor":"sen33","sensor_pin":35,"sensor_high":false,)"
+        R"("sensor_on":"son36","sensor_off":"sof37","metric":39,"unit":40,)"
+        R"("tank_empty":41,"tank_full":42,"tank_l":43,"ppl":44,)"
+        R"("pulse":45,"notify":true,"actuator":"act46","actuator_pin":48,)"
+        R"("actuator_high":true,"angle_on":50,"angle_off":51,"duty_on":52,)"
+        R"("duty_off":53,"leds":54,"max_on":55,"restore":true,)"
+        R"("rule":false,"above":true,"threshold":59,"margin":60,)"
+        R"("toggle":true,"linear":true,"threshold_hi":63,"window":true,)"
+        R"("win_start":65,"win_end":66)"
+        "}");
+    TEST_ASSERT_TRUE(store.load());
+    TEST_ASSERT_TRUE(logHas(logger, "Configuration loaded"));
+    TEST_ASSERT_FALSE(logHas(logger, "Configuration saved"));   // read, not rewritten
+    TEST_ASSERT_TRUE(store.save());
+    TEST_ASSERT_EQUAL_STRING("{\"v\":3,"
+        R"("usr":"usr0","pwd":"pbkdf2:32df4bf98374fb9500b6e2d939aefb9c:a09a1183612299e514bbc7bdcc881f941231a72c","otp":"00112233445566778899aabbccddeeff00112233","ots":4,)"
+        R"("otb":5,"sid":"sid5","wpw":"wpw6","ntt":"ntt7",)"
+        R"("ntc":"ntc8","ntk":"ntk9","ntp":11,"nth":"nth11",)"
+        R"("mqh":"mqh12","mqu":"mqu13","mqp":"mqp14","nam":"nam15",)"
+        R"("hnm":"hnm16","hst":"hst17","tzo":19,"bat":20,)"
+        R"("lng":"pt","ota":false,"api":"api22","cft":"cft23",)"
+        R"("cfz":"cfz24","cfh":"cfh25","cfr":"cfr26","cfa":"cfa27",)"
+        R"("rlh":"rlh28","rlk":"rlk29","rlv":31,"rln":"rln31",)"
+        R"("rlz":"rlz32","sen":"sen33","spn":35,"shi":false,)"
+        R"("son":"son36","sof":"sof37","met":39,"unt":40,)"
+        R"("tke":41,"tkf":42,"tkl":43,"fpl":44,)"
+        R"("pls":45,"ntf":true,"act":"act46","apn":48,)"
+        R"("ahi":true,"ag1":50,"ag0":51,"dt1":52,)"
+        R"("dt0":53,"led":54,"mxo":55,"rst":true,)"
+        R"("rul":false,"abv":true,"thd":59,"mrg":60,)"
+        R"("tgl":true,"lin":true,"thh":63,"win":true,)"
+        R"("wns":65,"wne":66)"
+        "}", MockFS::files["/config.json"].c_str());
+}
+
+// The check behind the static_assert, also at run time, both ways
+void test_keys_are_distinct() {
+    TEST_ASSERT_TRUE(ConfigStore::keysDistinct());
+    const uint16_t same[] = {1, 2, 3, 2};
+    TEST_ASSERT_FALSE(ConfigStore::distinct(same, 4));
+    TEST_ASSERT_TRUE(ConfigStore::distinct(same, 3));
+}
+
 // An OTA that went back: an unknown type stays stored, the file untouched
 void test_newer_version_is_not_rewritten() {
-    const char* v3 = R"({"v":3,"sensor":"laser","sensor_pin":2,"new":1})";
-    MockFS::put("/config.json", v3);
+    const char* v4 = R"({"v":4,"sen":"laser","spn":2,"new":1,"x":1})";
+    MockFS::put("/config.json", v4);
     TEST_ASSERT_TRUE(store.load());
-    TEST_ASSERT_TRUE(logHas(logger, "v3, newer than"));
+    TEST_ASSERT_TRUE(logHas(logger, "v4, newer than"));
     TEST_ASSERT_EQUAL_STRING("laser", config.iot.sensor);
     TEST_ASSERT_EQUAL(2, config.iot.sensorPin);
-    TEST_ASSERT_EQUAL_STRING(v3, MockFS::files["/config.json"].c_str());
+    TEST_ASSERT_EQUAL_STRING(v4, MockFS::files["/config.json"].c_str());
 }
 
 void test_ota_auto_persists() {
@@ -291,7 +346,7 @@ void test_load_record_from_old_list() {
     TEST_ASSERT_TRUE(store.load());
     TEST_ASSERT_EQUAL_STRING("a", config.cf_record);
     TEST_ASSERT_TRUE(store.save());
-    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"cf_record\":\"a\""));
+    TEST_ASSERT_TRUE(contains(MockFS::files["/config.json"], "\"cfr\":\"a\""));
     TEST_ASSERT_FALSE(contains(MockFS::files["/config.json"], "cf_records"));
 
     MockFS::put("/config.json", R"({"v":2,"cf_record":"new","cf_records":["old"]})");
@@ -537,7 +592,7 @@ void test_wrong_types_and_ranges_keep_defaults() {
 void test_odd_version_and_record_list() {
     MockFS::put("/config.json", R"({"v":"2","cf_records":"abc","ssid":"x"})");
     TEST_ASSERT_TRUE(store.load());
-    TEST_ASSERT_TRUE(logHas(logger, "migrated to v2"));
+    TEST_ASSERT_TRUE(logHas(logger, "migrated to v3"));
     TEST_ASSERT_EQUAL_STRING("", config.cf_record);
     TEST_ASSERT_EQUAL_STRING("x", config.ssid.c_str());
 }
@@ -572,11 +627,11 @@ void test_plain_password_becomes_a_hash() {
     TEST_ASSERT_FALSE(logHas(logger, "Configuration saved"));
     TEST_ASSERT_EQUAL_STRING(saved.c_str(), MockFS::files["/config.json"].c_str());
 
-    const char* v3 = R"({"v":3,"webpss":"plain-in-v3"})";
-    MockFS::put("/config.json", v3);
+    const char* v4 = R"({"v":4,"pwd":"plain-in-v4"})";
+    MockFS::put("/config.json", v4);
     TEST_ASSERT_TRUE(store.load());
-    TEST_ASSERT_TRUE(Password::check("plain-in-v3", config.webpss));
-    TEST_ASSERT_EQUAL_STRING(v3, MockFS::files["/config.json"].c_str());
+    TEST_ASSERT_TRUE(Password::check("plain-in-v4", config.webpss));
+    TEST_ASSERT_EQUAL_STRING(v4, MockFS::files["/config.json"].c_str());
 }
 
 void test_save_open_fails() {
@@ -618,6 +673,8 @@ int main() {
     RUN_TEST(test_v1_migration_forced_off_and_types_out_of_table);
     RUN_TEST(test_v1_migration_without_sensor_keeps_module_idle);
     RUN_TEST(test_migration_that_cannot_save_keeps_the_config);
+    RUN_TEST(test_v2_names_are_read);
+    RUN_TEST(test_keys_are_distinct);
     RUN_TEST(test_newer_version_is_not_rewritten);
     RUN_TEST(test_ota_auto_persists);
     RUN_TEST(test_load_record_from_old_list);
