@@ -158,8 +158,10 @@ namespace mock {
     }
 }
 
+// Like the ESP8266 core 3.x: the duty goes from 0 to 255 (analogWriteRange's
+// default); a larger value is full on
 inline void analogWrite(uint8_t pin, int val) {
-    if (pin < 16) mock::analogValue[pin] = val;
+    if (pin < 16) mock::analogValue[pin] = val > 255 ? 255 : val;
 }
 
 inline void pinMode(uint8_t pin, uint8_t mode) {

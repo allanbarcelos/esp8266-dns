@@ -440,17 +440,17 @@ void test_pwm_level() {
     cfg.iot.dutyOff = 20;
     IoTService iot{cfg, logger};
     iot.begin();
-    TEST_ASSERT_EQUAL(20 * 1023 / 100, mock::analogValue[0]);
+    TEST_ASSERT_EQUAL(20 * 255 / 100, mock::analogValue[0]);
     TEST_ASSERT_EQUAL_STRING("off", iot.actuatorText());
     TEST_ASSERT_TRUE(contains(stateOf(iot), "\"capability\":\"level\",\"on\":false"));
     TEST_ASSERT_TRUE(contains(stateOf(iot), "\"level\":80"));
 
     iot.command("on", 0);
-    TEST_ASSERT_EQUAL(80 * 1023 / 100, mock::analogValue[0]);
+    TEST_ASSERT_EQUAL(80 * 255 / 100, mock::analogValue[0]);
     TEST_ASSERT_EQUAL_STRING("on 80%", iot.actuatorText());
 
     iot.command("35%", 0);
-    TEST_ASSERT_EQUAL(35 * 1023 / 100, mock::analogValue[0]);
+    TEST_ASSERT_EQUAL(35 * 255 / 100, mock::analogValue[0]);
     TEST_ASSERT_EQUAL(35, iot.level());
 
     iot.command("level 0", 0);                         // 0% = off
@@ -469,7 +469,7 @@ void test_pwm_level() {
     cfg.iot.dutyOn = 250;
     cfg.iot.dutyOff = 250;
     iot.begin();
-    TEST_ASSERT_EQUAL(1023, mock::analogValue[1]);
+    TEST_ASSERT_EQUAL(255, mock::analogValue[1]);
     actuator("", -1);
     iot.begin();
     TEST_ASSERT_EQUAL(0, mock::analogValue[1]);
@@ -1281,7 +1281,7 @@ void test_proportional_outside_window() {
     iot.tick(IoTService::PULSE_WINDOW_MS + 1);
     TEST_ASSERT_FALSE(iot.actuatorOn());
     TEST_ASSERT_EQUAL(20, iot.level());
-    TEST_ASSERT_EQUAL(20 * 1023 / 100, mock::analogValue[0]);
+    TEST_ASSERT_EQUAL(20 * 255 / 100, mock::analogValue[0]);
     at(9, 0);
     iot.tick(IoTService::PULSE_WINDOW_MS + 2);
     TEST_ASSERT_TRUE(iot.actuatorOn());
@@ -1460,7 +1460,7 @@ void test_proportional_level() {
         feedDs(2, true, true, b, 9);
         iot.tick(t);
         iot.tick(t + IoTService::DS_CONVERT_MS);
-        TEST_ASSERT_EQUAL(r.duty * 1023 / 100, mock::analogValue[0]);
+        TEST_ASSERT_EQUAL(r.duty * 255 / 100, mock::analogValue[0]);
         t += IoTService::READ_GAP_MS;
     }
     TEST_ASSERT_TRUE(iot.actuatorOn());
@@ -1473,7 +1473,7 @@ void test_proportional_level() {
     feedDs(2, true, true, b25, 9);
     iot.tick(0);
     iot.tick(IoTService::DS_CONVERT_MS);
-    TEST_ASSERT_EQUAL(1023, mock::analogValue[0]);
+    TEST_ASSERT_EQUAL(255, mock::analogValue[0]);
     uint8_t b10[] = {0xA0, 0x00, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10, 0x00};
     uint8_t crc = 0;
     for (int i = 0; i < 8; i++) {
@@ -1509,7 +1509,7 @@ void test_proportional_level() {
     cfg.iot.linear = true;
     iot.begin();
     level(iot, 2, HIGH, 0);
-    TEST_ASSERT_EQUAL(60 * 1023 / 100, mock::analogValue[0]);
+    TEST_ASSERT_EQUAL(60 * 255 / 100, mock::analogValue[0]);
 }
 
 // Distance and pulses have no tenths; proportional asked for a relay is ignored

@@ -491,7 +491,8 @@ private:
                 digitalWrite(pin, _on == _r.actuatorHigh ? HIGH : LOW);
                 break;
             case iot::C_LEVEL:
-                analogWrite(pin, (int)(_on ? _level : _r.dutyOff) * 1023 / 100);
+                // Core 3.x: duty from 0 to 255 by default (above it, full on)
+                analogWrite(pin, (int)(_on ? _level : _r.dutyOff) * 255 / 100);
                 break;
             case iot::C_POSITION:
                 if (_servoOk) _servo.write(angle());
@@ -805,21 +806,27 @@ private:
         pinMode(pin, OUTPUT);
         digitalWrite(pin, LOW);
         delayMicroseconds(480);
+        noInterrupts();
         pinMode(pin, INPUT_PULLUP);
         delayMicroseconds(70);
         bool presence = digitalRead(pin) == LOW;
+        interrupts();
         delayMicroseconds(410);
         return presence;
     }
 
+    // Each bit slot (up to 70 µs) with interrupts off: a Wi-Fi interrupt
+    // inside the 15 µs window turns a 1 into a 0
     void _owWriteByte(uint8_t v) {
         uint8_t pin = (uint8_t)_r.sensorPin;
         for (int i = 0; i < 8; i++) {
             int bit = v & 1;
+            noInterrupts();
             pinMode(pin, OUTPUT);
             digitalWrite(pin, LOW);
             delayMicroseconds(bit ? 6 : 60);
             pinMode(pin, INPUT_PULLUP);
+            interrupts();
             delayMicroseconds(bit ? 64 : 10);
             v = (uint8_t)(v >> 1);
         }
@@ -829,12 +836,14 @@ private:
         uint8_t pin = (uint8_t)_r.sensorPin;
         uint8_t v = 0;
         for (int i = 0; i < 8; i++) {
+            noInterrupts();
             pinMode(pin, OUTPUT);
             digitalWrite(pin, LOW);
             delayMicroseconds(3);
             pinMode(pin, INPUT_PULLUP);
             delayMicroseconds(8);
             if (digitalRead(pin) == HIGH) v = (uint8_t)(v | (1 << i));
+            interrupts();
             delayMicroseconds(50);
         }
         return v;
