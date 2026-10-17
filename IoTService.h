@@ -998,7 +998,8 @@ private:
         delayMicroseconds(10);
         digitalWrite(pin, LOW);
         pinMode(pin, INPUT);
-        if (!_waitLevel(HIGH, 30000)) return false;
+        // The echo starts about 0.5 ms after the trigger: no sensor, no 30 ms wait
+        if (!_waitLevel(HIGH, 2000)) return false;
         unsigned long start = micros();
         if (!_waitLevel(LOW, 30000)) return false;
         int v = (int)((unsigned long)(micros() - start) / 58);

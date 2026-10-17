@@ -200,6 +200,7 @@ struct MockConn {
     bool        closed = false;   // the device called stop()
     uint32_t    ip     = 0x0A01A8C0;   // the browser's address (192.168.1.10)
     int         writes = 0;
+    bool        noDelay = false;  // Nagle off (setNoDelay)
     // A slow client: once rx runs out, one byte of drip arrives every dripMs
     std::string   drip;
     unsigned long dripMs = 0;
@@ -239,6 +240,7 @@ public:
         return write(reinterpret_cast<const uint8_t*>(s), std::strlen(s));
     }
     virtual bool   connected()                 { return _conn && !_conn->closed && (_conn->open || available()); }
+    void           setNoDelay(bool on)         { if (_conn) _conn->noDelay = on; }
     virtual int    connect(const char*, uint16_t) { return 0; }
     void setTimeout(unsigned long ms);
     virtual void stop(unsigned int = 0) {

@@ -319,7 +319,8 @@ void test_page_in_pieces() {
     TEST_ASSERT_EQUAL_STRING("no-store", p.b.headers["Cache-Control"].c_str());
     TEST_ASSERT_EQUAL(0, (int)p.b.headers.count("Content-Length"));
     TEST_ASSERT_TRUE(p.b.out == "<p>" + big + "</p>");
-    TEST_ASSERT_TRUE(p.b.conn->writes >= 3);   // the buffer flushed halfway
+    TEST_ASSERT_EQUAL(2, p.b.conn->writes);    // one full segment (536 bytes), then the rest
+    TEST_ASSERT_TRUE(p.b.conn->noDelay);       // each goes out at once
     TEST_ASSERT_TRUE(p.b.conn->closed);
 }
 

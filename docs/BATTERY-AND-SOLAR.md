@@ -12,7 +12,7 @@ The battery and the panel sit in the supply path, before the 3.3 V pin. Today's 
 - The panel goes into the charger, not a GPIO. For a panel, the charger has to be made for a solar source (for example the CN3791). The TP4056 expects a fixed 5 V from USB and behaves badly with a panel.
 - A capacitor of a few hundred µF on the regulator output holds the Wi-Fi peak, which goes past 300 mA. Without it the device reboots when connecting.
 
-This firmware keeps the radio awake all the time. The numbers work with a cell of about 2000 mAh and a panel of about 1 to 2 W in a sunny spot. A small cell or an indoor panel does not last the night.
+This firmware keeps the radio awake all the time, with the CPU at 160 MHz (TLS handshakes in about half the time of 80 MHz; the CPU adds roughly 10 to 15 mA to the radio's ~70 mA average). The numbers work with a cell of about 2000 mAh and a panel of about 1 to 2 W in a sunny spot. A small cell or an indoor panel does not last the night.
 
 ## Charge on screen, without touching the sensor or the actuator
 

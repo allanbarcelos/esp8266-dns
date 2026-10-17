@@ -64,6 +64,9 @@ public:
             _client.stop();
             _client = _server.accept();
             if (!_client) return;
+            // Each write is a whole segment (_out): no wait for the browser's
+            // delayed ACK between them
+            _client.setNoDelay(true);
             _since = millis();
         }
         if (!_client.available()) {
@@ -160,7 +163,10 @@ private:
     bool    _form   = false;
     size_t  _length = 0;
 
-    char    _out[256] = {};
+    // One TCP segment of this lwIP (TCP_MSS 536): half as many packets as
+    // 256, and through the relay half as many frames
+    static constexpr size_t OUT_LEN = 536;
+    char    _out[OUT_LEN] = {};
     size_t  _used = 0;
 
     void _serve() {

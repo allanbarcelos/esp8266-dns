@@ -13,14 +13,14 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Compile (ESP-01 1MB, 64KB FS, 400KB OTA reserve, lwIP without extras)
+    - name: Compile (ESP-01 1MB, 64KB FS, 400KB OTA reserve, lwIP without extras, 160 MHz)
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
       run: |
         python3 tools/ota_flash_ld.py
         arduino-cli compile \
-          --fqbn esp8266:esp8266:generic:eesz=1M64,ip=lm2n \
+          --fqbn esp8266:esp8266:generic:eesz=1M64,ip=lm2n,xtal=160 \
           --build-property "build.flash_ld=eagle.flash.1m64.ota.ld" \
           --build-property "build.float=" \
           --build-property "build.extra_flags=-Dfirmware_version=\"$VERSION\" -DARDUINO_SIGNING=1 -DLFS_NO_ASSERT" \

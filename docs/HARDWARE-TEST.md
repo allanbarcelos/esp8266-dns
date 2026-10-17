@@ -63,6 +63,8 @@ Flash again **without** erasing: the AP password must stay the same. Then flash 
 
 **Panel layout:** on a computer the side menu stays open, with the current page marked; on a phone it opens from the button at the top and closes on a tap outside it or Esc. **Home** shows the Cloudflare card only with a token. **Unregister** (Settings) asks first; after it, Home has no Cloudflare card, the Cloudflare page points to Settings, and DDNS and the relay stop.
 
+**Speed (160 MHz, whole-segment writes):** Status shows the slowest loop; the first public IP check was about 5.4 s at 80 MHz and should be around half now. A page (Home, IoT) should open in well under a second at home.
+
 ## 6. ntfy (if used)
 
 1. On the **Ntfy** page, enter a data topic and generate a command topic with the button.
