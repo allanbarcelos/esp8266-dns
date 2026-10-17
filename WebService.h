@@ -344,6 +344,19 @@ private:
     static constexpr char S_UNKNOWN_ZONE[] PROGMEM = L_UNKNOWN_ZONE;
     static constexpr char S_TYPE[] PROGMEM = L_TYPE;
     static constexpr char S_PIN[] PROGMEM = L_PIN;
+    static constexpr char S_F_NAME[] PROGMEM = "name";
+    static constexpr char S_F_ZONE[] PROGMEM = "zone";
+    static constexpr char S_F_TOKEN[] PROGMEM = "token";
+    static constexpr char S_F_HOST[] PROGMEM = "host";
+    static constexpr char S_F_PASS1[] PROGMEM = "pass1";
+    static constexpr char S_F_PASS2[] PROGMEM = "pass2";
+    static constexpr char S_LABEL_END[] PROGMEM = "></label>";
+    static constexpr char S_CHARGE[] PROGMEM = L_CHARGE;
+    static constexpr char S_TOTAL[] PROGMEM = "Total";
+    static constexpr char S_RSSI[] PROGMEM = "RSSI";
+    static constexpr char S_DDNS[] PROGMEM = "DDNS";
+    static constexpr char S_PERCENT[] PROGMEM = "%u%%";
+    static constexpr char S_DBM[] PROGMEM = "%d dBm";
 
     // The relay Worker's intervals for the ntfy commands, in seconds (relay/worker.mjs POLLS)
     static constexpr uint8_t POLLS[] = {2, 5, 10, 30};
@@ -826,6 +839,16 @@ private:
         _p(S_TAG_END);
     }
 
+    // A POST form with its CSRF field; attrs (data-q, id) go in the tag
+    void _form(PGM_P action, PGM_P attrs = nullptr, bool signIn = false) {
+        _p(PSTR("<form action='"));
+        _p(action);
+        _p(PSTR("' method='POST'"));
+        if (attrs) _p(attrs);
+        _p(PSTR(">"));
+        _csrfField(signIn);
+    }
+
     // Authenticator code, plus the browser's clock (t, filled in by i18n.js
     // when the form is sent; see _codeTime)
     void _codeInput() {
@@ -867,7 +890,7 @@ private:
         _e(value);
         _p(PSTR("' "));
         _p(extra);
-        _p(PSTR("></label>"));
+        _p(S_LABEL_END);
     }
 
     void _passwordInput(PGM_P label, PGM_P name, PGM_P extra, PGM_P complete = nullptr) {
@@ -878,7 +901,7 @@ private:
         _p(name);
         _p(PSTR("' "));
         _p(extra);
-        _p(PSTR("></label>"));
+        _p(S_LABEL_END);
     }
 
     // Checkbox (on/off), checked or not
@@ -976,16 +999,15 @@ private:
 
         if (_wifi.inConfigMode()) {
             _alertP(S_WARNING, PSTR(L_SETUP_MODE));
-            _p(PSTR("<form action='/save' method='POST'>"));
-            _csrfField();
+            _form(P_SAVE);
             _input(S_SSID, PSTR("ssid"), _cfg.ssid.c_str(), S_REQ32);
             _passwordInput(PSTR(L_WIFI_PASSWORD), S_F_PASS, S_MAX63);
             if (_cfg.webpss.length() == 0) {
                 _p(PSTR("<h2>" L_PANEL_ACCESS "</h2>"));
                 _input(S_USER, S_F_USER, _cfg.webusr.length() ? _cfg.webusr.c_str() : "admin",
                        S_REQ32);
-                _passwordInput(PSTR(L_PANEL_PASS_MIN), PSTR("pass1"), S_PASS8);
-                _passwordInput(S_CONFIRM_PASS, PSTR("pass2"), S_PASS8);
+                _passwordInput(PSTR(L_PANEL_PASS_MIN), S_F_PASS1, S_PASS8);
+                _passwordInput(S_CONFIRM_PASS, S_F_PASS2, S_PASS8);
             }
             _button(PSTR(L_CONNECT));
         } else {
@@ -995,7 +1017,7 @@ private:
             _row(S_SSID,       WiFi.SSID());
             _row(PSTR(L_LOCAL_IP),   WiFi.localIP().toString());
             _row(S_PUBLIC_IP, _cfg.publicIP[0] ? _cfg.publicIP : "-");
-            _rowf(PSTR("RSSI"),      PSTR("%d dBm"), (int)WiFi.RSSI());
+            _rowf(S_RSSI,      S_DBM, (int)WiFi.RSSI());
             _boxEnd();
 
             // The parts in use: sensor and actuator, then Cloudflare once it has a token
@@ -1006,7 +1028,7 @@ private:
                 _box(S_CLOUDFLARE);
                 _row(PSTR(L_REMOTE), _cfg.relay_host[0] ? _cfg.relay_host : "-");
                 if (_cfg.relay_host[0] && _relay) _row(S_CONNECTION, _relay->status());
-                _row(PSTR("DDNS"), _cfg.cf_host[0] ? _cfg.cf_host : "-");
+                _row(S_DDNS, _cfg.cf_host[0] ? _cfg.cf_host : "-");
                 _row(PSTR(L_LAST_UPDATE), _ago(_cfg.lastDnsUpdate != 0, _cfg.lastDnsUpdate, b));
                 _boxEnd();
             }
@@ -1026,9 +1048,8 @@ private:
         _pageBegin();
         _title(PSTR(L_SETTINGS));
         _box(PSTR(L_GENERAL));
-        _p(PSTR("<form action='/config/save' method='POST'>"));
-        _csrfField();
-        _input(PSTR(L_NAME " <span class='m'>" L_NAME_HINT "</span>"), PSTR("name"),
+        _form(P_CONFIG_SAVE);
+        _input(PSTR(L_NAME " <span class='m'>" L_NAME_HINT "</span>"), S_F_NAME,
                _cfg.dev_name, PSTR("maxlength='31' placeholder='ESP8266 DNS'"));
         _input(PSTR("Hostname <span class='m'>" L_HOSTNAME_HINT "</span>"),
                PSTR("hostname"), _cfg.hostname,
@@ -1053,17 +1074,15 @@ private:
             _alert(S_SUCCESS, L_TOKEN_SET " " + maskSecret(_cfg.cf_token));
         else
             _alertP(S_WARNING, PSTR(L_TOKEN_NOT_SET));
-        _p(PSTR("<form action='/cloudflare/save' method='POST'>"));
-        _csrfField();
+        _form(P_CLOUDFLARE_SAVE);
         // An empty field keeps the current token and checks it again
         _passwordInput(PSTR(L_API_TOKEN " <span class='m'>" L_KEEP_BLANK "</span>"),
-                       PSTR("token"), PSTR("placeholder='" L_NEW_TOKEN "' maxlength='79' pattern='[A-Za-z0-9_\\-]*'"));
+                       S_F_TOKEN, PSTR("placeholder='" L_NEW_TOKEN "' maxlength='79' pattern='[A-Za-z0-9_\\-]*'"));
         _p(PSTR("<p class='m'>" L_CF_TOKEN_HELP "</p>"));
         _button(PSTR(L_CF_CHECK));
         if (_cfg.cf_token[0]) {
             // i18n.js asks for confirmation (data-q) before it goes
-            _p(PSTR("<form action='/cloudflare/clear' method='POST' data-q='" L_CF_CLEAR_ASK "'>"));
-            _csrfField();
+            _form(P_CLOUDFLARE_CLEAR, PSTR(" data-q='" L_CF_CLEAR_ASK "'"));
             _p(PSTR("<button class='bx'>" L_CF_CLEAR "</button></form>"));
         }
         _boxEnd();
@@ -1219,7 +1238,7 @@ private:
         _box(PSTR(L_MEMORY));
         _row(PSTR(L_FREE_HEAP),   formatBytes(ESP.getFreeHeap(), b));
         _row(PSTR(L_LARGEST_BLOCK),  formatBytes(ESP.getMaxFreeBlockSize(), b));
-        _rowf(PSTR(L_FRAGMENTATION), PSTR("%u%%"), (unsigned)ESP.getHeapFragmentation());
+        _rowf(PSTR(L_FRAGMENTATION), S_PERCENT, (unsigned)ESP.getHeapFragmentation());
         if (_net) {
             char q[NetArbiter::QUEUE_LEN];
             _row(PSTR(L_NET_TURN), _net->queue(q));
@@ -1232,7 +1251,7 @@ private:
         _boxEnd();
 
         _box(PSTR("Flash"));
-        _row(PSTR("Total"),      formatBytes(ESP.getFlashChipSize(), b));
+        _row(S_TOTAL,      formatBytes(ESP.getFlashChipSize(), b));
         _row(PSTR("Sketch"),     formatBytes(ESP.getSketchSize(), b));
         _row(PSTR(L_OTA_RESERVE), formatBytes(FlashLayout::OTA_RESERVE, b));
         _row(PSTR(L_FREE),      formatBytes(ESP.getFreeSketchSpace(), b));
@@ -1241,7 +1260,7 @@ private:
         _box(PSTR("LittleFS"));
         FSInfo fs;
         LittleFS.info(fs);
-        _row(PSTR("Total"), formatBytes((uint32_t)fs.totalBytes, b));
+        _row(S_TOTAL, formatBytes((uint32_t)fs.totalBytes, b));
         _row(PSTR(L_USED), formatBytes((uint32_t)fs.usedBytes, b));
         Dir dir = LittleFS.openDir("/");
         int fc = 0;
@@ -1257,7 +1276,7 @@ private:
         _ipRow(PSTR(L_NETMASK), con, WiFi.subnetMask());
         _ipRow(PSTR("DNS"),     con, WiFi.dnsIP());
         _row(PSTR("MAC"),     WiFi.macAddress());
-        _rowf(PSTR("RSSI"),   PSTR("%d dBm"), (int)WiFi.RSSI());
+        _rowf(S_RSSI,   S_DBM, (int)WiFi.RSSI());
         _boxEnd();
 
         if (_power && _power->configured()) {
@@ -1267,11 +1286,11 @@ private:
             unsigned mv = _power->millivolts();
             int r = _power->rateTenths();
             if (ok) {
-                _rowf(PSTR(L_CHARGE),  PSTR("%u%%"), (unsigned)_power->percent());
+                _rowf(S_CHARGE,  S_PERCENT, (unsigned)_power->percent());
                 _rowf(S_VOLTAGE, PSTR("%u.%02u V"), mv / 1000u, (mv % 1000u) / 10u);
                 _rowf(S_RATE,    PSTR("%s%d.%d %%/h"), r < 0 ? "-" : "", abs(r) / 10, abs(r) % 10);
             } else {
-                _row(PSTR(L_CHARGE), "-");
+                _row(S_CHARGE, "-");
                 _row(S_VOLTAGE, "-");
                 _row(S_RATE, "-");
             }
@@ -1327,30 +1346,27 @@ private:
             _e(_cfg.relay_host);
             _p(PSTR("</a></p>"));
         }
-        _p(PSTR("<form action='/remote/save' method='POST'>"));
-        _csrfField();
-        _selectOpen(PSTR(L_ADDRESS), PSTR("zone"));
+        _form(P_REMOTE_SAVE);
+        _selectOpen(PSTR(L_ADDRESS), S_F_ZONE);
         CloudflareSetup::Zone z;
         File f = LittleFS.open(CloudflareSetup::ZONES_PATH, "r");
         while (f && CloudflareSetup::next(f, z)) _zoneOption(z.id, z.name, strcmp(z.id, _cfg.relay_zone) == 0);
         if (f) f.close();
         _option("", PSTR("workers.dev"), !_cfg.relay_zone[0]);
         _selectEnd();
-        _input(PSTR(L_REMOTE_NAME), PSTR("name"), _cfg.relay_name,
+        _input(PSTR(L_REMOTE_NAME), S_F_NAME, _cfg.relay_name,
                PSTR("required maxlength='32' placeholder='esp-pump' pattern='[a-z0-9\\-]+'"));
         _input(PSTR(L_WD_NAME), PSTR("wd"), "", PSTR("maxlength='63' pattern='[a-z0-9\\-]*'"));
         _button(PSTR(L_REMOTE_ON));
         if (_cfg.relay_host[0]) {
-            _p(PSTR("<form action='/remote/off' method='POST'>"));
-            _csrfField();
+            _form(P_REMOTE_OFF);
             _p(PSTR("<button class='b2'>" L_REMOTE_OFF "</button></form>"));
         }
         _boxEnd();
 
-        _box(PSTR("DDNS"));
-        _p(PSTR("<form action='/cloudflare/ddns' method='POST'>"));
-        _csrfField();
-        _selectOpen(PSTR(L_DOMAIN), PSTR("zone"));
+        _box(S_DDNS);
+        _form(P_CLOUDFLARE_DDNS);
+        _selectOpen(PSTR(L_DOMAIN), S_F_ZONE);
         _option("", PSTR(L_OFF_CAP), !_cfg.cf_zone[0]);
         bool listed = false;
         f = LittleFS.open(CloudflareSetup::ZONES_PATH, "r");
@@ -1362,7 +1378,7 @@ private:
         if (f) f.close();
         if (_cfg.cf_zone[0] && !listed) _zoneOption(_cfg.cf_zone, _cfg.cf_zone, true);
         _selectEnd();
-        _input(PSTR(L_RECORD_NAME), PSTR("name"), _cfg.cf_host,
+        _input(PSTR(L_RECORD_NAME), S_F_NAME, _cfg.cf_host,
                PSTR("maxlength='63' placeholder='home.example.com' pattern='[A-Za-z0-9.\\-]*'"));
         _p(PSTR("<p class='m'>" L_RECORD_HELP "</p>"));
         _button(S_SAVE);
@@ -1467,9 +1483,8 @@ private:
             _boxEnd();
         }
 
-        _p(PSTR("<form action='/ntfy/save' method='POST'>"));
-        _csrfField();
-        _input(PSTR(L_NTFY_HOST), PSTR("host"), _cfg.ntfy_host, PSTR("maxlength='63' autocapitalize='none' placeholder='ntfy.sh'"));
+        _form(P_NTFY_SAVE);
+        _input(PSTR(L_NTFY_HOST), S_F_HOST, _cfg.ntfy_host, PSTR("maxlength='63' autocapitalize='none' placeholder='ntfy.sh'"));
         _p(PSTR("<p class='m'>" L_NTFY_HOST_HELP "</p>"));
         _input(PSTR(L_NTFY_TOPIC), PSTR("topic"), _cfg.ntfy_topic,
                PSTR("maxlength='63' pattern='[A-Za-z0-9_\\-]*' placeholder='my-secret-topic'"));
@@ -1480,7 +1495,7 @@ private:
                 "crypto.getRandomValues(a);document.getElementById('cmd').value='cmd-'+"
                 "Array.from(a,function(b){return('0'+b.toString(16)).slice(-2)}).join('')\">"
                 L_GEN_RANDOM "</button><p class='m'>" L_CMD_TOPIC_HELP "</p>"));
-        _passwordInput(PSTR(L_NTFY_TOKEN " <span class='m'>" L_OPTIONAL_KEEPS "</span>"), PSTR("token"),
+        _passwordInput(PSTR(L_NTFY_TOKEN " <span class='m'>" L_OPTIONAL_KEEPS "</span>"), S_F_TOKEN,
                        PSTR("maxlength='47' placeholder='tk_...'"));
         _switch(PSTR("token_clear"), PSTR(L_DELETE_TOKEN), false);
         // With remote access on, how often the Worker checks the command topic
@@ -1663,9 +1678,8 @@ private:
             _row(PSTR(L_TOPICS), String(_mqtt->base()) + "/state, /cmd, /avail");
             _boxEnd();
         }
-        _p(PSTR("<form action='/mqtt/save' method='POST'>"));
-        _csrfField();
-        _input(PSTR("Broker <span class='m'>" L_BROKER_HINT "</span>"), PSTR("host"),
+        _form(P_MQTT_SAVE);
+        _input(PSTR("Broker <span class='m'>" L_BROKER_HINT "</span>"), S_F_HOST,
                _cfg.mqtt_host, PSTR("maxlength='63' placeholder='192.168.1.10:1883'"));
         _input(S_USER, S_F_USER, _cfg.mqtt_user,
                PSTR("maxlength='31' autocomplete='off'"));
@@ -1724,12 +1738,11 @@ private:
 
     // The password forms: on their own page for the first setup, and on Settings
     void _passwordForm() {
-        _p(PSTR("<form action='/password/save' method='POST'>"));
-        _csrfField();
+        _form(P_PASSWORD_SAVE);
         _input(S_USER, S_F_USER, _cfg.webusr.length() ? _cfg.webusr.c_str() : "admin",
                S_REQ32);
-        _passwordInput(PSTR(L_NEW_PASS_MIN), PSTR("pass1"), S_PASS8);
-        _passwordInput(S_CONFIRM_PASS, PSTR("pass2"), S_PASS8);
+        _passwordInput(PSTR(L_NEW_PASS_MIN), S_F_PASS1, S_PASS8);
+        _passwordInput(S_CONFIRM_PASS, S_F_PASS2, S_PASS8);
         if (_cfg.webpss.length()) {
             _passwordInput(S_CURRENT_PASS, S_F_PASS, S_REQ64,
                            S_CURRENT_PASS_AC);
@@ -1739,8 +1752,8 @@ private:
     }
 
     void _mfaResetForm() {
-        _p(PSTR("<form action='/mfa/reset' method='POST'><p class='m'>" L_MFA_REPLACE_HELP "</p>"));
-        _csrfField();
+        _form(P_MFA_RESET);
+        _p(PSTR("<p class='m'>" L_MFA_REPLACE_HELP "</p>"));
         _passwordInput(S_CURRENT_PASS, S_F_PASS, S_REQ64,
                        S_CURRENT_PASS_AC);
         _codeInput();
@@ -1769,8 +1782,7 @@ private:
         _title(S_SIGN_IN);
         if (err) _alertP(warn ? S_WARNING : S_DANGER, err);
         else if (!_mfaOn()) _alertP(S_WARNING, PSTR(L_MFA_NEXT));
-        _p(PSTR("<form action='/login' method='POST'>"));
-        _csrfField(true);
+        _form(P_LOGIN, nullptr, true);
         _input(S_USER, S_F_USER, _cfg.webusr.c_str(),
                PSTR("required maxlength='32' autocomplete='username'"));
         _passwordInput(PSTR(L_PASSWORD), S_F_PASS, S_REQ64,
@@ -1801,8 +1813,7 @@ private:
         if (err) _alertP(warn ? S_WARNING : S_DANGER, err);
         _p(PSTR("<p class='m'>" L_MFA_HELP "</p>"));
         _showKey();
-        _p(PSTR("<form action='/mfa' method='POST'>"));
-        _csrfField();
+        _form(P_MFA);
         _codeInput();
         _button(S_SAVE);
         _pageEnd();
@@ -2024,18 +2035,15 @@ private:
             _row(S_STATE, _ota.detail());
         _boxEnd();
 
-        _p(PSTR("<form action='/update/auto' method='POST'>"));
-        _csrfField();
+        _form(P_UPDATE_AUTO);
         _switch(PSTR("ota_auto"), PSTR(L_AUTO_UPDATE), _cfg.ota_auto);
         _p(PSTR("<button class='b2'>" L_SAVE "</button></form>"));
 
-        _p(PSTR("<form action='/update/check' method='POST'>"));
-        _csrfField();
+        _form(P_UPDATE_CHECK);
         _button(PSTR(L_CHECK_NOW));
 
         if (_ota.availableVersion()[0] != '\0' && !_ota.inProgress()) {
-            _p(PSTR("<form action='/update/install' method='POST'>"));
-            _csrfField();
+            _form(P_UPDATE_INSTALL);
             _button(PSTR(L_INSTALL_VERSION));
         }
         _pageEnd();
@@ -2133,8 +2141,7 @@ private:
         // Something set up: Reconfigure clears it all (asks twice, with the
         // password and a code) for a new setup
         if ((t.sensor[0] && t.sensorPin >= 0) || (t.actuator[0] && t.actuatorPin >= 0)) {
-            _p(PSTR("<form action='/iot/clear' method='POST'>"));
-            _csrfField();
+            _form(P_IOT_CLEAR);
             _p(PSTR("<button class='b2'>" L_RECONFIGURE "</button></form>"));
         }
 
@@ -2143,8 +2150,7 @@ private:
                 "alt='" L_PINOUT_ALT "'></figure>"));
 
         // The fields come from iot.js, from the saved setup (CF, _setupScript)
-        _p(PSTR("<form action='/iot/save' method='POST' id='fm'>"));
-        _csrfField();
+        _form(P_IOT_SAVE, PSTR(" id='fm'"));
         _p(PSTR("</form>"));
         if (_iot.hasSensor() || _iot.hasActuator()) _apiBox();
 
@@ -2518,8 +2524,7 @@ private:
             _title(PSTR(L_RECONFIGURE));
             _alertP(S_WARNING,
                     PSTR(L_REMOVE_WARNING));
-            _p(PSTR("<form action='/iot/clear' method='POST' data-q='" L_IOT_CLEAR_ASK "'>"));
-            _csrfField();
+            _form(P_IOT_CLEAR, PSTR(" data-q='" L_IOT_CLEAR_ASK "'"));
             if (locked) {
                 _passwordInput(S_CURRENT_PASS, S_F_PASS, S_REQ64, S_CURRENT_PASS_AC);
                 _codeInput();
@@ -2562,8 +2567,7 @@ private:
             _p(PSTR("/api/cmd</pre>"));
         }
         _boxEnd();
-        _p(PSTR("<form action='/iot/token' method='POST'>"));
-        _csrfField();
+        _form(P_IOT_TOKEN);
         _p(_cfg.api_token[0] ? PSTR("<button class='b2'>" L_GEN_NEW_TOKEN "</button></form>")
                              : PSTR("<button class='b2'>" L_GEN_TOKEN "</button></form>"));
     }
