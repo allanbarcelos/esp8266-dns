@@ -381,7 +381,7 @@ node --test web/iot.test.mjs        # the panel's IoT script
 ./test/coverage.sh        # requires gcc (Linux) — same command as CI
 ```
 
-Tests run on the computer, with the core simulated. Before calling a version stable, run the [on-device checklist](docs/HARDWARE-TEST.md) on an ESP-01.
+Tests run on the computer, with the core simulated; every release also runs on a real ESP-01 before the next change ([on-device checklist](docs/HARDWARE-TEST.md)).
 
 ---
 

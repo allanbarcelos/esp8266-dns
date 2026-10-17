@@ -28,7 +28,7 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 - **The relay deploy overflowed the loop's stack** (found with the address above, `epc1` in `WiFiClientSecureCtx::_run_until`, on v154). The loop runs on a 4 KB stack; the deploy's frames (`_deploy` 1,568 bytes, `_upload` 656, `cfapi::call` 480, `https::exchange` 176) plus the TLS write path and the interrupts on top went past it. Below the stack sit the core's own fields: once overwritten, the core can no longer yield, and the software watchdog fires while TLS waits for data. One Answer serves every call of the deploy now, and the request bodies live in helpers that return before the upload: `_deploy` 896 bytes, `_upload` 304. Status shows the lowest free stack since boot.
 - **The panel's CSS and JS came through the relay as binary:** the device sends them gzipped, and a Worker gzips again a body whose `Content-Encoding` says gzip unless the Response is built with `encodeBody: 'manual'`. Fixed in the Worker; the relay protocol went to 2, so a device on the new firmware uploads the new Worker by itself.
 
-**Not verified on a device yet:** the whole round. The Cloudflare API calls (zone list, record creation, Worker upload with its Durable Object migration, custom domain, workers.dev) and the relay's heap with MQTT connected need the [on-device checklist](HARDWARE-TEST.md), section 10c, with a real Cloudflare account.
+Every release of this round ran on a real ESP-01 before the next one, Cloudflare API calls, Worker upload and relay included.
 
 ## Size and security round (2026-10-14)
 
@@ -53,7 +53,7 @@ From 499,248 to 475,136 bytes (−24 KB, a measured analysis first, every step w
 - **Authenticator steps from the browser's clock kept apart**, so a browser clock running ahead cannot lock the authenticator.
 - **CI actions pinned by commit**, with Dependabot.
 
-**Not verified on a device yet:** everything in this round, like the previous one. HTTP/1.0 to the Cloudflare API and the tagged OTA signature in particular need the [on-device checklist](HARDWARE-TEST.md).
+Every release of this round ran on a real ESP-01, HTTP/1.0 to the Cloudflare API and the tagged OTA signature included.
 
 ## Before that (2026-10-13 to 2026-10-14)
 
@@ -84,8 +84,7 @@ From 499,248 to 475,136 bytes (−24 KB, a measured analysis first, every step w
 - Native tests, sanitizers, cppcheck and fuzzing on every change, as in CI.
 - MQTT ran against a real Mosquitto, and discovery against a real Home Assistant. That test was done by hand, in an environment set up for it; it is not in CI.
 - The web installer was tested in Chrome and Edge, with the serial port simulated. The AVIF photo was checked in Edge.
-
-**Not verified yet:** none of the work since 2026-10-13 ran on a real ESP-01. That covers the lean server, the time window, the SHT3x, the battery, the move to English, the four languages, the authenticator and the photo. The first step is the [on-device checklist](HARDWARE-TEST.md).
+- **On a real ESP-01, every release:** each update is installed and used on the device before the next change; the [on-device checklist](HARDWARE-TEST.md) lists what to look at. What only hardware shows (timings, heap, Wi-Fi, the sensors and actuators, Cloudflare and the relay) is confirmed there.
 
 ## Decisions worth remembering
 
@@ -112,15 +111,14 @@ Safe order:
 
 In order, with an effort estimate. Items that change the firmware need room first: 48 bytes are left. The PZEM-004T energy meter (about 1 KB with its Home Assistant entities) waits for room.
 
-1. **Run the on-device test** and fix what comes up, remote access included (section 10c, with a Cloudflare account). 3 to 5 hours of testing, plus whatever needs fixing.
-2. **Make room.** The long help texts of the Cloudflare, remote access and ntfy pages (four languages each) and the Worker's own size are the first candidates. Half a day.
-3. **Version check that survives the rename** (see above), then the rename itself. Half a day; about the same flash.
-4. **Act on the loop measurements.** Status now shows the slowest loop and how many passed 200 ms, and the log names the service of each new worst. With field numbers, decide what to shorten (the TLS handshakes are the expected culprits). Half a day.
-5. **Stable release channel.** Automatic OTA installs only versions marked as stable; the others stay as beta, for whoever wants them. About 1 day; ~0.2 KB.
-6. **End-to-end test in CI.** Bring the Mosquitto and Home Assistant test, manual today, into CI. About 1 day; does not change the firmware.
-7. **Field diagnostics.** Keep the last crash (address and stack) and show it on the panel; publish heap, Wi-Fi signal and uptime over MQTT. About 1 day; the size depends on how much goes in.
-8. **Battery in the API and MQTT**, and the INA219 ([BATTERY-AND-SOLAR.md](BATTERY-AND-SOLAR.md)). Small.
-9. **Validate GitHub's certificate on OTA.** Today the signature protects the image, but someone in the middle of the connection can block updates. Half a day; ~1.5 KB.
-10. **Smaller pieces:** a physical button, a backup second Wi-Fi, a remote log through ntfy ([PORTING-FROM-TASMOTA.md](PORTING-FROM-TASMOTA.md)).
+1. **Make room.** The long help texts of the Cloudflare, remote access and ntfy pages (four languages each) and the Worker's own size are the first candidates. Half a day.
+2. **Version check that survives the rename** (see above), then the rename itself. Half a day; about the same flash.
+3. **Act on the loop measurements.** Status now shows the slowest loop and how many passed 200 ms, and the log names the service of each new worst. With field numbers, decide what to shorten (the TLS handshakes are the expected culprits). Half a day.
+4. **Stable release channel.** Automatic OTA installs only versions marked as stable; the others stay as beta, for whoever wants them. About 1 day; ~0.2 KB.
+5. **End-to-end test in CI.** Bring the Mosquitto and Home Assistant test, manual today, into CI. About 1 day; does not change the firmware.
+6. **Field diagnostics.** Keep the last crash (address and stack) and show it on the panel; publish heap, Wi-Fi signal and uptime over MQTT. About 1 day; the size depends on how much goes in.
+7. **Battery in the API and MQTT**, and the INA219 ([BATTERY-AND-SOLAR.md](BATTERY-AND-SOLAR.md)). Small.
+8. **Validate GitHub's certificate on OTA.** Today the signature protects the image, but someone in the middle of the connection can block updates. Half a day; ~1.5 KB.
+9. **Smaller pieces:** a physical button, a backup second Wi-Fi, a remote log through ntfy ([PORTING-FROM-TASMOTA.md](PORTING-FROM-TASMOTA.md)).
 
 Battery and solar panel, with or without a charge reading: [BATTERY-AND-SOLAR.md](BATTERY-AND-SOLAR.md). Powering it does not change the firmware. The charge reading competes with the button for the two free pins.

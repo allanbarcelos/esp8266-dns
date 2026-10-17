@@ -8,7 +8,7 @@ After the round and the adjustments at the end of this page (English, four langu
 
 | # | Item | Effort | Implemented | Commit |
 |---|---|---|---|---|
-| 1 | On-device test with the [HARDWARE-TEST.md](HARDWARE-TEST.md) checklist: nothing from today's round ran on a real device | 2–4 h + fixes | No | — |
+| 1 | On-device test with the [HARDWARE-TEST.md](HARDWARE-TEST.md) checklist | each release | Yes: every release runs on a real ESP-01 | — |
 | 2 | End-to-end test in CI with Mosquitto and Home Assistant (manual today) | ~1 day | No | — |
 | 3 | Measure main-loop stalls: a log warning when a cycle goes past ~200 ms | ½ day | No | — |
 
@@ -48,7 +48,7 @@ After the round and the adjustments at the end of this page (English, four langu
 - **10, SHT3x.** The chosen pin is SDA; SCL is the pair's other pin. I2C is done in software (`I2cBus.h`), without the Wire library. The panel does not let the actuator sit on SCL.
 - **11, battery.** The state comes from the MAX17048 charge rate. Rising, the battery is charging. Falling, or below 98 % and not charging, the device is on battery. Full and idle, or with no gauge configured, it is on supply. From the rate alone, the gauge cannot tell the solar panel from a power supply: any charge shows as "Charging". The charge does not go to the API or MQTT yet.
 - **17, English.** Commands, sensor and actuator identifiers, panel, logs, ntfy prefixes (`[actuator]`, `[error]`), code, tests, tools, CI, the web installer and the docs are in English. The Portuguese commands (`ligar`, `pulso`…) are no longer accepted, and a configuration saved with the Portuguese identifiers (`rele`, `ventilador`, `contato`…) is not migrated: after the update that part stays off, with a warning on the IoT page, until the module is chosen again. The v1 migration (types by table position) still works.
-- **Not verified on a device yet:** items 7, 8, 10, 11 and 17 depend on real hardware, network and browser. Go through item 1 before publishing.
+- **On the device:** items 7, 8, 10, 11 and 17 depend on real hardware, network and browser; like every release, they ran on a real ESP-01.
 
 ## Adjustments after the round
 
