@@ -1034,9 +1034,7 @@ void test_iot_time_window() {
     TEST_ASSERT_EQUAL(6 * 60 + 30, cfg.iot.winEnd);
 
     f.get("/iot");
-    TEST_ASSERT_TRUE(contains(f.out(), "id='window' name='window' value='1' checked>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "name='win_start' value='22:00'"));
-    TEST_ASSERT_TRUE(contains(f.out(), "name='win_end' value='06:30'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "wi:1,w1:1320,w2:390,"));       // iot.js writes 22:00 and 06:30
     // Clock in 1970: outside the window (Home shows it from /iot/now)
     f.f_iotTick();
     f.get("/iot/now");
@@ -1087,7 +1085,8 @@ void test_iot_sht3x_uses_two_pins() {
     TEST_ASSERT_EQUAL_STRING("sht3x", cfg.iot.sensor);
     TEST_ASSERT_EQUAL(1, cfg.iot.metric);
     f.get("/iot");
-    TEST_ASSERT_TRUE(contains(f.out(), "<option value='sht3x' selected>Temperature and humidity (SHT30/SHT31, I2C)"));
+    TEST_ASSERT_TRUE(contains(f.out(), "CF={s:'sht3x',a:'relay',sp:0,"));
+    TEST_ASSERT_TRUE(contains(f.out(), "sht3x:'Temperature and humidity (SHT30/SHT31, I2C)',"));
     TEST_ASSERT_TRUE(contains(f.out(), "sht3x:7"));
 }
 
@@ -1999,19 +1998,22 @@ void test_iot_page_with_nothing_set() {
     TEST_ASSERT_EQUAL(200, f.srv.code);
     TEST_ASSERT_TRUE(contains(f.out(), "<h1>IoT</h1>"));
     TEST_ASSERT_TRUE(contains(f.out(), "<img src='/pinout.svg?v=" ASSET_PINOUT_TAG "'"));
-    TEST_ASSERT_TRUE(contains(f.out(), "name='role' value='n' checked>Nothing"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<legend>What does this device do?</legend>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<optgroup label='Temperature and humidity'>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<optgroup label='Color'><option value='strip'>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<option value='-1' selected>Choose</option>"));
+    // The form's fields come from iot.js: the page has the form, its token
+    // and the saved setup
+    TEST_ASSERT_TRUE(contains(f.out(), (std::string("<form action='/iot/save' method='POST' id='fm'><input type='hidden' "
+                                                    "name='_csrf' value='") + f.web.sessionCsrfToken() + "'></form>").c_str()));
     TEST_ASSERT_TRUE(contains(f.out(), "var SK={dht22:3,dht11:2"));
     TEST_ASSERT_TRUE(contains(f.out(), "strip:4},T='"));
     // Signed in: the session's token, not the one the sign-in page shows
     TEST_ASSERT_TRUE(contains(f.out(), f.web.sessionCsrfToken()));
     TEST_ASSERT_FALSE(contains(f.out(), f.web.csrfToken()));
-    TEST_ASSERT_TRUE(contains(f.out(), (std::string("',R=[NaN,0],D={k:0,c:0,") + D_DEFAULT +
-                                        "s:0,t:'',a:''};</script><script src='/iot.js?v=" WEB_IOT_TAG
-                                        "'></script></body></html>").c_str()));
+    TEST_ASSERT_TRUE(contains(f.out(), (std::string("',R=[NaN,0],D={k:0,c:0,") + D_DEFAULT + "s:0,t:'',a:''},CF={").c_str()));
+    TEST_ASSERT_TRUE(contains(f.out(), ",CF={s:'',a:'',sp:-1,sh:1,m:0,u:0,te:100,tf:20,tl:1000,pp:450,ap:-1,ah:0,d1:100,"
+                                       "d0:0,g1:90,g0:0,le:8,mo:0,pu:0,re:0,ru:1,to:0,ab:0,th:0,ma:0,li:0,hi:0,wi:0,w1:0,"
+                                       "w2:0,no:0,on:'',of:''},SL={dht22:'Temperature and humidity (DHT22)',"));
+    TEST_ASSERT_TRUE(contains(f.out(), "bh1750:'Light (BH1750, I2C)',},AL={relay:'Relay',"));
+    TEST_ASSERT_TRUE(contains(f.out(), "strip:'LED strip (WS2812)',};</script><script src='/iot.js?v=" WEB_IOT_TAG
+                                       "'></script></body></html>"));
     // Nothing set up: nothing to reconfigure
     TEST_ASSERT_FALSE(contains(f.out(), "/iot/clear"));
     // i18n.js before iot.js: the form script uses L() and the translated names
@@ -2023,10 +2025,12 @@ void test_iot_page_with_nothing_set() {
     TEST_ASSERT_FALSE(contains(f.out(), "http-equiv='refresh'"));
     TEST_ASSERT_FALSE(contains(f.out(), "Set the ntfy topic"));
     TEST_ASSERT_FALSE(contains(f.out(), "Type unknown"));
+    // Home has no setup data
+    f.get("/");
+    TEST_ASSERT_FALSE(contains(f.out(), "CF={"));
 }
 
-// Every field of the form, with the saved values (iot.js names the unit
-// options by sensor and shows only the fields that apply)
+// The saved setup goes to iot.js, which writes the form from it
 void test_iot_page_fields() {
     sensorCfg("distance", 2);
     actuatorCfg("pump", 0);
@@ -2037,29 +2041,23 @@ void test_iot_page_fields() {
     cfg.iot.ppl = 330;
     cfg.iot.pulse = 12;
     cfg.iot.restore = true;
+    cfg.iot.threshold = -40;
+    cfg.iot.thresholdHi = 9999;
+    strlcpy(cfg.iot.onText, "molhado 1.0", sizeof(cfg.iot.onText));
+    strlcpy(cfg.iot.offText, "seco,x_y-z", sizeof(cfg.iot.offText));
     Fixture f;
     f.iot.begin();
     f.get("/iot");
-    TEST_ASSERT_TRUE(contains(f.out(), "<div id='su'><label>Unit<select name='unit'><option value='0'></option>"
-                                       "<option value='1'></option><option value='2' selected></option>"
-                                       "</select></label></div>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<div id='st'><label>Distance to the water, tank empty (cm)"
-                                       "<input type='number' name='tank_empty' value='150' min='2' max='400'>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "name='tank_full' value='25' min='0' max='399'>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<div id='sl'><label>Tank volume when full (L)"
-                                       "<input type='number' name='tank_l' value='3000' min='1' max='30000'>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "Sensor at the top, facing the water"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<div id='sq'><label>Pulses per litre (YF-S201: about 450)"
-                                       "<input type='number' name='ppl' value='330' min='1' max='30000'>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<label>Pulse button on Home (s; 0 = the type's)"
-                                       "<input type='number' name='pulse' value='12' min='0' max='3600'>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<label class='sw'><input type='checkbox' role='switch' id='restore' "
-                                       "name='restore' value='1' checked>On power-up, go back to the last command"));
-    cfg.iot.unit = 0;
-    cfg.iot.restore = false;
+    TEST_ASSERT_TRUE(contains(f.out(), ",CF={s:'distance',a:'pump',sp:2,sh:1,m:0,u:2,te:150,tf:25,tl:3000,pp:330,ap:0,"));
+    TEST_ASSERT_TRUE(contains(f.out(), "pu:12,re:1,ru:1,to:0,ab:0,th:-40,ma:0,li:0,hi:9999,"));
+    TEST_ASSERT_TRUE(contains(f.out(), "on:'molhado 1.0',of:'seco,x_y-z'}"));
+
+    // A hand-edited file: only the characters the panel accepts reach the script
+    strlcpy(cfg.iot.onText, "a'+alert(1)+'", sizeof(cfg.iot.onText));
+    strlcpy(cfg.iot.sensor, "x'</script>", sizeof(cfg.iot.sensor));
     f.get("/iot");
-    TEST_ASSERT_TRUE(contains(f.out(), "<option value='0' selected></option>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "name='restore' value='1'>On power-up"));
+    TEST_ASSERT_TRUE(contains(f.out(), "on:'aalert1'"));
+    TEST_ASSERT_TRUE(contains(f.out(), "CF={s:'xscript',"));
 }
 
 // The IoT page only sets up: the reading and the controls are on Home
@@ -2071,12 +2069,9 @@ void test_iot_page_is_setup_only() {
     f.iot.begin();
     f.get("/iot");
     TEST_ASSERT_TRUE(contains(f.out(), "Set the ntfy topic"));
-    TEST_ASSERT_TRUE(contains(f.out(), "name='role' value='sa' checked>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<option value='pir' selected>Motion (PIR)</option>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<option value='relay' selected>Relay</option>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "<option value='2' selected>GPIO2</option>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "name='rule' value='1' checked>"));
-    TEST_ASSERT_TRUE(contains(f.out(), "name='notify' value='1' checked>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "CF={s:'pir',a:'relay',sp:2,"));
+    TEST_ASSERT_TRUE(contains(f.out(), "ru:1,"));
+    TEST_ASSERT_TRUE(contains(f.out(), "no:1,"));
     TEST_ASSERT_TRUE(contains(f.out(), "<script src='/iot.js?v=" WEB_IOT_TAG "'>"));
     TEST_ASSERT_TRUE(contains(f.out(), "Local API"));
     const char* live[] = {"<h2>Now</h2>", "id='io'", "id='ns'", "id='na'", "id='nm'", "id='sw'",
@@ -2093,7 +2088,7 @@ void test_iot_page_sensor_only_and_actuator_only() {
     Fixture f;
     f.iot.begin();
     f.get("/iot");
-    TEST_ASSERT_TRUE(contains(f.out(), "name='role' value='s' checked>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "CF={s:'ds18b20',a:'',sp:3,"));
     TEST_ASSERT_TRUE(contains(f.out(), "D={k:4,c:0,"));
 
     cfg = Config{};
@@ -2102,7 +2097,7 @@ void test_iot_page_sensor_only_and_actuator_only() {
     actuatorCfg("fan", 0);
     f.iot.begin();
     f.get("/iot");
-    TEST_ASSERT_TRUE(contains(f.out(), "name='role' value='a' checked>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "CF={s:'',a:'fan',sp:-1,"));
     TEST_ASSERT_TRUE(contains(f.out(), "D={k:0,c:2,"));
 }
 
@@ -2125,14 +2120,16 @@ void test_iot_unknown_type_warns() {
     f.iot.begin();
     f.get("/iot");
     TEST_ASSERT_TRUE(contains(f.out(), "Type unknown to this version"));
-    // The configuration stays marked as a sensor: saving does not lose it by accident
-    TEST_ASSERT_TRUE(contains(f.out(), "name='role' value='s' checked>"));
+    // The configuration stays marked as a sensor (iot.js reads the name and
+    // the pin): saving does not lose it by accident
+    TEST_ASSERT_TRUE(contains(f.out(), "CF={s:'laser',a:'',sp:2,"));
 
     // A type without a pin does not count as in use
     sensorCfg("pir", -1);
     actuatorCfg("relay", -1);
     f.get("/iot");
-    TEST_ASSERT_TRUE(contains(f.out(), "name='role' value='n' checked>"));
+    TEST_ASSERT_TRUE(contains(f.out(), "CF={s:'pir',a:'relay',sp:-1,"));
+    TEST_ASSERT_TRUE(contains(f.out(), "ap:-1,"));
 }
 
 void test_iot_now_as_json() {
@@ -2712,7 +2709,7 @@ void test_iot_remove_asks_for_confirmation() {
     // The code is spent: the same one does not clear again
     f.get("/iot");
     TEST_ASSERT_FALSE(contains(f.out(), "/iot/clear"));
-    TEST_ASSERT_TRUE(contains(f.out(), "name='role' value='n' checked>Nothing"));
+    TEST_ASSERT_TRUE(contains(f.out(), "CF={s:'',a:'',sp:-1,"));
 }
 
 // Without a clock to check the code against, the error leads back to IoT

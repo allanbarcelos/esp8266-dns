@@ -6,7 +6,8 @@
 // WebAssets.h). The page defines beforehand, in its own <script>, SK and AC
 // (type → Kind/Cap, generated from the catalog), T (CSRF), R (the saved
 // rule: limit and the value it watches) and D (the unit and what it needs,
-// the Pulse seconds, the actuator's name as a text marker), and loads
+// the Pulse seconds, the actuator's name as a text marker); the IoT page
+// also CF (the saved setup), SL and AL (type → name marker). It loads
 // i18n.js: L() with the English text gives it in the panel language (the
 // build swaps the English for its row in web/i18n.tsv), IX() a marker.
 //
@@ -26,6 +27,91 @@ var TU = ['°C', '°F'],
         5: [L('Distance (cm)'), L('Tank level (%)'), L('Tank volume (L)')],
         6: [L('Pulses per 10 s'), L('Flow (L/min)'), L('Flow (mL/min)')] },
     US = { 5: ['cm', '%', 'L'], 6: [L('pulses'), 'L/min', 'mL/min'], 9: ['lx'] };
+
+// ── Form: written here from CF (the saved setup), SL and AL (each type's
+// name, a text marker); the device keeps only the checks on save ──────────
+
+// Fields: a label around each control, as the rest of the panel
+function lb(n, h) { return '<label>' + n + h + '</label>'; }
+function op(v, n, on) { return "<option value='" + v + "'" + (on ? ' selected' : '') + '>' + n + '</option>'; }
+function sl(n, name, h) { return lb(n, "<select name='" + name + "'>" + h + '</select>'); }
+function pr(n, name, a, b, v) { return sl(n, name, op(0, a, !v) + op(1, b, v)); }
+function nm(n, name, v, lo, hi) {
+    return lb(n, "<input type='number' name='" + name + "' value='" + v + "' min='" + lo + "' max='" + hi + "'>");
+}
+function sw(name, n, on) {
+    return "<label class='sw'><input type='checkbox' role='switch' id='" + name + "' name='" + name + "' value='1'" +
+        (on ? ' checked' : '') + '>' + n + '</label>';
+}
+function dvi(id, h) { return "<div id='" + id + "'>" + h + '</div>'; }
+function fs(id, n, h) { return "<fieldset id='" + id + "'><legend>" + n + '</legend>' + h + '</fieldset>'; }
+function hm(m) { return ('0' + Math.floor(dv(m, 60))).slice(-2) + ':' + ('0' + m % 60).slice(-2); }
+function tm(n, name, m) { return lb(n, "<input type='time' name='" + name + "' value='" + hm(m) + "'>"); }
+
+// The free pins: GPIO2, GPIO0, TX and RX
+function pin(name, v) {
+    var h = op(-1, L('Choose'), v < 0), P = [2, 'GPIO2', 0, 'GPIO0', 1, 'TX (GPIO1)', 3, 'RX (GPIO3)'], i;
+    for (i = 0; i < 8; i += 2) h += op(P[i], P[i + 1], v == P[i]);
+    return sl(L('Pin'), name, h);
+}
+
+// A type list in groups: g gives each type's group
+function ty(name, M, N, G, g, v) {
+    var h = '', i, s;
+    for (i = 0; i < G.length; i++) {
+        h += "<optgroup label='" + G[i] + "'>";
+        for (s in M) if (g(M[s]) == i) h += op(s, IX(N[s]), s == v);
+        h += '</optgroup>';
+    }
+    return sl(L('Type'), name, h);
+}
+
+function form() {
+    var c = CF, hs = c.s && c.sp >= 0, ha = c.a && c.ap >= 0, R4 = ['n', 's', 'a', 'sa'],
+        RN = [L('Nothing (IoT off)'), L('Sensor only: measures and reports'), L('Actuator only: obeys commands'), L('Sensor and actuator')],
+        r = (hs ? 1 : 0) + (ha ? 2 : 0), h = '', i, un = '';
+    for (i = 0; i < 4; i++)
+        h += "<label class='sw'><input type='radio' name='role' value='" + R4[i] + "'" + (i == r ? ' checked' : '') + '>' + RN[i] + '</label>';
+    for (i = 0; i < 3; i++) un += op(i, '', c.u == i);
+    return fs('fp', L('What does this device do?'), h) +
+        fs('fs', L('Sensor'),
+            ty('sensor', SK, SL, [L('Temperature and humidity'), L('Presence, contact and alarms'), L('Distance, flow and light')],
+                function (k) { return k == 1 ? 1 : k == 5 || k == 6 || k == 9 ? 2 : 0; }, c.s) +
+            pin('sensor_pin', c.sp) +
+            dvi('sd', pr(L('Active with the pin'), 'sensor_high', L('Low'), L('High'), c.sh) +
+                lb(L('Active state name'), "<input name='sensor_on' value='" + c.on + "' maxlength='15' placeholder='" + L('type default') + "'>") +
+                lb(L('Inactive state name'), "<input name='sensor_off' value='" + c.of + "' maxlength='15' placeholder='" + L('type default') + "'>")) +
+            dvi('sm', pr(L('Value used by the rule'), 'metric', L('Humidity'), L('Temperature'), c.m)) +
+            dvi('su', sl(L('Unit'), 'unit', un)) +
+            dvi('st', nm(L('Distance to the water, tank empty (cm)'), 'tank_empty', c.te, 2, 400) +
+                nm(L('Distance to the water, tank full (cm)'), 'tank_full', c.tf, 0, 399) +
+                dvi('sl', nm(L('Tank volume when full (L)'), 'tank_l', c.tl, 1, 30000)) +
+                "<p class='m'>" + L('Sensor at the top, facing the water; measure both distances with it in place.') + '</p>') +
+            dvi('sq', nm(L('Pulses per litre (YF-S201: about 450)'), 'ppl', c.pp, 1, 30000)) + "<p class='m' id='sh'></p>") +
+        fs('fa', L('Actuator'),
+            ty('actuator', AC, AL, [L('On and off'), L('Level (PWM)'), L('Position'), L('Color')],
+                function (p) { return p - 1; }, c.a) +
+            pin('actuator_pin', c.ap) +
+            dvi('al', pr(L('On with the pin'), 'actuator_high', L('Low (common relay modules)'), L('High'), c.ah)) +
+            dvi('ap', nm(L('Level when on (%)'), 'duty_on', c.d1, 0, 100) + nm(L('Level when off (%)'), 'duty_off', c.d0, 0, 100)) +
+            dvi('aa', nm(L('Open angle'), 'angle_on', c.g1, 0, 180) + nm(L('Closed angle'), 'angle_off', c.g0, 0, 180)) +
+            dvi('ac', nm(L('Number of LEDs'), 'leds', c.le, 1, 60)) +
+            nm(L('Turn off by itself after (min; 0 = never)'), 'max_on', c.mo, 0, 1440) +
+            nm(L('Pulse button on Home (s; 0 = the type\'s)'), 'pulse', c.pu, 0, 3600) +
+            sw('restore', L('On power-up, go back to the last command'), c.re) + "<p class='m' id='ah'></p>") +
+        fs('fr', L('Rule'),
+            sw('rule', L('The sensor drives the actuator (automatic mode)'), c.ru) +
+            dvi('rd', pr(L('When the sensor becomes active'), 'toggle', L('On while active'), L('Flip the actuator'), c.to)) +
+            dvi('rn', pr(L('On when the value is'), 'above', L('Below the limit'), L('Above the limit'), c.ab) +
+                nm(L('Limit'), 'threshold', c.th, -999, 9999) + nm(L('Margin to turn off'), 'margin', c.ma, 0, 50) +
+                dvi('rl', pr(L('Level'), 'linear', L('On and off at the limit'), L('Proportional up to the high limit'), c.li) +
+                    dvi('rh', nm(L('High limit'), 'threshold_hi', c.hi, -999, 9999)))) +
+            dvi('rt', sw('window', L('Only within a time window (local time)'), c.wi) +
+                dvi('rw', tm(L('From'), 'win_start', c.w1) + tm(L('To'), 'win_end', c.w2) +
+                    "<p class='m'>" + L('Outside it, automatic mode keeps the actuator off; a manual command holds until auto. Time zone: Settings.') + '</p>')) +
+            "<p class='m' id='rs'></p>") +
+        sw('notify', L('Send readings and changes to ntfy'), c.no) + '<button>' + L('Save') + '</button>';
+}
 
 // ── Form: only the fields for the chosen role, types and unit, the wiring
 // hint for each type and the rule written as a sentence ────────────────────
@@ -60,7 +146,7 @@ function uo(k) {
 }
 
 function f() {
-    var r = (document.querySelector('[name=role]:checked') || {}).value || 'n',
+    var r = document.querySelector('[name=role]:checked').value,   // the form always checks one
         hs = r.indexOf('s') >= 0,
         ha = r.indexOf('a') >= 0,
         k = SK[V('sensor').value],
@@ -288,7 +374,8 @@ function home(C) {
     setInterval(function () { if (!document.hidden) q(); }, 5000);
 }
 
-if (V('role')) {
+if ($('fm')) {
+    $('fm').insertAdjacentHTML('beforeend', form());
     document.querySelectorAll('form input,form select').forEach(function (e) {
         e.addEventListener('input', f);
     });

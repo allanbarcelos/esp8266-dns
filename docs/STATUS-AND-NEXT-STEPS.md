@@ -8,11 +8,11 @@ A 1 MB ESP-01 that keeps the Cloudflare DNS pointing at home, reads a sensor and
 
 | | |
 | --- | --- |
-| Firmware | 499,872 of 500,000 bytes (128 to spare) |
+| Firmware | 498,464 of 500,000 bytes (1,536 to spare) |
 | Signed OTA package | ~354 KB of 400 KB |
 | Static RAM | 39,392 bytes |
 | Native tests | 601, with 100 % of lines, functions and branches |
-| Panel IoT script tests | 23 on Node, 100 % of lines, functions and branches, on the source and minified |
+| Panel IoT script tests | 24 on Node, 100 % of lines, functions and branches, on the source and minified |
 | Relay Worker tests | 24 on Node, 100 % of lines, functions and branches, on the source and on the embedded script |
 | In CI | no compiler warnings, ASan and UBSan, cppcheck, fuzzing of 9 inputs |
 
@@ -110,7 +110,7 @@ Safe order:
 
 ## Next steps
 
-In order, with an effort estimate. Items that change the firmware need room first: 0.1 KB are left. The PZEM-004T energy meter (about 1 KB with its Home Assistant entities) waits for room.
+In order, with an effort estimate. Items that change the firmware need room first: 1.5 KB are left. The PZEM-004T energy meter (about 1 KB with its Home Assistant entities) waits for room.
 
 1. **Run the on-device test** and fix what comes up, remote access included (section 10c, with a Cloudflare account). 3 to 5 hours of testing, plus whatever needs fixing.
 2. **Make room.** The long help texts of the Cloudflare, remote access and ntfy pages (four languages each) and the Worker's own size are the first candidates. Half a day.

@@ -67,6 +67,34 @@ class Select extends El {
 }
 
 // A page: the globals iot.js reads, the elements, fetch and the timer
+// The HTML the form builder writes, as elements: each tag with an id, each
+// field by name (the first of a name, as querySelector), every field in
+// order (querySelectorAll), a select with its options and the selected one
+function parseForm(dom, h) {
+  const attrsOf = (s) => {
+    const a = {};
+    for (const m of s.matchAll(/([\w-]+)(?:='([^']*)')?/g)) a[m[1]] = m[2] ?? '';
+    return a;
+  };
+  for (const m of h.matchAll(/<(\w+)((?:\s+[\w-]+(?:='[^']*')?)*)\s*>/g)) {
+    const a = attrsOf(m[2]);
+    if (m[1] === 'option' || m[1] === 'optgroup') continue;
+    let e;
+    if (m[1] === 'select') {
+      const end = h.indexOf('</select>', m.index);
+      const opts = [...h.slice(m.index, end).matchAll(/<option value='([^']*)'( selected)?>([^<]*)<\/option>/g)];
+      e = new Select(dom, a.name, opts.map((o) => o[1]), opts.map((o) => o[3]), Math.max(0, opts.findIndex((o) => o[2])));
+    } else {
+      e = new El(dom, m[1], a);
+    }
+    if (a.id) dom.ids[a.id] = e;
+    if (a.name) {
+      dom.names[a.name] ||= e;
+      dom.inputs.push(e);
+    }
+  }
+}
+
 function page({ D = {}, R = [NaN, 0], home = false, form = null, reply } = {}) {
   const dom = { ids: {}, names: {}, inputs: [] };
   const calls = [];
@@ -101,7 +129,20 @@ function page({ D = {}, R = [NaN, 0], home = false, form = null, reply } = {}) {
     },
   };
   if (home) dom.ids.io = new El(dom, 'div', { id: 'io' });
-  if (form) form(dom);
+  if (form) {
+    ctx.CF = form;
+    ctx.SL = { ds18b20: 'Temperature (DS18B20)', dht22: 'Temperature and humidity (DHT22)', aht20: 'AHT20',
+      pir: 'Motion (PIR)', distance: 'Distance (HC-SR04)', pulses: 'Flow', bh1750: 'Light' };
+    ctx.AL = { relay: 'Relay', fan: 'Fan', servo: 'Servo', strip: 'Strip' };
+    ctx.SK = { ds18b20: 4, dht22: 3, aht20: 8, pir: 1, distance: 5, pulses: 6, bh1750: 9 };
+    ctx.AC = { relay: 1, fan: 2, servo: 3, strip: 4 };
+    const fm = new El(dom, 'form', { id: 'fm' });
+    fm.insertAdjacentHTML = (where, h) => {
+      fm.html = h;
+      parseForm(dom, h);
+    };
+    dom.ids.fm = fm;
+  }
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx, { filename: FILE });
   return { dom, doc, ctx, calls, timers, $: (i) => dom.ids[i] };
@@ -412,32 +453,17 @@ test('a page without the card or the form runs nothing', () => {
 const IDS = ['fs', 'fa', 'fr', 'sd', 'sm', 'su', 'st', 'sl', 'sq', 'al', 'ap', 'aa', 'ac', 'rd', 'rn', 'rl', 'rh',
   'rt', 'rw', 'sh', 'ah', 'rs'];
 
+// The saved setup (CF) for a form like the one these tests used to fill in
 function form(values = {}) {
   const v = { role: 'sa', sensor: 'ds18b20', actuator: 'relay', unit: '0', metric: '1', threshold: '28', margin: '2',
     above: '1', rule: true, linear: '0', threshold_hi: '35', window: false, win_start: '22:00', win_end: '06:00',
     sensor_on: '', toggle: '0', ...values };
-  return (dom) => {
-    for (const id of IDS) dom.ids[id] = new El(dom, 'div', { id });
-    const add = (e) => { dom.names[e.attrs.name] = e; dom.inputs.push(e); return e; };
-    for (const r of ['n', 's', 'a', 'sa']) {
-      const e = new El(dom, 'input', { type: 'radio', name: 'role', value: r });
-      e.checked = r === v.role;
-      dom.names.role ||= e;
-      dom.inputs.push(e);
-    }
-    const sensors = ['ds18b20', 'dht22', 'pir', 'distance', 'pulses', 'aht20', 'bh1750'];
-    add(new Select(dom, 'sensor', sensors, sensors, sensors.indexOf(v.sensor)));
-    const acts = ['relay', 'fan', 'servo', 'strip'];
-    add(new Select(dom, 'actuator', acts, ['Relay', 'Fan', 'Servo', 'Strip'], acts.indexOf(v.actuator)));
-    add(new Select(dom, 'unit', ['0', '1', '2'], ['', '', ''], +v.unit));
-    for (const n of ['metric', 'above', 'linear', 'toggle']) add(new Select(dom, n, ['0', '1'], ['0', '1'], +v[n]));
-    for (const n of ['threshold', 'margin', 'threshold_hi', 'win_start', 'win_end', 'sensor_on'])
-      add(new El(dom, 'input', { name: n, value: v[n] }));
-    for (const n of ['rule', 'window']) {
-      const e = add(new El(dom, 'input', { type: 'checkbox', name: n }));
-      e.checked = v[n];
-    }
-  };
+  const min = (s) => +s.slice(0, 2) * 60 + +s.slice(3);
+  return { s: v.sensor, sp: v.role.includes('s') ? 2 : -1, a: v.actuator, ap: v.role.includes('a') ? 0 : -1,
+    sh: 1, m: +v.metric, u: +v.unit, te: 100, tf: 20, tl: 1000, pp: 450, ah: 0, d1: 100, d0: 0, g1: 90, g0: 0, le: 8,
+    mo: 0, pu: 0, re: 0, ru: v.rule ? 1 : 0, to: +v.toggle, ab: +v.above, th: +v.threshold, ma: +v.margin,
+    li: +v.linear, hi: +v.threshold_hi, wi: v.window ? 1 : 0, w1: min(v.win_start), w2: min(v.win_end), no: 0,
+    on: v.sensor_on, of: '', ...values.cf };
 }
 
 const visible = (p) => IDS.filter((i) => !p.$(i).hidden && !['sh', 'ah', 'rs'].includes(i)).join(' ');
@@ -448,9 +474,63 @@ test('form: the parts for the chosen role', () => {
   assert.equal(visible(page({ form: form({ role: 's' }) })), 'fs su al rn rt');
   assert.equal(visible(page({ form: form({ role: 'a' }) })), 'fa su al rn rt');
   assert.equal(visible(page({ form: form({}) })), 'fs fa fr su al rn rt');
-  // No role checked yet counts as nothing
-  const p = page({ form: form({ role: 'x' }) });
-  assert.equal(visible(p), 'su al rn rt');
+  // A type without a pin is not in use; one this version does not know keeps its role
+  assert.equal(visible(page({ form: form({ cf: { sp: -1, ap: -1 } }) })), 'su al rn rt');
+  const p = page({ form: form({ role: 's', cf: { s: 'laser' } }) });
+  assert.equal(p.dom.inputs.find((e) => e.attrs.name === 'role' && e.checked).attrs.value, 's');
+});
+
+test('form: every field, with the saved setup', () => {
+  const p = page({ form: form({ cf: { sh: 0, on: 'wet', of: 'dry', u: 2, te: 150, tf: 25, tl: 3000, pp: 330, ah: 1, d1: 80,
+    d0: 10, g1: 170, g0: 5, le: 30, mo: 15, pu: 12, re: 1, to: 1, li: 1, hi: 40, wi: 1, w1: 1320, w2: 390, no: 1, ru: 0 } }) });
+  const h = p.dom.ids.fm.html;
+  const has = (s) => assert.ok(h.includes(s), s);
+  has("<fieldset id='fp'><legend>What does this device do?</legend><label class='sw'><input type='radio' name='role' value='n'>Nothing (IoT off)</label>");
+  has("<input type='radio' name='role' value='sa' checked>Sensor and actuator</label></fieldset>");
+  // Types in their groups, the saved one selected, by the name the device sent
+  has("<optgroup label='Temperature and humidity'><option value='ds18b20' selected>Temperature (DS18B20)</option>" +
+    "<option value='dht22'>Temperature and humidity (DHT22)</option><option value='aht20'>AHT20</option></optgroup>");
+  has("<optgroup label='Presence, contact and alarms'><option value='pir'>Motion (PIR)</option></optgroup>");
+  has("<optgroup label='Distance, flow and light'><option value='distance'>Distance (HC-SR04)</option>" +
+    "<option value='pulses'>Flow</option><option value='bh1750'>Light</option></optgroup>");
+  has("<optgroup label='On and off'><option value='relay' selected>Relay</option></optgroup><optgroup label='Level (PWM)'>");
+  has("<optgroup label='Color'><option value='strip'>Strip</option></optgroup>");
+  // The pins, the saved one selected
+  has("<label>Pin<select name='sensor_pin'><option value='-1'>Choose</option><option value='2' selected>GPIO2</option>" +
+    "<option value='0'>GPIO0</option><option value='1'>TX (GPIO1)</option><option value='3'>RX (GPIO3)</option></select></label>");
+  has("<select name='actuator_pin'><option value='-1'>Choose</option><option value='2'>GPIO2</option><option value='0' selected>GPIO0</option>");
+  has("<div id='sd'><label>Active with the pin<select name='sensor_high'><option value='0' selected>Low</option><option value='1'>High</option></select></label>");
+  has("<input name='sensor_on' value='wet' maxlength='15' placeholder='type default'>");
+  has("<input name='sensor_off' value='dry' maxlength='15' placeholder='type default'>");
+  has("<div id='sm'><label>Value used by the rule<select name='metric'><option value='0'>Humidity</option><option value='1' selected>Temperature</option>");
+  has("<div id='su'><label>Unit<select name='unit'><option value='0'></option><option value='1'></option><option value='2' selected></option></select></label></div>");
+  has("<div id='st'><label>Distance to the water, tank empty (cm)<input type='number' name='tank_empty' value='150' min='2' max='400'></label>");
+  has("name='tank_full' value='25' min='0' max='399'>");
+  has("<div id='sl'><label>Tank volume when full (L)<input type='number' name='tank_l' value='3000' min='1' max='30000'></label></div>");
+  has("<div id='sq'><label>Pulses per litre (YF-S201: about 450)<input type='number' name='ppl' value='330' min='1' max='30000'>");
+  has("<div id='al'><label>On with the pin<select name='actuator_high'><option value='0'>Low (common relay modules)</option><option value='1' selected>High</option>");
+  has("name='duty_on' value='80' min='0' max='100'>");
+  has("name='duty_off' value='10' min='0' max='100'>");
+  has("name='angle_on' value='170' min='0' max='180'>");
+  has("name='angle_off' value='5' min='0' max='180'>");
+  has("<div id='ac'><label>Number of LEDs<input type='number' name='leds' value='30' min='1' max='60'>");
+  has("name='max_on' value='15' min='0' max='1440'>");
+  has("<label>Pulse button on Home (s; 0 = the type's)<input type='number' name='pulse' value='12' min='0' max='3600'></label>");
+  has("<label class='sw'><input type='checkbox' role='switch' id='restore' name='restore' value='1' checked>On power-up, go back to the last command</label>");
+  has("<input type='checkbox' role='switch' id='rule' name='rule' value='1'>The sensor drives the actuator (automatic mode)</label>");
+  has("<div id='rd'><label>When the sensor becomes active<select name='toggle'><option value='0'>On while active</option><option value='1' selected>Flip the actuator</option>");
+  has("<select name='above'><option value='0'>Below the limit</option><option value='1' selected>Above the limit</option>");
+  has("name='threshold' value='28' min='-999' max='9999'>");
+  has("name='margin' value='2' min='0' max='50'>");
+  has("<option value='0'>On and off at the limit</option><option value='1' selected>Proportional up to the high limit</option>");
+  has("<div id='rh'><label>High limit<input type='number' name='threshold_hi' value='40' min='-999' max='9999'>");
+  has("id='window' name='window' value='1' checked>Only within a time window (local time)</label>");
+  has("<label>From<input type='time' name='win_start' value='22:00'></label><label>To<input type='time' name='win_end' value='06:30'></label>");
+  has("Time zone: Settings.</p></div></div><p class='m' id='rs'></p></fieldset>");
+  has("id='notify' name='notify' value='1' checked>Send readings and changes to ntfy</label><button>Save</button>");
+  // A midnight window
+  const q = page({ form: form({ cf: { w1: 0, w2: 59 } }) });
+  assert.ok(q.dom.ids.fm.html.includes("name='win_start' value='00:00'") && q.dom.ids.fm.html.includes("value='00:59'"));
 });
 
 test('form: the unit options by sensor, and what each unit asks for', () => {

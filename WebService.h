@@ -2096,17 +2096,9 @@ private:
 
     void _selectEnd() { _p(PSTR("</select></label>")); }
 
-    // Two 0/1 options (level, yes/no)
-    void _pair(PGM_P label, PGM_P name, PGM_P zero, PGM_P one, bool value) {
-        _selectOpen(label, name);
-        _option("0", zero, !value);
-        _option("1", one, value);
-        _selectEnd();
-    }
 
-    // none: the text for -1 ("Choose" for IoT, "None" for the gauge)
-    void _pinSelect(PGM_P label, PGM_P name, int8_t current, PGM_P none = nullptr) {
-        if (!none) none = PSTR(L_CHOOSE);   // PSTR cannot be a default argument
+    // none: the text for -1
+    void _pinSelect(PGM_P label, PGM_P name, int8_t current, PGM_P none) {
         static const int8_t pins[] = {-1, 2, 0, 1, 3};
         static const char* const values[] = {"-1", "2", "0", "1", "3"};
         static const char* const labels[] = {
@@ -2117,75 +2109,13 @@ private:
         _selectEnd();
     }
 
-    void _groupOpen(PGM_P label) {
-        _p(PSTR("<optgroup label='"));
-        _p(label);
-        _p(S_TAG_END);
-    }
 
-    void _sensorSelect(const char* current) {
-        _selectOpen(S_TYPE, PSTR("sensor"));
-        for (uint8_t g = 0; g < 3; g++) {
-            _groupOpen(iot::SENSOR_GROUPS[g]);
-            for (const iot::SensorDef& s : iot::SENSORS)
-                if (s.group == g) _option(s.slug, s.label, strcmp(s.slug, current) == 0);
-            _p(PSTR("</optgroup>"));
-        }
-        _selectEnd();
-    }
 
-    void _actuatorSelect(const char* current) {
-        _selectOpen(S_TYPE, PSTR("actuator"));
-        for (uint8_t cap = iot::C_ONOFF; cap <= iot::C_COLOR; cap++) {
-            _groupOpen(iot::ACTUATOR_GROUPS[cap - 1]);
-            for (const iot::ActuatorDef& a : iot::ACTUATORS)
-                if (a.cap == cap) _option(a.slug, a.label, strcmp(a.slug, current) == 0);
-            _p(PSTR("</optgroup>"));
-        }
-        _selectEnd();
-    }
 
-    // name goes into %s: it must be in RAM (snprintf_P only reads the format from flash).
-    void _number(PGM_P label, const char* name, int value, int min, int max) {
-        _labelOpen(label);
-        char buf[112];
-        snprintf_P(buf, sizeof(buf),
-                   PSTR("<input type='number' name='%s' value='%d' min='%d' max='%d'></label>"),
-                   name, value, min, max);
-        _s(buf);
-    }
 
-    void _time(PGM_P label, PGM_P name, uint16_t minute) {
-        _labelOpen(label);
-        _p(PSTR("<input type='time' name='"));
-        _p(name);
-        _p(PSTR("' value='"));
-        char b[8];
-        _s(_hhmm(minute, b));
-        _p(PSTR("'></label>"));
-    }
 
-    void _fieldsetOpen(PGM_P id, PGM_P legend) {
-        _p(PSTR("<fieldset id='"));
-        _p(id);
-        _p(PSTR("'><legend>"));
-        _p(legend);
-        _p(PSTR("</legend>"));
-    }
 
-    void _divOpen(PGM_P id) {
-        _p(PSTR("<div id='"));
-        _p(id);
-        _p(S_TAG_END);
-    }
 
-    void _radio(PGM_P value, PGM_P label, bool on) {
-        _p(PSTR("<label class='sw'><input type='radio' name='role' value='"));
-        _p(value);
-        _p(on ? PSTR("' checked>") : S_TAG_END);
-        _p(label);
-        _p(PSTR("</label>"));
-    }
 
     void _handleIot() {
         if (!_guard()) return;
@@ -2199,9 +2129,7 @@ private:
 
         // Something set up: Reconfigure clears it all (asks twice, with the
         // password and a code) for a new setup
-        bool hs = t.sensor[0] && t.sensorPin >= 0;
-        bool ha = t.actuator[0] && t.actuatorPin >= 0;
-        if (hs || ha) {
+        if ((t.sensor[0] && t.sensorPin >= 0) || (t.actuator[0] && t.actuatorPin >= 0)) {
             _p(PSTR("<form action='/iot/clear' method='POST'>"));
             _csrfField();
             _p(PSTR("<button class='b2'>" L_RECONFIGURE "</button></form>"));
@@ -2211,110 +2139,21 @@ private:
         _p(PSTR("<figure><img src='/pinout.svg?v=" ASSET_PINOUT_TAG "' width='1040' height='700' "
                 "alt='" L_PINOUT_ALT "'></figure>"));
 
-        _p(PSTR("<form action='/iot/save' method='POST'>"));
+        // The fields come from iot.js, from the saved setup (CF, _setupScript)
+        _p(PSTR("<form action='/iot/save' method='POST' id='fm'>"));
         _csrfField();
-        _fieldsetOpen(PSTR("fp"), PSTR(L_ROLE_QUESTION));
-        _radio(PSTR("n"), PSTR(L_ROLE_NONE), !hs && !ha);
-        _radio(PSTR("s"), PSTR(L_ROLE_SENSOR), hs && !ha);
-        _radio(PSTR("a"), PSTR(L_ROLE_ACTUATOR), !hs && ha);
-        _radio(PSTR("sa"), PSTR(L_ROLE_BOTH), hs && ha);
-        _p(PSTR("</fieldset>"));
-
-        _fieldsetOpen(PSTR("fs"), PSTR(L_SENSOR));
-        _sensorSelect(t.sensor);
-        _pinSelect(S_PIN, PSTR("sensor_pin"), t.sensorPin);
-        _divOpen(PSTR("sd"));
-        _pair(PSTR(L_ACTIVE_WITH_PIN), PSTR("sensor_high"),
-              PSTR(L_LOW), PSTR(L_HIGH), t.sensorHigh);
-        _input(PSTR(L_ACTIVE_NAME), PSTR("sensor_on"), t.onText, S_STATE_NAME);
-        _input(PSTR(L_INACTIVE_NAME), PSTR("sensor_off"), t.offText,
-               S_STATE_NAME);
-        _p(S_DIV_END);
-        _divOpen(PSTR("sm"));
-        _pair(PSTR(L_RULE_VALUE), PSTR("metric"),
-              PSTR(L_HUMIDITY), PSTR(L_TEMPERATURE), t.metric == 1);
-        _p(S_DIV_END);
-        // What the unit options say depends on the sensor: iot.js writes them
-        _divOpen(PSTR("su"));
-        _selectOpen(PSTR(L_UNIT), PSTR("unit"));
-        for (uint8_t i = 0; i < 3; i++) {
-            const char v[2] = {(char)('0' + i), '\0'};
-            _option(v, PSTR(""), t.unit == i);
-        }
-        _selectEnd();
-        _p(S_DIV_END);
-        _divOpen(PSTR("st"));
-        _number(PSTR(L_TANK_EMPTY), "tank_empty", t.tankEmpty, 2, 400);
-        _number(PSTR(L_TANK_FULL), "tank_full", t.tankFull, 0, 399);
-        _divOpen(PSTR("sl"));
-        _number(PSTR(L_TANK_L), "tank_l", t.tankL, 1, 30000);
-        _p(PSTR("</div><p class='m'>" L_TANK_HELP "</p></div>"));
-        _divOpen(PSTR("sq"));
-        _number(PSTR(L_PPL), "ppl", t.ppl, 1, 30000);
-        _p(PSTR("</div><p class='m' id='sh'></p></fieldset>"));
-
-        _fieldsetOpen(PSTR("fa"), PSTR(L_ACTUATOR));
-        _actuatorSelect(t.actuator);
-        _pinSelect(S_PIN, PSTR("actuator_pin"), t.actuatorPin);
-        _divOpen(PSTR("al"));
-        _pair(PSTR(L_ON_WITH_PIN), PSTR("actuator_high"),
-              PSTR(L_LOW_RELAY), PSTR(L_HIGH), t.actuatorHigh);
-        _p(S_DIV_END);
-        _divOpen(PSTR("ap"));
-        _number(PSTR(L_LEVEL_ON), "duty_on", t.dutyOn, 0, 100);
-        _number(PSTR(L_LEVEL_OFF), "duty_off", t.dutyOff, 0, 100);
-        _p(S_DIV_END);
-        _divOpen(PSTR("aa"));
-        _number(PSTR(L_OPEN_ANGLE), "angle_on", t.angleOn, 0, 180);
-        _number(PSTR(L_CLOSED_ANGLE), "angle_off", t.angleOff, 0, 180);
-        _p(S_DIV_END);
-        _divOpen(PSTR("ac"));
-        _number(PSTR(L_LED_COUNT), "leds", t.leds, 1, IoTService::MAX_LEDS);
-        _p(S_DIV_END);
-        _number(PSTR(L_MAX_ON), "max_on", t.maxOn, 0, 1440);
-        _number(PSTR(L_PULSE_LEN), "pulse", t.pulse, 0, 3600);
-        _switch(PSTR("restore"), PSTR(L_RESTORE_LAST), t.restore);
-        _p(PSTR("<p class='m' id='ah'></p></fieldset>"));
-
-        _fieldsetOpen(PSTR("fr"), PSTR(L_RULE));
-        _switch(PSTR("rule"), PSTR(L_RULE_SWITCH), t.rule);
-        _divOpen(PSTR("rd"));
-        _pair(PSTR(L_WHEN_ACTIVE), PSTR("toggle"),
-              PSTR(L_ON_WHILE_ACTIVE), PSTR(L_FLIP), t.toggle);
-        _p(S_DIV_END);
-        _divOpen(PSTR("rn"));
-        _pair(PSTR(L_ON_WHEN_VALUE), PSTR("above"),
-              PSTR(L_BELOW_LIMIT), PSTR(L_ABOVE_LIMIT), t.above);
-        _number(PSTR(L_LIMIT), "threshold", t.threshold, -999, 9999);
-        _number(PSTR(L_MARGIN), "margin", t.margin, 0, 50);
-        _divOpen(PSTR("rl"));
-        _pair(PSTR(L_LEVEL), PSTR("linear"),
-              PSTR(L_ONOFF_AT_LIMIT), PSTR(L_PROPORTIONAL), t.linear);
-        _divOpen(PSTR("rh"));
-        _number(PSTR(L_HIGH_LIMIT), "threshold_hi", t.thresholdHi, -999, 9999);
-        _p(S_DIV_END);
-        _p(PSTR("</div></div>"));
-        _divOpen(PSTR("rt"));
-        _switch(PSTR("window"), PSTR(L_WINDOW_SWITCH), t.window);
-        _divOpen(PSTR("rw"));
-        _time(PSTR(L_FROM), PSTR("win_start"), t.winStart);
-        _time(PSTR(L_TO), PSTR("win_end"), t.winEnd);
-        _p(PSTR("<p class='m'>" L_WINDOW_HELP "</p>"));
-        _p(PSTR("</div></div><p class='m' id='rs'></p></fieldset>"));
-
-        _switch(PSTR("notify"), PSTR(L_NOTIFY), t.notify);
-        _button(S_SAVE);
+        _p(PSTR("</form>"));
         if (_iot.hasSensor() || _iot.hasActuator()) _apiBox();
 
         _pageFoot();
-        _iotScript();
+        _iotScript(true);
     }
 
     // iot.js and what it reads: type → Kind/Cap from the catalog, the CSRF
     // token, the saved rule [limit, value it watches] (NaN: no rule) and D:
     // the unit, the tank, the flow meter, the Pulse seconds and the
     // actuator's name (a text marker). Ends the page.
-    void _iotScript() {
+    void _iotScript(bool setup = false) {
         _p(PSTR("<script>var SK={"));
         for (uint8_t i = 0; i < iot::SENSOR_COUNT; i++) {
             char buf[24];
@@ -2342,7 +2181,57 @@ private:
                  _iot.capability(), t.unit, t.tankEmpty, t.tankFull, t.tankL, t.ppl, pulse, a ? a->slug : "");
         _s(buf);
         if (a) _p(a->label);
-        _p(PSTR("'};</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
+        _p(PSTR("'}"));
+        if (setup) _setupScript();
+        _p(PSTR(";</script><script src='/iot.js?v=" WEB_IOT_TAG "'></script></body></html>"));
+    }
+
+    // The saved setup for the IoT page's form (iot.js), and each type's name
+    // (a text marker). Texts go in their allowed characters only: nothing
+    // else reaches the script (a type this version does not know keeps its
+    // role on the form, as its name).
+    void _setupScript() {
+        const IoTConfig& t = _cfg.iot;
+        char b[160];
+        _p(PSTR(",CF={s:'"));
+        _jsText(t.sensor);
+        _p(PSTR("',a:'"));
+        _jsText(t.actuator);
+        snprintf_P(b, sizeof(b), PSTR("',sp:%d,sh:%d,m:%d,u:%d,te:%d,tf:%d,tl:%d,pp:%d,ap:%d,ah:%d,d1:%d,d0:%d,g1:%d,g0:%d,"),
+                   t.sensorPin, t.sensorHigh, t.metric, t.unit, t.tankEmpty, t.tankFull, t.tankL, t.ppl, t.actuatorPin,
+                   t.actuatorHigh, t.dutyOn, t.dutyOff, t.angleOn, t.angleOff);
+        _s(b);
+        snprintf_P(b, sizeof(b), PSTR("le:%d,mo:%d,pu:%d,re:%d,ru:%d,to:%d,ab:%d,th:%d,ma:%d,li:%d,hi:%d,wi:%d,w1:%d,w2:%d,"
+                                      "no:%d,on:'"),
+                   t.leds, t.maxOn, t.pulse, t.restore, t.rule, t.toggle, t.above, t.threshold, t.margin, t.linear,
+                   t.thresholdHi, t.window, t.winStart, t.winEnd, t.notify);
+        _s(b);
+        _jsText(t.onText);
+        _p(PSTR("',of:'"));
+        _jsText(t.offText);
+        _p(PSTR("'},SL={"));
+        for (const iot::SensorDef& s : iot::SENSORS) _nameEntry(s.slug, s.label);
+        _p(PSTR("},AL={"));
+        for (const iot::ActuatorDef& a : iot::ACTUATORS) _nameEntry(a.slug, a.label);
+        _p(PSTR("}"));
+    }
+
+    // slug:'name', in an object literal
+    void _nameEntry(const char* slug, PGM_P label) {
+        _s(slug);
+        _p(PSTR(":'"));
+        _p(label);
+        _p(PSTR("',"));
+    }
+
+    // A name in a script string: only the characters the panel accepts
+    void _jsText(const char* s) {
+        char b[16];
+        size_t n = 0;
+        for (size_t i = 0, k = strnlen(s, sizeof(b) - 1); i < k; i++)
+            if (isalnum((unsigned char)s[i]) || strchr(" -_.,", s[i])) b[n++] = s[i];
+        b[n] = '\0';
+        _s(b);
     }
 
     // Reads an integer from the form within the range; otherwise answers 400

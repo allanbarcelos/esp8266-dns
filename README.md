@@ -98,7 +98,7 @@ The IoT page starts with a single choice:
 | **Sensor and actuator** | Both; with the **rule** on, the sensor drives the actuator in automatic mode. A manual command wins until `auto`. |
 | **Nothing** | IoT off; the pins are left alone. |
 
-Each choice shows only the fields it needs. Every sensor and actuator type shows a one-line wiring hint (pull-up, supply, GPIO0/GPIO2 at boot).
+The form is written by the browser (`web/iot.js`) from the saved setup the page carries; the device keeps every check on save. Each choice shows only the fields it needs. Every sensor and actuator type shows a one-line wiring hint (pull-up, supply, GPIO0/GPIO2 at boot).
 
 ### Sensors
 
@@ -339,7 +339,7 @@ The 1 MB flash holds the firmware, a **400 KB OTA reserve** (the next firmware, 
 
 | Item | Size |
 | --- | --- |
-| Firmware | 499,872 of 500,000 bytes (128 to spare) |
+| Firmware | 498,464 of 500,000 bytes (1,536 to spare) |
 | Panel text, 4 languages | 337 texts (the pin drawing included), 45 KB as text, 16 KB in flash |
 | Relay Worker | 7.8 KB of script, 4.2 KB in flash (byte-pair encoded) |
 | Signed OTA package | ~354 KB of 400 KB (about 46 KB free) |
